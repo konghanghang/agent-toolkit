@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SKILLS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec python3 "$SKILLS_ROOT/common/entrypoints/sls_cli.py" "$@"
