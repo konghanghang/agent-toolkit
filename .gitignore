@@ -1,5 +1,8 @@
-# Generated command wrappers
-bin/
+# Generated command wrappers at repository root
+/bin/
+
+# External skills kept locally but not versioned in this repo
+ui-ux-pro-max/
 
 # Python cache
 __pycache__/
