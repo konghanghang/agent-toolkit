@@ -1,0 +1,12 @@
+# Generated command wrappers
+bin/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local runtime or secret material should not live in this repo
+.env
+.env.*
+.local/
+.runtime/
