@@ -13,7 +13,7 @@
 2. 流程实例生成了，但卡在某个节点
 3. 节点继续执行失败，进入 ERROR / 等待执行状态
 
-## Step 1: Archery 查流程状态
+## 第 1 步：Archery 查流程状态
 
 先按业务归属选实例，再查：
 
@@ -39,7 +39,7 @@ WHERE request_id = <requestId>;
 - `requestId`
 - 当前节点和最后更新时间
 
-## Step 2: SLS 查节点异常
+## 第 2 步：SLS 查节点异常
 
 拿到 `requestId`、`flowDataId`、时间窗口后，用 `sls` 查：
 
@@ -50,7 +50,7 @@ sls query --scope overseas --service ai-flow-server --query '"<flowDataId>" and 
 
 如果不知道国内还是海外，先问清部署区，不要乱查。
 
-## Step 3: 代码定位
+## 第 3 步：代码定位
 
 典型项目：
 

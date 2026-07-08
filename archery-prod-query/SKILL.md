@@ -3,11 +3,11 @@ name: archery-prod-query
 description: 通过 Archery 查 94AI 生产 MySQL, 只读安全工作流, 自动登录刷新 session。凭证 + MFA 写在运行时配置的 ARCHERY_DIR 下，archery_login.py 启 Chrome 自动登录 + 抓 csrftoken/sessionid 写到 ARCHERY_DIR/archery_session.json，archery_query.py 直接用 session 发请求。覆盖场景: 列实例/库/表、读 ai_task / stat_day_base / t_smart_task 等业务表、拆分国内/海外口径、定位权限缺失。
 ---
 
-# Archery Production Query
+# Archery 生产库查询
 
-Use this skill whenever the next useful step is to pull **production read-only facts** through Archery rather than guessing from code or using direct database credentials.
+当下一步最有价值的动作是通过 Archery 拉取**生产只读事实**，而不是靠猜测代码逻辑或直接使用数据库账号时，使用本技能。
 
-Prefer the bundled script for repeatable queries. Keep queries read-only and keep the final write-up focused on the user's business ownership boundary instead of platform-wide vanity totals.
+优先使用内置脚本执行可重复查询。所有查询都必须保持只读；最终结论要聚焦在用户实际负责的业务边界上，不要无意义地堆平台大盘数字。
 
 ## 凭证 & Session 文件
 
@@ -83,7 +83,7 @@ Fallback: 如果没有 session 文件, `archery_query.py` 会回退到环境变�
 
 ## 工作流
 
-### Step 1: 确认 session 是否还有效
+### 第 1 步：确认 session 是否还有效
 
 ```bash
 archery list-instances
@@ -93,7 +93,7 @@ archery list-instances
 - 报 401/403/302 或重定向到登录页 → session 过期, 走 Step 2
 - 找不到 `ARCHERY_DIR/archery_session.json` → 首次使用, 走 Step 2
 
-### Step 2: 登录刷新 session (约 30 秒)
+### 第 2 步：登录刷新 session（约 30 秒）
 
 ```bash
 archery login
@@ -112,7 +112,7 @@ archery login
 PYTHON_BIN SKILLS_ROOT/archery-prod-query/scripts/archery_login.py --no-keep
 ```
 
-### Step 3: 查数据
+### 第 3 步：查数据
 
 实例 / 库 / 表 / SQL 四级 API 都在 `archery_query.py`:
 
@@ -153,40 +153,41 @@ archery query --instance "main-db" --database "ai" --table "ai_task" --format js
 
 轻路由只负责自动补 `--instance`，不会自动猜数据库名或 SQL。显式 `--instance` 优先级最高。
 
-## Workflow (业务侧)
+## 业务侧工作流
 
-1. Confirm the business question first.
-   - Decide whether the user needs:
-   - table discovery
-   - schema inspection
-   - one-off counts
-   - monthly trends
-   - domestic vs overseas split
-   - module-specific attribution such as new smart tasks, TikTok Shop outbound, AgentCC
-2. Discover readable scope before writing SQL.
-   - List readable instances first.
-   - Then list databases for the chosen instance.
-   - If needed, list tables for the chosen database.
-3. Keep SQL read-only.
-   - Use `select`, `show`, `desc`, `describe`, and metadata queries only.
-   - Never run `insert`, `update`, `delete`, `alter`, `drop`, `truncate`, or DDL through this skill.
-4. Separate platform background from personal attribution.
-   - Do not write full-platform totals as the user's personal output unless the user explicitly owns that whole platform.
-   - Prefer module-scoped data instead of整个平台 vanity totals
+1. 先确认业务问题本身。
+   - 先判断用户到底需要什么：
+   - 找表
+   - 看表结构
+   - 查一次性数量
+   - 查月趋势
+   - 区分国内 / 海外
+   - 拆出某个模块的归因，例如新智能任务、抖店外呼、AgentCC
+2. 写 SQL 前，先把可读范围摸清楚。
+   - 先列出可读实例
+   - 再列出目标实例下的数据库
+   - 必要时继续列出表
+3. 所有 SQL 必须保持只读。
+   - 只允许 `select`、`show`、`desc`、`describe` 和元数据查询
+   - 禁止通过本技能执行 `insert`、`update`、`delete`、`alter`、`drop`、`truncate` 或任何 DDL
+4. 区分平台背景值和用户实际归属。
+   - 除非用户明确负责整个大盘，否则不要把全平台总量写成用户个人产出
+   - 优先汇报模块范围内的数据，不要堆整个平台 vanity totals
    - `stat_day_base` 只能在业务口径已确认时使用
-5. Report permission gaps clearly.
-   - If Archery returns `Access denied`, stop guessing.
-   - Tell the user exactly which instance, database, and table permission is missing.
+5. 权限缺口要直说。
+   - 如果 Archery 返回 `Access denied`，就停止猜测
+   - 明确告诉用户缺的是哪个 `instance.database.table` 权限
 
 ## 实例选择
 
 Use different instances and keep the wording explicit:
+使用不同实例时，措辞要写明确：
 
-- Common domestic instances: `main-db`, `log-db`
-- Common overseas instance: `海外生产数据库`
+- 常用国内实例：`main-db`、`log-db`
+- 常用海外实例：`海外生产数据库`
 - 如果历史口径或旧文档写的是 `overseas-production-db`，以当前 Archery 实际实例名为准
 
-Do not merge domestic and overseas numbers unless the user explicitly asks for a combined total.
+除非用户明确要求汇总，否则不要把国内和海外数字混在一起。
 
 ### 常用实例语义
 
@@ -228,41 +229,41 @@ CLI 轻路由对应关系：
 - 分页取 ID 再聚合的 SQL 模板
 - 统计口径和输出措辞模板
 
-## Output Rules
+## 输出规则
 
-When answering the user after querying:
+查询结束后，对用户的输出遵守下面这些规则：
 
-1. State the exact statistic scope.
-   - Example: `As of 2026-06-21 for task-creation data; as of 2026-06-20 for outbound fact tables`
-2. Distinguish:
-   - platform background
-   - user-owned module data
-3. If data is partial because of permissions, say so directly.
-4. If June only has data until a mid-month date, mark it as partial month.
+1. 明确写出统计口径和时间边界。
+   - 例如：`截至 2026-06-21，任务创建数据统计到 2026-06-21；外呼事实表统计到 2026-06-20`
+2. 区分：
+   - 平台背景值
+   - 用户负责模块的数据
+3. 如果因为权限不足导致数据不完整，要直接说明。
+4. 如果某个月只有半个月数据，要明确标注这是“不完整月份”。
 
-## Permission Diagnosis
+## 权限诊断
 
-Treat these as separate checks:
+把下面这些检查项分开处理：
 
-1. instance readable
-2. database readable
-3. table readable
-4. SQL executable
+1. 实例是否可读
+2. 数据库是否可读
+3. 表是否可读
+4. SQL 是否可执行
 
-Typical examples:
+常见情况：
 
-- instance readable, table denied:
-  - ask for `instance.database.table` permission
-- database denied:
-  - ask for `instance.database` permission
-- business mapping table denied:
-  - explain that the metric path is confirmed in code but cannot be executed until permission is granted
+- 实例可读，但表不可读：
+  - 申请 `instance.database.table` 权限
+- 数据库不可读：
+  - 申请 `instance.database` 权限
+- 业务映射表无权限：
+  - 说明代码路径已经确认，但在开通权限前无法实际执行统计
 
-## Pagination
+## 分页查询
 
-Archery `limit_num` only caps the returned row count for one query result. When the mapping table may exceed one page, page explicitly in SQL.
+Archery 的 `limit_num` 只会限制单次返回行数。当映射表可能超过一页时，要在 SQL 里显式分页。
 
-Preferred pattern:
+推荐模式：
 
 ```sql
 select distinct target_task_id
@@ -272,7 +273,7 @@ order by target_task_id
 limit 0, 200;
 ```
 
-Then continue with:
+然后继续：
 
 ```sql
 limit 200, 200
@@ -280,13 +281,13 @@ limit 400, 200
 limit 600, 200
 ```
 
-Stop when the returned row count is less than the page size.
+当返回行数小于分页大小时停止。
 
-Use pagination whenever:
+以下情况必须分页：
 
-- the branch or mapping table may exceed 200 rows
-- Archery row limits could truncate `task_id` discovery
-- you need a complete set of IDs before aggregating in `stat_day_base`
+- branch / mapping 表可能超过 200 行
+- Archery 行数限制可能截断 `task_id` 发现过程
+- 在聚合 `stat_day_base` 前，你需要拿到一组完整 ID
 
 ## 常见报错
 
@@ -300,7 +301,7 @@ Use pagination whenever:
 | `Access denied for table ...` | 实例/库/表权限缺失 | 找 DBA 开权限, 不要绕过 |
 | Chrome 启动失败 | driver 不匹配 | `PYTHON_BIN -m pip install -U webdriver-manager` |
 
-## Archery 2FA 页面踩坑
+## Archery 2FA 页面说明
 
 Archery 的 2FA 验证页 (`/login/2fa/`) 有几个非标设计, `archery_login.py` 已经做了专门处理:
 
@@ -316,7 +317,7 @@ Archery 的 2FA 验证页 (`/login/2fa/`) 有几个非标设计, `archery_login.
    - `csrftoken` 同时要放 Cookie header 和 X-CSRFToken header
    - `acw_tc` 是阿里云 WAF 给的, 不带会被识别为机器人
 
-## Session 有效性
+## Session 有效期
 
 - 跑一次 `archery_login.py` 写入的 `ARCHERY_DIR/archery_session.json` 通常能用 **数小时到 1 天** (Archery 默认 session 配置)
 - `archery_query.py` 启动时会打印 `age=Xmin`, 超过 11 小时会标 ⚠ 提示重登
@@ -330,11 +331,11 @@ Archery 的 2FA 验证页 (`/login/2fa/`) 有几个非标设计, `archery_login.
 
 用 `PYTHON_BIN <script> --help` 查看完整参数。
 
-## Reference
+## 参考资料
 
-Read `references/metric-patterns.md` when you need example SQL templates and wording patterns for:
+需要下面这些 SQL 模板或输出措辞时，读取 `references/metric-patterns.md`：
 
-- new smart tasks
-- domestic / overseas monthly trends
+- 新智能任务
+- 国内 / 海外月趋势
 - `stat_day_base`
-- permission request wording
+- 申请权限时的标准说法
