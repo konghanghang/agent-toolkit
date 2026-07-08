@@ -1,4 +1,4 @@
-# Shared Skills
+# 共享 Skills
 
 这个仓库用于维护一套个人共享 skills，目标是在多个 agent 环境之间复用同一份技能内容，包括：
 
@@ -45,7 +45,7 @@ shared-skills/
 
 不需要附带任何本机运行时文件、凭证文件或 session 文件。
 
-## Skill 规则
+## 技能规则
 
 ### 1. 基本结构
 
@@ -66,7 +66,7 @@ shared-skills/
 ```yaml
 ---
 name: skill-name
-description: when to use this skill
+description: 说明这个 skill 在什么场景下使用
 ---
 ```
 
@@ -115,7 +115,7 @@ description: when to use this skill
 
 ## 安装方式
 
-### 1. Clone 仓库
+### 1. 克隆仓库
 
 ```bash
 git clone <repo-url> ~/.shared-skills
@@ -237,6 +237,7 @@ Windows 下还会生成：
 - `archery-prod-query`
 - `aliyun-sls-log-query`
 - `online-issue-triage`
+- `tapd-weekly-report`
 
 ## 验证方式
 

@@ -77,7 +77,7 @@ PYTHON_BIN -m pip install selenium webdriver-manager pyotp requests
 
 ## 工作流
 
-### Step 1: 确认 session 是否还有效
+### 第 1 步：确认 session 是否还有效
 
 ```bash
 sls query --service ai-open-api --size 1
@@ -87,7 +87,7 @@ sls query --service ai-open-api --size 1
 - 报 `code: ConsoleNeedLogin` / `Invalid CSRF token` → session 过期, 走 Step 2
 - 报找不到 `SLS_DIR/aliyun_session.json` → 首次使用, 走 Step 2
 
-### Step 2: 登录刷新 session (约 60 秒)
+### 第 2 步：登录刷新 session（约 60 秒）
 
 ```bash
 sls login
@@ -107,7 +107,7 @@ PYTHON_BIN SKILLS_ROOT/aliyun-sls-log-query/scripts/aliyun_login.py --no-keep
 
 **关键技巧**: `x-csrf-token` 不在 cookie 也不是简单 JS 变量, 是页面 axios 拦截器动态加的。脚本通过 CDP `goog:loggingPrefs: performance` 偷页面自己发的 XHR (`Network.requestWillBeSent` 事件) 抓出真实 header 值。
 
-### Step 3: 查日志
+### 第 3 步：查日志
 
 ```bash
 # 国内 ai-open-api
@@ -143,7 +143,7 @@ sls query --scope domestic --service data-center --full --out /tmp/logs.json
 
 `--trace-id`、`--keyword` 会与 `--query` 正确组合；若 `--query` 或 `default_query` 末尾带 `| with_pack_meta`，脚本会自动保持该后缀在最后。
 
-### Step 4: 切换 project / logstore
+### 第 4 步：切换 project / logstore
 
 项目路由规则:
 
@@ -163,7 +163,7 @@ sls query --project <other-project> --logstore <other-logstore> --query '*'
 
 ## 工作流建议
 
-### Trace ID 排查
+### 按 Trace ID 排查
 
 ```
 1. 用户提供 trace ID (16 hex 字符)
