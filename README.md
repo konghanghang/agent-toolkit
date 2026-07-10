@@ -23,6 +23,7 @@ shared-skills/
 ├── README.md
 ├── .gitignore
 ├── common/
+├── git-commit/
 ├── archery-prod-query/
 ├── aliyun-sls-log-query/
 ├── online-issue-triage/
@@ -127,6 +128,7 @@ Codex 示例：
 
 ```bash
 ln -s ~/.shared-skills/common ~/.codex/skills/common
+ln -s ~/.shared-skills/git-commit ~/.codex/skills/git-commit
 ln -s ~/.shared-skills/archery-prod-query ~/.codex/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.codex/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.codex/skills/online-issue-triage
@@ -136,6 +138,7 @@ Claude Code 示例：
 
 ```bash
 ln -s ~/.shared-skills/common ~/.claude/skills/common
+ln -s ~/.shared-skills/git-commit ~/.claude/skills/git-commit
 ln -s ~/.shared-skills/archery-prod-query ~/.claude/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.claude/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.claude/skills/online-issue-triage
@@ -234,6 +237,7 @@ Windows 下还会生成：
 ## 当前共享 Skills
 
 - `common`
+- `git-commit`
 - `archery-prod-query`
 - `aliyun-sls-log-query`
 - `online-issue-triage`
@@ -267,6 +271,7 @@ archery login
 - 查日志：`sls ...`
 - 查数据库：`archery ...`
 - 做总排查：`online-issue-triage`
+- 检查并提交 Git 变更：`git-commit`
 
 如果命令报“未找到运行时配置”或“skills_root 不一致”，通常说明本机还没初始化，或者共享目录位置已变化。此时重新执行：
 
