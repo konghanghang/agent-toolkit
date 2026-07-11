@@ -1,0 +1,4 @@
+interface:
+  display_name: "Upload to EasyImage"
+  short_description: "Upload and verify images through EasyImage."
+  default_prompt: "Use $upload-to-easyimage to upload local images to EasyImage and return verified URLs."
