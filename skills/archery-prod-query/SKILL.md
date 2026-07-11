@@ -1,6 +1,6 @@
 ---
 name: archery-prod-query
-description: 通过 Archery 查 94AI 生产 MySQL, 只读安全工作流, 自动登录刷新 session。凭证 + MFA 写在运行时配置的 ARCHERY_DIR 下，archery_login.py 启 Chrome 自动登录 + 抓 csrftoken/sessionid 写到 ARCHERY_DIR/archery_session.json，archery_query.py 直接用 session 发请求。覆盖场景: 列实例/库/表、读 ai_task / stat_day_base / t_smart_task 等业务表、拆分国内/海外口径、定位权限缺失。
+description: '通过 Archery 查 94AI 生产 MySQL, 只读安全工作流, 自动登录刷新 session。凭证 + MFA 写在运行时配置的 ARCHERY_DIR 下，archery_login.py 启 Chrome 自动登录 + 抓 csrftoken/sessionid 写到 ARCHERY_DIR/archery_session.json，archery_query.py 直接用 session 发请求。覆盖场景: 列实例/库/表、读 ai_task / stat_day_base / t_smart_task 等业务表、拆分国内/海外口径、定位权限缺失。'
 ---
 
 # Archery 生产库查询
@@ -14,25 +14,25 @@ description: 通过 Archery 查 94AI 生产 MySQL, 只读安全工作流, 自动
 首次使用先初始化运行时配置:
 
 ```bash
-python3 SKILLS_ROOT/common/bootstrap_94ai.py
+python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_94ai.py"
 ```
 
 初始化后统一使用这些运行时变量：
 
 - `WORK_ROOT`: 94AI 工作区根目录
-- `SKILLS_ROOT`: 当前共享技能根目录
+- `AGENT_TOOLKIT_ROOT`: 当前共享技能根目录
 - `PYTHON_BIN`: 统一 Python 解释器
 - `TMP_DIR`: 临时目录
 - `ARCHERY_DIR`: Archery 凭证与 session 目录
 
 统一约定:
 
-- 推荐入口命令: `archery` (脚本位置 `SKILLS_ROOT/bin/archery`)
+- 推荐入口命令: `archery`（脚本位置 `$AGENT_TOOLKIT_ROOT/bin/archery`）
 - 首次启用后，在 shell 中通过 `export PATH="<skills-bin-dir>:$PATH"` 暴露命令
 - 所有脚本都使用 `PYTHON_BIN` 执行
 - 所有依赖都安装到 `PYTHON_BIN` 对应的虚拟环境
-- 脚本目录固定为 `SKILLS_ROOT/archery-prod-query/scripts`
-- 跨平台稳定入口始终是 `PYTHON_BIN + SKILLS_ROOT/.../scripts/*.py`
+- 脚本目录固定为 `$AGENT_TOOLKIT_ROOT/skills/archery-prod-query/scripts`
+- 跨平台稳定入口始终是 `PYTHON_BIN + AGENT_TOOLKIT_ROOT/skills/.../scripts/*.py`
 
 推荐优先使用短命令:
 
@@ -109,7 +109,7 @@ archery login
 如需登录后自动关闭浏览器窗口，可直接执行:
 
 ```bash
-PYTHON_BIN SKILLS_ROOT/archery-prod-query/scripts/archery_login.py --no-keep
+"$PYTHON_BIN" "$AGENT_TOOLKIT_ROOT/skills/archery-prod-query/scripts/archery_login.py" --no-keep
 ```
 
 ### 第 3 步：查数据

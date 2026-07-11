@@ -29,21 +29,21 @@ description: 通过本机 PicGo `web-uploader` 配置将一个或多个本地图
 检查本机配置：
 
 ```bash
-python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" \
+python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage.py" \
   --check-config
 ```
 
 上传单张或多张原图：
 
 ```bash
-python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" \
+python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage.py" \
   image.png screenshot.webp
 ```
 
 显式将 SVG 转成指定尺寸 PNG 后上传：
 
 ```bash
-python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" \
+python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage.py" \
   cover.svg \
   --convert-svg \
   --width 1200 \
@@ -53,7 +53,7 @@ python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" \
 使用其他 PicGo 配置文件：
 
 ```bash
-python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" \
+python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage.py" \
   image.png \
   --config /path/to/picgo-config.json
 ```

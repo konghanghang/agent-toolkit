@@ -1,0 +1,75 @@
+# Allow common read-only GitHub CLI inspection commands.
+# Commands that create, merge, close, publish, dispatch, or call arbitrary API
+# endpoints intentionally remain outside these rules.
+
+prefix_rule(
+    pattern = ["gh", "pr", "view"],
+    decision = "allow",
+    justification = "Allow read-only pull request inspection.",
+    match = [
+        "gh pr view 123",
+        "gh pr view 123 --json title,state,author",
+        "gh pr view --repo owner/repo",
+    ],
+    not_match = [
+        "gh pr create",
+        "gh pr merge 123",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "checks"],
+    decision = "allow",
+    justification = "Allow read-only pull request check inspection.",
+    match = [
+        "gh pr checks 123",
+        "gh pr checks 123 --watch",
+    ],
+    not_match = [
+        "gh pr merge 123",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "run", ["list", "view"]],
+    decision = "allow",
+    justification = "Allow read-only GitHub Actions run inspection.",
+    match = [
+        "gh run list",
+        "gh run view 123456",
+        "gh run view 123456 --log",
+    ],
+    not_match = [
+        "gh run cancel 123456",
+        "gh run rerun 123456",
+        "gh workflow run deploy.yml",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", "view"],
+    decision = "allow",
+    justification = "Allow read-only issue inspection.",
+    match = [
+        "gh issue view 123",
+        "gh issue view 123 --comments",
+    ],
+    not_match = [
+        "gh issue create",
+        "gh issue close 123",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "repo", "view"],
+    decision = "allow",
+    justification = "Allow read-only repository inspection.",
+    match = [
+        "gh repo view",
+        "gh repo view owner/repo --json name,visibility,defaultBranchRef",
+    ],
+    not_match = [
+        "gh repo create owner/repo",
+        "gh repo delete owner/repo",
+    ],
+)

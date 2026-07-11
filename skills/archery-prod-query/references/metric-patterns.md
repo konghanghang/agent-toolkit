@@ -37,19 +37,19 @@ PowerShell 持久化到用户环境变量示例：
 列出可读实例：
 
 ```bash
-PYTHON_BIN SKILLS_ROOT/archery-prod-query/scripts/archery_query.py list-instances
+"$PYTHON_BIN" "$AGENT_TOOLKIT_ROOT/skills/archery-prod-query/scripts/archery_query.py" list-instances
 ```
 
 列出数据库：
 
 ```bash
-PYTHON_BIN SKILLS_ROOT/archery-prod-query/scripts/archery_query.py list-databases --instance "main-db"
+"$PYTHON_BIN" "$AGENT_TOOLKIT_ROOT/skills/archery-prod-query/scripts/archery_query.py" list-databases --instance "main-db"
 ```
 
 列出表：
 
 ```bash
-PYTHON_BIN SKILLS_ROOT/archery-prod-query/scripts/archery_query.py list-tables --instance "main-db" --database "ai_admin"
+"$PYTHON_BIN" "$AGENT_TOOLKIT_ROOT/skills/archery-prod-query/scripts/archery_query.py" list-tables --instance "main-db" --database "ai_admin"
 ```
 
 ## 新智能任务
@@ -257,4 +257,3 @@ limit 600, 200
 归因表述建议写成：
 
 - `These metrics are reported only as business results for the user's owned module, not as ownership of the entire platform total.`
-

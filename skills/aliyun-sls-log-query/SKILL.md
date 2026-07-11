@@ -19,13 +19,13 @@ description: 查询阿里云 SLS 日志服务 (Log Service), 用于排查 data-c
 首次使用先初始化运行时配置:
 
 ```bash
-python3 SKILLS_ROOT/common/bootstrap_94ai.py
+python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_94ai.py"
 ```
 
 初始化后统一使用这些运行时变量：
 
 - `WORK_ROOT`: 94AI 工作区根目录
-- `SKILLS_ROOT`: 当前共享技能根目录
+- `AGENT_TOOLKIT_ROOT`: 当前共享技能根目录
 - `PYTHON_BIN`: 统一 Python 解释器
 - `TMP_DIR`: 临时目录
 - `SLS_DIR`: SLS 凭证与 session 目录
@@ -34,12 +34,12 @@ python3 SKILLS_ROOT/common/bootstrap_94ai.py
 
 统一约定:
 
-- 推荐入口命令: `sls` (脚本位置 `SKILLS_ROOT/bin/sls`)
+- 推荐入口命令: `sls`（脚本位置 `$AGENT_TOOLKIT_ROOT/bin/sls`）
 - 首次启用后，在 shell 中通过 `export PATH="<skills-bin-dir>:$PATH"` 暴露命令
 - 所有脚本都使用 `PYTHON_BIN` 执行
 - 所有依赖都安装到 `PYTHON_BIN` 对应的虚拟环境里
-- 脚本目录固定为 `SKILLS_ROOT/aliyun-sls-log-query/scripts`
-- 跨平台稳定入口始终是 `PYTHON_BIN + SKILLS_ROOT/.../scripts/*.py`
+- 脚本目录固定为 `$AGENT_TOOLKIT_ROOT/skills/aliyun-sls-log-query/scripts`
+- 跨平台稳定入口始终是 `PYTHON_BIN + AGENT_TOOLKIT_ROOT/skills/.../scripts/*.py`
 - 所有临时文件统一写到系统 `/tmp`，不要落到当前项目目录
 - 如果当前执行环境的沙箱拦截 `/tmp` 写入，直接申请权限，不回退到项目目录
 
@@ -94,7 +94,7 @@ sls login
 如需底层脚本自动关闭浏览器窗口，可直接执行:
 
 ```bash
-PYTHON_BIN SKILLS_ROOT/aliyun-sls-log-query/scripts/aliyun_login.py --no-keep
+"$PYTHON_BIN" "$AGENT_TOOLKIT_ROOT/skills/aliyun-sls-log-query/scripts/aliyun_login.py" --no-keep
 ```
 
 脚本会:
@@ -227,7 +227,7 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 
 ## 脚本
 
-- `SKILLS_ROOT/bin/sls` — 推荐短命令入口，封装 login/query 和 session 自动补登录
+- `$AGENT_TOOLKIT_ROOT/bin/sls` — 推荐短命令入口，封装 login/query 和 session 自动补登录
 - `scripts/aliyun_login.py` — 启 Chrome 自动登录 + 抓 session
 - `scripts/aliyun_sls_query.py` — 直接 POST 查日志 (不依赖浏览器)
 
