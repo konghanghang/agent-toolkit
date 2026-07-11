@@ -14,8 +14,6 @@ description: 查询阿里云 SLS 日志服务 (Log Service), 用于排查 data-c
 - JumpServer / kubectl 不可用, 但需要看生产日志
 - 需要按时间窗口批量取日志做分析
 
-**不适用**: 测试环境 K8S 日志 — 走 `k8s-jumpserver-log-triage` skill。
-
 ## 前置准备
 
 首次使用先初始化运行时配置:
