@@ -139,6 +139,7 @@ Codex 示例：
 ```bash
 ln -s ~/.shared-skills/git-commit ~/.codex/skills/git-commit
 ln -s ~/.shared-skills/upload-to-easyimage ~/.codex/skills/upload-to-easyimage
+ln -s ~/.shared-skills/capture-iminling-draft ~/.codex/skills/capture-iminling-draft
 ln -s ~/.shared-skills/archery-prod-query ~/.codex/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.codex/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.codex/skills/online-issue-triage
@@ -150,6 +151,7 @@ Claude Code 示例：
 ```bash
 ln -s ~/.shared-skills/git-commit ~/.claude/skills/git-commit
 ln -s ~/.shared-skills/upload-to-easyimage ~/.claude/skills/upload-to-easyimage
+ln -s ~/.shared-skills/capture-iminling-draft ~/.claude/skills/capture-iminling-draft
 ln -s ~/.shared-skills/archery-prod-query ~/.claude/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.claude/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.claude/skills/online-issue-triage
@@ -252,6 +254,7 @@ Windows 下还会生成：
 - `upload-to-easyimage`
   - [PicGo web-uploader 配置说明](upload-to-easyimage/references/picgo-config.md)
   - [线上图文教程](https://www.iminling.com/2025/typora-how-to-use-picgo-upload-image-to-easyimage/)
+- `capture-iminling-draft`
 - `archery-prod-query`
 - `aliyun-sls-log-query`
 - `online-issue-triage`
