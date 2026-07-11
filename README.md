@@ -16,6 +16,13 @@
 
 因此共享 skill 不应把某一端的私有元数据或私有机制当作主行为契约。
 
+允许在 skill 目录里放可选的平台边车文件（例如 Codex 的 `agents/openai.yaml`），用来增强该平台下的展示和触发。约束是：
+
+- 主契约始终是 `SKILL.md`，两端都只读 `SKILL.md` 来发现和使用 skill；
+- 边车文件只是展示增强，不能成为 skill 的主行为契约；
+- 主流程必须只靠 `SKILL.md` + 共享脚本就能跑通，`SKILL.md` 里不能写「见 openai.yaml」之类的依赖；
+- Claude Code 会忽略 `agents/openai.yaml`，不得因它的存在或缺失影响 Claude Code 侧行为。
+
 ## 仓库结构
 
 ```text
@@ -77,7 +84,7 @@ description: 说明这个 skill 在什么场景下使用
 - `name`
 - `description`
 
-不要把平台专属扩展字段当作共享 skill 的主逻辑依赖。
+平台专属字段（例如 Codex `agents/openai.yaml` 里的 `display_name`、`short_description`、`default_prompt`）只作为可选边车，不能写进 `SKILL.md` 的 frontmatter，也不能成为主逻辑依赖，详见上方「兼容目标」。
 
 ### 3. 运行时术语
 
@@ -125,26 +132,28 @@ git clone <repo-url> ~/.shared-skills
 
 ### 2. 建立单个 skill 软链
 
+`common` 是共享运行时库，不是 skill，**不要**链进 `skills/` 目录；各 skill 通过 `SKILLS_ROOT/common/...` 引用它。只链下面这些 skill 目录：
+
 Codex 示例：
 
 ```bash
-ln -s ~/.shared-skills/common ~/.codex/skills/common
 ln -s ~/.shared-skills/git-commit ~/.codex/skills/git-commit
 ln -s ~/.shared-skills/upload-to-easyimage ~/.codex/skills/upload-to-easyimage
 ln -s ~/.shared-skills/archery-prod-query ~/.codex/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.codex/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.codex/skills/online-issue-triage
+ln -s ~/.shared-skills/tapd-weekly-report ~/.codex/skills/tapd-weekly-report
 ```
 
 Claude Code 示例：
 
 ```bash
-ln -s ~/.shared-skills/common ~/.claude/skills/common
 ln -s ~/.shared-skills/git-commit ~/.claude/skills/git-commit
 ln -s ~/.shared-skills/upload-to-easyimage ~/.claude/skills/upload-to-easyimage
 ln -s ~/.shared-skills/archery-prod-query ~/.claude/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.claude/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.claude/skills/online-issue-triage
+ln -s ~/.shared-skills/tapd-weekly-report ~/.claude/skills/tapd-weekly-report
 ```
 
 ### 3. 初始化运行时
@@ -222,7 +231,7 @@ Windows 下还会生成：
 
 1. 同时兼容 Codex 和 Claude Code
 2. 只使用共享 skill 的公共结构
-3. 不把平台专属机制当成主接口
+3. 不把平台专属机制当成主接口；可选的平台边车文件（如 Codex 的 `agents/openai.yaml`）只作展示增强，不进 `SKILL.md` 主契约
 4. 不写死机器路径
 5. 不把敏感信息提交进仓库
 6. 示例命令优先使用 `SKILLS_ROOT/...`
@@ -239,7 +248,6 @@ Windows 下还会生成：
 
 ## 当前共享 Skills
 
-- `common`
 - `git-commit`
 - `upload-to-easyimage`
   - [PicGo web-uploader 配置说明](upload-to-easyimage/references/picgo-config.md)
@@ -248,6 +256,8 @@ Windows 下还会生成：
 - `aliyun-sls-log-query`
 - `online-issue-triage`
 - `tapd-weekly-report`
+
+`common` 不是 skill，是共享运行时库（bootstrap + runtime + 命令入口模板），供上面这些 skill 通过 `SKILLS_ROOT/common/...` 引用，不单独作为 skill 软链或被发现。
 
 ## 验证方式
 
