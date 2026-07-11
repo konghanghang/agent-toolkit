@@ -1,6 +1,6 @@
 ---
 name: git-commit
-description: 安全地检查、拆分、暂存并提交 Git 变更。适用于“提交”“帮我 commit”“准备提交”“拆分提交”“生成提交信息”或检查 staged diff 等任务；遵守当前项目规范，不自动 push、amend 或覆盖已有改动。
+description: 安全地检查、拆分、暂存并提交 Git 变更，并在 GitHub 仓库中预检提交身份与邮箱隐私。适用于“提交”“帮我 commit”“准备提交”“拆分提交”“生成提交信息”、检查 staged diff、排查 GH007 或修复未推送提交邮箱等任务；遵守当前项目规范，不自动 push、amend、强推或覆盖已有改动。
 ---
 
 # Git 提交
@@ -29,6 +29,36 @@ description: 安全地检查、拆分、暂存并提交 Git 变更。适用于�
 3. 检查暂存区和工作区 diff，理解每项改动的实际语义，不只根据文件名判断。
 4. 保留用户已有改动。禁止执行 `git reset --hard`、`git checkout --`、`git clean` 或其他破坏性清理。
 5. 发现与当前任务无关但不冲突的改动时，不回滚、不暂存；发现直接冲突或来源不明的异常改动时，停止并询问用户。
+
+## 预检 Git 身份与邮箱隐私
+
+在执行任何新提交前检查实际生效的作者和提交者身份：
+
+```bash
+git config --show-origin --get user.name
+git config --show-origin --get user.email
+git config --show-origin --get commit.gpgsign
+git config --show-origin --get user.signingkey
+git var GIT_AUTHOR_IDENT
+git var GIT_COMMITTER_IDENT
+git remote -v
+```
+
+如果存在上游分支，再检查最近已被远端接受的身份和所有尚未推送提交：
+
+```bash
+git log @{upstream} -1 --format='%an <%ae> | %cn <%ce>'
+git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
+```
+
+执行时遵守以下规则：
+
+1. 远端是 GitHub，且近期远端提交稳定使用同一个 `users.noreply.github.com` 地址，而当前仓库突然使用不同的私人邮箱时，将其视为高风险身份漂移；在提交前停止并向用户说明。
+2. 不要仅凭“不是 noreply 地址”就断言配置错误；公开邮箱也可能是用户的明确选择。优先依据仓库历史、用户指令和实际 `GH007` 错误判断。
+3. 普通提交任务中，不静默修改 Git 身份。若用户明确要求修复身份或处理 `GH007`，可以沿用该仓库远端历史中已经被接受的确切 noreply 地址。
+4. 只设置仓库级身份，例如 `git config user.email <address>`；除非用户明确要求，禁止修改 `--global` 或系统级配置。
+5. 检查 `commit.gpgsign` 和 `user.signingkey`，沿用已有签名策略；禁止为解决邮箱问题关闭或绕过签名。
+6. 没有上游分支时，先判断当前分支是否存在对应的 `origin/<branch>`；都不存在时只报告本地身份，不猜测远端惯例。
 
 ## 排除不应提交的内容
 
@@ -84,8 +114,85 @@ git diff --cached --check
 
 1. 只有用户明确要求提交，或者当前任务已经明确授权提交时，才能执行 `git commit`。
 2. 沿用当前 Git 的作者和签名配置，禁止主动修改、关闭或绕过签名设置。
-3. 禁止自动执行 `git commit --amend`。
+3. 禁止自动执行 `git commit --amend`。只有用户明确要求修改提交，或明确要求处理 `GH007` 且满足下方安全条件时，才允许改写尚未推送的提交。
 4. 提交失败时保留现场，报告错误，不通过修改全局 Git 配置强行绕过。
+
+## 推送前检查
+
+用户明确要求推送时，在 `git push` 前执行：
+
+```bash
+git status --short --branch
+git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
+```
+
+确认：
+
+- 工作区状态符合预期；
+- 分支没有意外落后或分叉；
+- 所有领先提交的 Author 和 Committer 身份都符合仓库惯例；
+- 没有私人邮箱、错误机器人身份或混入的其他用户提交；
+- 推送目标和分支正确。
+
+如果本机未配置 `gpg.ssh.allowedSignersFile`，`git log --show-signature` 或 `%G?` 可能无法在本地验证 SSH 签名。不要因此直接断言提交未签名；可以用 `git cat-file -p <commit>` 检查是否存在 `gpgsig` 字段，并明确区分“存在签名”和“本地已验证签名”。
+
+## 安全处理 GitHub GH007
+
+当远端明确返回 `GH007: Your push would publish a private email address`，先确认问题来自尚未推送提交中的 Author 或 Committer 邮箱，不要关闭 GitHub 邮箱隐私保护来绕过。
+
+先检查分支关系和待修复范围：
+
+```bash
+git status --short --branch
+git rev-list --left-right --count @{upstream}...HEAD
+git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
+```
+
+`git rev-list` 输出的第一个数字是本地落后数量，第二个数字是本地领先数量。只有结果为 `0 N` 且 `N > 0` 时，才满足“只领先、未分叉”的批量恢复前提。
+
+只有同时满足以下条件，才允许重写提交：
+
+1. 用户明确要求处理该推送失败。
+2. 工作区和暂存区干净，或现有改动已被安全保留且不会参与重写。
+3. 待修复提交全部位于上游分支之后，尚未被远端接受。
+4. 当前分支只领先远端，没有落后或分叉。
+5. 已从远端历史、GitHub 账户信息或用户指令确认正确的邮箱地址。
+6. 已检查领先提交的 Author 和 Committer；不存在需要保留原作者的 cherry-pick、合并提交或他人提交。
+
+推荐恢复流程：
+
+1. 用 `git rev-parse HEAD` 记录重写前的 `HEAD`，并列出上游之后的全部提交。
+2. 将正确邮箱写入当前仓库的 `.git/config`，不要修改全局配置。
+3. 只有最新一笔未推送提交需要修复时，可在用户授权下执行：
+
+   ```bash
+   git commit --amend --no-edit --reset-author
+   ```
+
+4. 多笔未推送提交全部属于当前用户、且 Author 与 Committer 都应统一修复时，可在用户授权下从上游之后重放：
+
+   ```bash
+   git rebase --exec 'git commit --amend --no-edit --reset-author' @{upstream}
+   ```
+
+5. 如果领先提交包含其他作者、cherry-pick、合并提交或不同身份，不使用批量 `--reset-author`；停止并制定逐提交修复方案。
+6. 重写后比较旧 `HEAD` 与新 `HEAD` 的文件树，确保内容没有变化：
+
+   ```bash
+   git diff --exit-code <old-head> HEAD
+   ```
+
+7. 再次检查所有领先提交的 Author、Committer 和 `gpgsig`，确认提交信息、顺序和签名策略符合预期。
+8. 因为 GH007 拒绝发生在远端更新之前，用户要求完成或重试推送时，修复后应先尝试普通 `git push`；用户只要求修复提交时，不自动推送。禁止把 `--force` 或 `--force-with-lease` 作为 GH007 的默认解决方案。
+
+以下情况必须停止并请求用户决定：
+
+- 远端已经包含待改写提交；
+- 分支落后或已经分叉；
+- 正确邮箱无法确认；
+- 提交中混有其他作者或需要保留作者身份的历史；
+- 重写前后文件树不一致；
+- 推送需要强制更新远端。
 
 ## 提交后检查
 
@@ -96,11 +203,18 @@ git status --short --branch
 git log -1 --oneline
 ```
 
+若存在上游分支，再检查所有领先提交的身份：
+
+```bash
+git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
+```
+
 向用户报告：
 
 - commit ID 和标题
 - 是否仍有未提交改动
 - 当前分支是否领先远端
+- Author 和 Committer 是否符合仓库身份惯例
 - 哪些验证已经完成，哪些未执行
 
 除非用户明确要求，否则禁止执行 `git push`。
