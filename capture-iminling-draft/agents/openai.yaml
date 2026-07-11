@@ -1,0 +1,4 @@
+interface:
+  display_name: "Capture Iminling Draft"
+  short_description: "从任意项目将当前对话知识沉淀为 iminling 博客草稿"
+  default_prompt: "Use $capture-iminling-draft to turn the valuable knowledge from our current conversation into an iminling-pages draft article."
