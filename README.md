@@ -137,13 +137,13 @@ git clone <repo-url> ~/.shared-skills
 Codex 示例：
 
 ```bash
-ln -s ~/.shared-skills/git-commit ~/.codex/skills/git-commit
-ln -s ~/.shared-skills/upload-to-easyimage ~/.codex/skills/upload-to-easyimage
-ln -s ~/.shared-skills/capture-iminling-draft ~/.codex/skills/capture-iminling-draft
-ln -s ~/.shared-skills/archery-prod-query ~/.codex/skills/archery-prod-query
-ln -s ~/.shared-skills/aliyun-sls-log-query ~/.codex/skills/aliyun-sls-log-query
-ln -s ~/.shared-skills/online-issue-triage ~/.codex/skills/online-issue-triage
-ln -s ~/.shared-skills/tapd-weekly-report ~/.codex/skills/tapd-weekly-report
+ln -s ~/.shared-skills/git-commit ~/.agents/skills/git-commit
+ln -s ~/.shared-skills/upload-to-easyimage ~/.agents/skills/upload-to-easyimage
+ln -s ~/.shared-skills/capture-iminling-draft ~/.agents/skills/capture-iminling-draft
+ln -s ~/.shared-skills/archery-prod-query ~/.agents/skills/archery-prod-query
+ln -s ~/.shared-skills/aliyun-sls-log-query ~/.agents/skills/aliyun-sls-log-query
+ln -s ~/.shared-skills/online-issue-triage ~/.agents/skills/online-issue-triage
+ln -s ~/.shared-skills/tapd-weekly-report ~/.agents/skills/tapd-weekly-report
 ```
 
 Claude Code 示例：
