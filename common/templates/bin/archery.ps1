@@ -1,3 +1,5 @@
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SkillsRoot = Split-Path -Parent $ScriptDir
-python "$SkillsRoot\common\entrypoints\archery_cli.py" @args
+$AgentToolkitRoot = Split-Path -Parent $ScriptDir
+$env:AGENT_TOOLKIT_ROOT = $AgentToolkitRoot
+$env:SKILLS_ROOT = $AgentToolkitRoot
+python "$AgentToolkitRoot\common\entrypoints\archery_cli.py" @args

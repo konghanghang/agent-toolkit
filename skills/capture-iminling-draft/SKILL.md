@@ -31,7 +31,7 @@ description: '将当前对话中值得长期沉淀的问题排查、解决方案
 运行：
 
 ```bash
-IMINLING_REPO="$(python3 "$SKILLS_ROOT/capture-iminling-draft/scripts/resolve_iminling_repo.py")"
+IMINLING_REPO="$(python3 "$AGENT_TOOLKIT_ROOT/skills/capture-iminling-draft/scripts/resolve_iminling_repo.py")"
 ```
 
 脚本按以下顺序解析：

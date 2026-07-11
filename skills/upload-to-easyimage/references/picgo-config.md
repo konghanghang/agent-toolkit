@@ -71,7 +71,7 @@ picgo set uploader
 ## 检查配置
 
 ```bash
-python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" \
+python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage.py" \
   --check-config
 ```
 

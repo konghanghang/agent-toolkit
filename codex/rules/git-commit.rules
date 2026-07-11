@@ -1,0 +1,45 @@
+# Allow the routine Git workflow used by the shared git-commit skill.
+# History rewrites, force pushes, resets, cleans, rebases, and identity changes
+# intentionally remain outside these rules and still require separate review.
+
+prefix_rule(
+    pattern = ["git", "add"],
+    decision = "allow",
+    justification = "Allow explicit staging during a user-requested commit workflow.",
+    match = [
+        "git add README.md",
+        "git add docs/README.md src/app.py",
+    ],
+    not_match = [
+        "git status --short --branch",
+        "git reset --hard",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "commit", "-m"],
+    decision = "allow",
+    justification = "Allow creating a new commit with an explicit message; amend is not included.",
+    match = [
+        "git commit -m '更新项目文档'",
+    ],
+    not_match = [
+        "git commit --amend --no-edit",
+        "git commit -a -m '跳过显式暂存'",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "origin", ["master", "main"]],
+    decision = "allow",
+    justification = "Allow ordinary pushes to the primary origin branch after user authorization and preflight checks.",
+    match = [
+        "git push origin master",
+        "git push origin main",
+    ],
+    not_match = [
+        "git push upstream master",
+        "git push --force origin master",
+        "git push --force-with-lease origin main",
+    ],
+)

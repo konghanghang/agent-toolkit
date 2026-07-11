@@ -1,258 +1,185 @@
-# 共享 Skills
+# Agent Toolkit
 
-这个仓库用于维护一套个人共享 skills，目标是在多个 agent 环境之间复用同一份技能内容，包括：
+这个仓库用于维护个人 AI Agent 工具箱，在多台电脑和多个 Agent 环境之间复用同一套工作流。
 
-- Codex
-- Claude Code
+当前包含：
 
-核心原则是：共享技能只使用两端共同支持的最小格式，把平台私有扩展挡在共享层之外。
+- Codex 与 Claude Code 共用的 Skills
+- Codex 全局 Rules
+- 公共运行时和命令入口
+- 跨平台安装脚本
 
-## 兼容目标
+共享主体只使用 Codex 和 Claude Code 共同支持的 Skill 最小格式；平台专属内容放入对应平台目录，不混入通用 Skill 主契约。
 
-仓库里的 skill 默认必须同时满足：
-
-- Codex 可发现、可使用
-- Claude Code 可发现、可使用
-
-因此共享 skill 不应把某一端的私有元数据或私有机制当作主行为契约。
-
-允许在 skill 目录里放可选的平台边车文件（例如 Codex 的 `agents/openai.yaml`），用来增强该平台下的展示和触发。约束是：
-
-- 主契约始终是 `SKILL.md`，两端都只读 `SKILL.md` 来发现和使用 skill；
-- 边车文件只是展示增强，不能成为 skill 的主行为契约；
-- 主流程必须只靠 `SKILL.md` + 共享脚本就能跑通，`SKILL.md` 里不能写「见 openai.yaml」之类的依赖；
-- Claude Code 会忽略 `agents/openai.yaml`，不得因它的存在或缺失影响 Claude Code 侧行为。
-
-## 仓库结构
+## 目录结构
 
 ```text
-shared-skills/
+agent-toolkit/
 ├── README.md
-├── .gitignore
+├── skills/
+│   ├── git-commit/
+│   ├── upload-to-easyimage/
+│   ├── capture-iminling-draft/
+│   ├── archery-prod-query/
+│   ├── aliyun-sls-log-query/
+│   ├── online-issue-triage/
+│   └── tapd-weekly-report/
+├── codex/
+│   └── rules/
+│       ├── git-commit.rules
+│       └── github-readonly.rules
+├── claude/
 ├── common/
-├── git-commit/
-├── upload-to-easyimage/
-├── archery-prod-query/
-├── aliyun-sls-log-query/
-├── online-issue-triage/
-└── ...
+└── scripts/
+    └── install.py
 ```
 
-## 最小交付清单
+目录职责：
 
-如果只想复制一套可运行的共享技能，最小范围通常是：
+- `skills/`：Codex、Claude Code 共用的 Skills，每个目录必须包含 `SKILL.md`。
+- `codex/`：Codex 专属配置，目前保存可版本控制的全局 Rules。
+- `claude/`：Claude Code 专属配置占位；没有真实配置前保持为空。
+- `common/`：work 公共运行时、入口脚本和命令模板，不作为 Skill 安装。
+- `scripts/`：工具箱自身的安装和维护脚本。
 
-```text
-shared-skills/
-├── README.md
-├── .gitignore
-├── common/
-├── archery-prod-query/
-├── aliyun-sls-log-query/
-└── online-issue-triage/
-```
+## Skill 兼容规则
 
-不需要附带任何本机运行时文件、凭证文件或 session 文件。
-
-## 技能规则
-
-### 1. 基本结构
-
-每个 skill 都应放在独立目录中，并至少包含：
-
-- `SKILL.md`
-
-可选目录：
-
-- `scripts/`
-- `references/`
-- `assets/`
-
-### 2. `SKILL.md` 格式
-
-每个共享 skill 必须使用 YAML frontmatter，并至少包含：
+共享 Skill 的 `SKILL.md` frontmatter 默认只使用：
 
 ```yaml
 ---
 name: skill-name
-description: 说明这个 skill 在什么场景下使用
+description: 说明能力和触发场景
 ---
 ```
 
-共享 skill 默认只使用公共子集：
+允许使用 Codex 的 `agents/openai.yaml` 作为可选展示边车，但必须满足：
 
-- `name`
-- `description`
+- `SKILL.md` 是两端共同使用的唯一主契约。
+- 主流程不能依赖 `agents/openai.yaml`。
+- Claude Code 忽略边车后，Skill 仍能完整工作。
+- 不在 Skill 中依赖某一端专属的私有编辑命令。
 
-平台专属字段（例如 Codex `agents/openai.yaml` 里的 `display_name`、`short_description`、`default_prompt`）只作为可选边车，不能写进 `SKILL.md` 的 frontmatter，也不能成为主逻辑依赖，详见上方「兼容目标」。
+## 根目录术语
 
-### 3. 运行时术语
+统一使用：
 
-统一使用下面这些通用术语：
+- `AGENT_TOOLKIT_ROOT`：本仓库根目录，例如 `~/.agent-toolkit`。
+- `PYTHON_BIN`：公共运行时使用的 Python 解释器。
+- `WORK_ROOT`：业务工作区根目录。
+- `TMP_DIR`：临时文件目录。
 
-- `SKILLS_ROOT`
-- `PYTHON_BIN`
+旧的 `SKILLS_ROOT` 只作为 work 运行时兼容别名保留，新文档和新脚本不要继续使用。
+
+推荐 Shell 配置：
+
+```bash
+export AGENT_TOOLKIT_ROOT="$HOME/.agent-toolkit"
+export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
+```
+
+## 安装
+
+### 克隆
+
+```bash
+git clone git@github.com:konghanghang/agent-toolkit.git ~/.agent-toolkit
+```
+
+### 预览安装计划
+
+```bash
+python3 ~/.agent-toolkit/scripts/install.py --dry-run
+```
+
+### 安装 Codex、Claude Code 和 Codex Rules
+
+```bash
+python3 ~/.agent-toolkit/scripts/install.py
+```
+
+安装脚本会：
+
+1. 扫描 `skills/*/SKILL.md`。
+2. 将 Skill 链接到 `~/.agents/skills/`。
+3. 将 Skill 链接到 `~/.claude/skills/`。
+4. 将 `codex/rules/*.rules` 链接到 `~/.codex/rules/`。
+5. 已有正确软链时跳过。
+6. 普通文件、真实目录或未知软链发生冲突时拒绝覆盖。
+
+从旧的 `~/.shared-skills` 迁移时使用：
+
+```bash
+python3 ~/.agent-toolkit/scripts/install.py --replace-managed
+```
+
+可选参数：
+
+```text
+--dry-run          只显示计划，不修改文件
+--codex-only       只安装 Codex Skills 和 Rules
+--claude-only      只安装 Claude Code Skills
+--skill NAME       只处理指定 Skill，可重复使用
+--replace-managed  替换指向旧工具箱或旧目录结构的受管软链
+```
+
+## 安装结果
+
+Codex Skills：
+
+```text
+~/.agents/skills/<name>
+  → ~/.agent-toolkit/skills/<name>
+```
+
+Claude Code Skills：
+
+```text
+~/.claude/skills/<name>
+  → ~/.agent-toolkit/skills/<name>
+```
+
+Codex Rules：
+
+```text
+~/.codex/rules/<name>.rules
+  → ~/.agent-toolkit/codex/rules/<name>.rules
+```
+
+保留 `~/.codex/rules/` 为真实目录，不把整个目录替换为软链。这样 Codex 自动生成的 `default.rules` 和版本控制的规则可以共存。
+
+Codex 在启动时加载 Rules；新增或更新规则后，新开会话或重启客户端。
+
+## work 公共运行时
+
+初始化：
+
+```bash
+python3 ~/.agent-toolkit/common/bootstrap_work.py
+```
+
+初始化会配置：
+
 - `WORK_ROOT`
 - `TMP_DIR`
+- `SLS_DIR`
+- `ARCHERY_DIR`
+- `PYTHON_BIN`
+- `AGENT_TOOLKIT_ROOT`
 
-避免写死下面这些内容：
-
-- `CODEX_HOME`
-- `~/.codex/bin`
-- 个人机器绝对路径
-- 本地抓包或调试文件路径
-- 凭证、token、session 文件内容
-
-### 4. 敏感信息
-
-禁止提交：
-
-- 凭证
-- token
-- cookie
-- session 文件
-- 本地调试抓包
-- 机器相关运行时数据
-
-另外，不要把下面这些本机产物一起复制给别人：
-
-- `~/.local/agent-toolkit/work/runtime.json`
-- `SLS_DIR/*`
-- `ARCHERY_DIR/*`
-- 已生成的 `SKILLS_ROOT/bin/sls`
-- 已生成的 `SKILLS_ROOT/bin/archery`
-
-## 安装方式
-
-### 1. 克隆仓库
-
-```bash
-git clone <repo-url> ~/.shared-skills
-```
-
-### 2. 建立单个 skill 软链
-
-`common` 是共享运行时库，不是 skill，**不要**链进 `skills/` 目录；各 skill 通过 `SKILLS_ROOT/common/...` 引用它。只链下面这些 skill 目录：
-
-Codex 示例：
-
-```bash
-ln -s ~/.shared-skills/git-commit ~/.agents/skills/git-commit
-ln -s ~/.shared-skills/upload-to-easyimage ~/.agents/skills/upload-to-easyimage
-ln -s ~/.shared-skills/capture-iminling-draft ~/.agents/skills/capture-iminling-draft
-ln -s ~/.shared-skills/archery-prod-query ~/.agents/skills/archery-prod-query
-ln -s ~/.shared-skills/aliyun-sls-log-query ~/.agents/skills/aliyun-sls-log-query
-ln -s ~/.shared-skills/online-issue-triage ~/.agents/skills/online-issue-triage
-ln -s ~/.shared-skills/tapd-weekly-report ~/.agents/skills/tapd-weekly-report
-```
-
-Claude Code 示例：
-
-```bash
-ln -s ~/.shared-skills/git-commit ~/.claude/skills/git-commit
-ln -s ~/.shared-skills/upload-to-easyimage ~/.claude/skills/upload-to-easyimage
-ln -s ~/.shared-skills/capture-iminling-draft ~/.claude/skills/capture-iminling-draft
-ln -s ~/.shared-skills/archery-prod-query ~/.claude/skills/archery-prod-query
-ln -s ~/.shared-skills/aliyun-sls-log-query ~/.claude/skills/aliyun-sls-log-query
-ln -s ~/.shared-skills/online-issue-triage ~/.claude/skills/online-issue-triage
-ln -s ~/.shared-skills/tapd-weekly-report ~/.claude/skills/tapd-weekly-report
-```
-
-### 3. 初始化运行时
-
-clone 后执行：
-
-```bash
-python3 ~/.shared-skills/common/bootstrap_work.py
-```
-
-初始化会完成这些事情：
-
-- 写入本机运行时配置
-- 创建或校验 Python 环境
-- 安装通用依赖
-- 在 `SKILLS_ROOT/bin/` 下生成命令入口
-
-初始化时会询问这些值：
-
-1. `WORK_ROOT`
-   - 本地工作区根目录
-2. `TMP_DIR`
-   - 临时目录
-3. `SLS_DIR`
-   - SLS 凭证和 session 目录
-4. `ARCHERY_DIR`
-   - Archery 凭证和 session 目录
-5. `PYTHON_BIN`
-   - 统一 Python 解释器
-
-### 4. 把 `bin/` 加入 PATH
-
-```bash
-export PATH="$HOME/.shared-skills/bin:$PATH"
-```
-
-## `bin/` 目录说明
-
-`SKILLS_ROOT/bin/` 里放的是可执行入口，例如：
+并在 `AGENT_TOOLKIT_ROOT/bin/` 生成：
 
 - `sls`
 - `archery`
+- Windows 对应的 `.cmd` 与 `.ps1` 入口
 
-事实源是：
+`~/.local/agent-toolkit/work/runtime.json`、凭证和 Session 都是本机状态，不提交到本仓库。
 
-- `common/templates/bin/`
-
-生成物是：
-
-- `bin/`
-
-即使本地 checkout 里已经有 `bin/`，也仍然应该先执行一次初始化脚本。
-
-初始化完成后会生成：
-
-- `~/.local/agent-toolkit/work/runtime.json`
-- `SKILLS_ROOT/bin/sls`
-- `SKILLS_ROOT/bin/archery`
-
-Windows 下还会生成：
-
-- `SKILLS_ROOT/bin/sls.cmd`
-- `SKILLS_ROOT/bin/archery.cmd`
-- `SKILLS_ROOT/bin/sls.ps1`
-- `SKILLS_ROOT/bin/archery.ps1`
-
-初始化完成后，还需要自己补齐：
-
-- `SLS_DIR/aliyun-credentials.json`
-- `ARCHERY_DIR/archery-credentials.json`
-
-## 新增 Skill 规范
-
-新的共享 skill 默认遵守以下规则：
-
-1. 同时兼容 Codex 和 Claude Code
-2. 只使用共享 skill 的公共结构
-3. 不把平台专属机制当成主接口；可选的平台边车文件（如 Codex 的 `agents/openai.yaml`）只作展示增强，不进 `SKILL.md` 主契约
-4. 不写死机器路径
-5. 不把敏感信息提交进仓库
-6. 示例命令优先使用 `SKILLS_ROOT/...`
-
-## 提交前检查
-
-提交前至少检查：
-
-- `SKILL.md` 是否只使用共享兼容格式
-- 是否残留 `CODEX_HOME` 或 `~/.codex/bin`
-- 是否残留个人机器路径
-- 是否包含凭证或 session
-- 命令示例是否统一使用 `SKILLS_ROOT`
-
-## 当前共享 Skills
+## 当前 Skills
 
 - `git-commit`
 - `upload-to-easyimage`
-  - [PicGo web-uploader 配置说明](upload-to-easyimage/references/picgo-config.md)
+  - [PicGo web-uploader 配置说明](skills/upload-to-easyimage/references/picgo-config.md)
   - [线上图文教程](https://www.iminling.com/2025/typora-how-to-use-picgo-upload-image-to-easyimage/)
 - `capture-iminling-draft`
 - `archery-prod-query`
@@ -260,46 +187,58 @@ Windows 下还会生成：
 - `online-issue-triage`
 - `tapd-weekly-report`
 
-`common` 不是 skill，是共享运行时库（bootstrap + runtime + 命令入口模板），供上面这些 skill 通过 `SKILLS_ROOT/common/...` 引用，不单独作为 skill 软链或被发现。
+## 当前 Codex Rules
 
-## 验证方式
+- `git-commit.rules`：自动允许受控的 `git add`、新提交和普通主分支推送。
+- `github-readonly.rules`：自动允许 `gh pr view/checks`、`gh run list/view`、`gh issue view` 和 `gh repo view`。
 
-初始化完成后，先验证命令入口：
+Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGENTS.md` 或用户指令中的操作边界。
 
-```bash
-sls --help
-archery --help
-```
+## 新增 Skill
 
-不依赖公共命令入口的 skill 可以直接运行自身脚本，例如：
+新的共享 Skill 必须：
 
-```bash
-python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" --help
-```
+1. 放入 `skills/<skill-name>/`。
+2. 同时兼容 Codex 和 Claude Code。
+3. 使用公共 `SKILL.md` frontmatter。
+4. 不写入凭证、Token、Cookie、Session 或个人机器绝对路径。
+5. 将确定性逻辑放入自身 `scripts/`。
+6. 将详细参考资料放入自身 `references/`。
+7. 不在 Skill 目录额外创建 README、安装指南或变更日志。
+8. 完成后运行 Skill 校验和安装脚本 dry-run。
 
-如果还没把 `SKILLS_ROOT/bin` 加进 PATH，也可以直接运行：
+## 机器相关配置
 
-```bash
-<SKILLS_ROOT>/bin/sls --help
-<SKILLS_ROOT>/bin/archery --help
-```
+这些值不要提交：
 
-帮助输出正常后，再执行首次登录：
+- API Key、Token、Cookie、Session
+- SSH 私钥和认证文件
+- EasyImage、PicGo 的真实凭证
+- 数据库和生产环境凭证
+- `~/.local/agent-toolkit/work/runtime.json`
+- 工作区绝对路径
 
-```bash
-sls login
-archery login
-```
-
-## 常用入口
-
-- 查日志：`sls ...`
-- 查数据库：`archery ...`
-- 做总排查：`online-issue-triage`
-- 检查并提交 Git 变更：`git-commit`
-
-如果命令报“未找到运行时配置”或“skills_root 不一致”，通常说明本机还没初始化，或者共享目录位置已变化。此时重新执行：
+例如 `capture-iminling-draft` 的目标仓库路径应在每台机器单独设置：
 
 ```bash
-python3 <SKILLS_ROOT>/common/bootstrap_work.py
+git config --global iminling.repoPath /absolute/path/to/iminling-pages
 ```
+
+## 更新
+
+拉取工具箱：
+
+```bash
+git -C ~/.agent-toolkit pull
+```
+
+软链指向仓库内文件，拉取后不需要重新复制；只有新增或移除 Skill、Rules 时才需要重新运行安装脚本。
+
+提交前至少检查：
+
+- 所有 Skill 均能通过格式校验。
+- `scripts/install.py --dry-run` 无未知冲突。
+- Codex 与 Claude Code 的 Skill 软链目标正确。
+- Codex Rules 软链和 `execpolicy check` 正常。
+- 除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
+- 没有凭证和机器相关运行时文件进入 Git。

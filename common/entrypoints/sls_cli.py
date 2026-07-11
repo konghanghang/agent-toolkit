@@ -30,9 +30,9 @@ def usage() -> str:
   sls query --project <project> [--logstore <logstore>] --query '*'
 
 说明:
-  - Python / SKILLS_ROOT / TMP_DIR 来自 work 运行时配置
-  - 未初始化时请先运行: python3 SKILLS_ROOT/common/bootstrap_work.py
-  - 底层脚本来自 SKILLS_ROOT/aliyun-sls-log-query/scripts
+  - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 work 运行时配置
+  - 未初始化时请先运行: python3 $AGENT_TOOLKIT_ROOT/common/bootstrap_work.py
+  - 底层脚本来自 $AGENT_TOOLKIT_ROOT/skills/aliyun-sls-log-query/scripts
   - 凭证与 session 目录来自 work 运行时配置里的 sls_dir
   - query 会在 session 缺失或失效时自动转去登录，再重试一次
   - 海外全部服务: example-overseas-project / datalogs
@@ -47,8 +47,8 @@ def wants_help(argv: list[str]) -> bool:
 
 def runtime_and_paths() -> tuple[dict, Path, Path]:
     runtime = load_runtime_or_exit(__file__)
-    skills_root = Path(runtime["skills_root"])
-    skill_root = skills_root / "aliyun-sls-log-query"
+    toolkit_root = Path(runtime["agent_toolkit_root"])
+    skill_root = toolkit_root / "skills" / "aliyun-sls-log-query"
     return runtime, skill_root / "scripts" / "aliyun_login.py", skill_root / "scripts" / "aliyun_sls_query.py"
 
 

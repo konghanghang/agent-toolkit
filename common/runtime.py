@@ -10,23 +10,28 @@ from typing import Any, Dict
 
 CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
 CONFIG_FILE = CONFIG_DIR / "runtime.json"
-REQUIRED_KEYS = ("work_root", "skills_root", "python_bin", "tmp_dir", "sls_dir", "archery_dir")
+REQUIRED_KEYS = ("work_root", "python_bin", "tmp_dir", "sls_dir", "archery_dir")
 
 
 class RuntimeConfigError(RuntimeError):
     pass
 
 
-def detect_skills_root(current_file: str | Path) -> Path:
+def detect_agent_toolkit_root(current_file: str | Path) -> Path:
     current = Path(current_file).resolve()
     for parent in (current.parent, *current.parents):
         if (parent / "common" / "runtime.py").exists() and (parent / "common" / "bootstrap_work.py").exists():
             return parent
-    raise RuntimeConfigError(f"无法从路径定位技能根目录: {current}")
+    raise RuntimeConfigError(f"无法从路径定位 Agent Toolkit 根目录: {current}")
+
+
+def detect_skills_root(current_file: str | Path) -> Path:
+    """Backward-compatible alias for callers using the old name."""
+    return detect_agent_toolkit_root(current_file)
 
 
 def bootstrap_script_path(current_file: str | Path) -> Path:
-    return detect_skills_root(current_file) / "common" / "bootstrap_work.py"
+    return detect_agent_toolkit_root(current_file) / "common" / "bootstrap_work.py"
 
 
 def init_hint(current_file: str | Path) -> str:
@@ -68,25 +73,28 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
             f"    请重新初始化: {init_hint(current_file)}"
         ) from exc
 
-    if not data.get("skills_root") and data.get("codex_home"):
+    if not data.get("agent_toolkit_root") and not data.get("skills_root") and data.get("codex_home"):
         legacy_skills_root = Path(str(data["codex_home"])).expanduser() / "skills"
         if legacy_skills_root.exists():
             data["skills_root"] = str(legacy_skills_root.resolve())
 
     missing = [key for key in REQUIRED_KEYS if not data.get(key)]
+    configured_root_value = data.get("agent_toolkit_root") or data.get("skills_root")
+    if not configured_root_value:
+        missing.append("agent_toolkit_root")
     if missing:
         raise RuntimeConfigError(
             f"[!] work 运行时配置缺少字段: {', '.join(missing)}\n"
             f"    请重新初始化: {init_hint(current_file)}"
         )
 
-    actual_skills_root = detect_skills_root(current_file)
-    configured_skills_root = Path(str(data["skills_root"])).expanduser().resolve()
-    if configured_skills_root != actual_skills_root:
+    actual_toolkit_root = detect_agent_toolkit_root(current_file)
+    configured_toolkit_root = Path(str(configured_root_value)).expanduser().resolve()
+    if configured_toolkit_root != actual_toolkit_root:
         raise RuntimeConfigError(
-            f"[!] 运行时配置里的 skills_root 与当前技能目录不一致:\n"
-            f"    config: {configured_skills_root}\n"
-            f"    actual: {actual_skills_root}\n"
+            f"[!] 运行时配置里的 agent_toolkit_root 与当前目录不一致:\n"
+            f"    config: {configured_toolkit_root}\n"
+            f"    actual: {actual_toolkit_root}\n"
             f"    请重新初始化: {init_hint(current_file)}"
         )
 
@@ -95,7 +103,8 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
 
     normalized = dict(data)
     normalized["work_root"] = str(Path(str(data["work_root"])).expanduser().resolve())
-    normalized["skills_root"] = str(configured_skills_root)
+    normalized["agent_toolkit_root"] = str(configured_toolkit_root)
+    normalized["skills_root"] = str(configured_toolkit_root)
     normalized["python_bin"] = str(Path(str(data["python_bin"])).expanduser().absolute())
     normalized["tmp_dir"] = str(Path(str(data["tmp_dir"])).expanduser().resolve())
     normalized["sls_dir"] = str(Path(str(data["sls_dir"])).expanduser().resolve())
@@ -112,13 +121,17 @@ def load_runtime_or_exit(current_file: str | Path) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="work runtime config helper")
-    parser.add_argument("--get", choices=(*REQUIRED_KEYS, "codex_home"), help="输出某个运行时配置字段")
+    parser.add_argument(
+        "--get",
+        choices=(*REQUIRED_KEYS, "agent_toolkit_root", "skills_root", "codex_home"),
+        help="输出某个运行时配置字段",
+    )
     args = parser.parse_args()
 
     runtime = load_runtime_or_exit(__file__)
     if args.get:
-        if args.get == "codex_home":
-            print(runtime["skills_root"])
+        if args.get in {"codex_home", "skills_root"}:
+            print(runtime["agent_toolkit_root"])
         else:
             print(runtime[args.get])
     else:

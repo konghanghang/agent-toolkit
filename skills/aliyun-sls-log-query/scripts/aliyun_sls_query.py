@@ -20,7 +20,7 @@ from pathlib import Path
 
 import requests
 
-COMMON_DIR = Path(__file__).resolve().parents[2] / "common"
+COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
 if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 

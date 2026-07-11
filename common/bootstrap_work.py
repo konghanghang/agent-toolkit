@@ -8,7 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from runtime import detect_skills_root
+from runtime import detect_agent_toolkit_root
 
 CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
 CONFIG_FILE = CONFIG_DIR / "runtime.json"
@@ -60,9 +60,9 @@ def install_dependencies(python_bin: Path) -> None:
     subprocess.run([str(python_bin), "-m", "pip", "install", *DEPENDENCIES], check=True)
 
 
-def install_command_templates(skills_root: Path) -> None:
-    template_dir = skills_root / "common" / "templates" / "bin"
-    target_dir = skills_root / "bin"
+def install_command_templates(toolkit_root: Path) -> None:
+    template_dir = toolkit_root / "common" / "templates" / "bin"
+    target_dir = toolkit_root / "bin"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     if os.name == "nt":
@@ -81,7 +81,7 @@ def install_command_templates(skills_root: Path) -> None:
 
 
 def main() -> int:
-    skills_root = detect_skills_root(__file__)
+    toolkit_root = detect_agent_toolkit_root(__file__)
     existing = {}
     if CONFIG_FILE.exists():
         try:
@@ -99,7 +99,7 @@ def main() -> int:
             guessed_work_root = Path.cwd()
 
     print("work 运行时初始化")
-    print(f"  SKILLS_ROOT: {skills_root}")
+    print(f"  AGENT_TOOLKIT_ROOT: {toolkit_root}")
     print(f"  配置文件: {CONFIG_FILE}")
 
     work_root = prompt_path("work 工作区根目录 WORK_ROOT", str(guessed_work_root))
@@ -121,12 +121,13 @@ def main() -> int:
 
     ensure_venv(python_bin, sys.executable or "python3")
     install_dependencies(python_bin)
-    install_command_templates(skills_root)
+    install_command_templates(toolkit_root)
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     config = {
         "work_root": str(work_root.resolve()),
-        "skills_root": str(skills_root.resolve()),
+        "agent_toolkit_root": str(toolkit_root.resolve()),
+        "skills_root": str(toolkit_root.resolve()),
         "python_bin": str(python_bin.resolve()),
         "tmp_dir": str(tmp_dir.resolve()),
         "sls_dir": str(sls_dir.resolve()),
@@ -137,7 +138,7 @@ def main() -> int:
     print("\n[+] work 运行时配置已写入:")
     print(f"    {CONFIG_FILE}")
     print("[+] 建议确认 PATH 已包含:")
-    print(f"    {skills_root / 'bin'}")
+    print(f"    {toolkit_root / 'bin'}")
     print("[+] 需要补充的凭证文件:")
     print(f"    {sls_dir / 'aliyun-credentials.json'}")
     print(f"    {archery_dir / 'archery-credentials.json'}")
@@ -148,7 +149,7 @@ def main() -> int:
     print("    sls login")
     print("    archery list-instances")
     print("[+] 跨平台基础入口始终可用:")
-    print("    PYTHON_BIN + SKILLS_ROOT/.../scripts/*.py")
+    print("    PYTHON_BIN + AGENT_TOOLKIT_ROOT/skills/.../scripts/*.py")
     return 0
 
 
