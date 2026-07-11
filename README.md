@@ -24,6 +24,7 @@ shared-skills/
 ├── .gitignore
 ├── common/
 ├── git-commit/
+├── upload-to-easyimage/
 ├── archery-prod-query/
 ├── aliyun-sls-log-query/
 ├── online-issue-triage/
@@ -129,6 +130,7 @@ Codex 示例：
 ```bash
 ln -s ~/.shared-skills/common ~/.codex/skills/common
 ln -s ~/.shared-skills/git-commit ~/.codex/skills/git-commit
+ln -s ~/.shared-skills/upload-to-easyimage ~/.codex/skills/upload-to-easyimage
 ln -s ~/.shared-skills/archery-prod-query ~/.codex/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.codex/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.codex/skills/online-issue-triage
@@ -139,6 +141,7 @@ Claude Code 示例：
 ```bash
 ln -s ~/.shared-skills/common ~/.claude/skills/common
 ln -s ~/.shared-skills/git-commit ~/.claude/skills/git-commit
+ln -s ~/.shared-skills/upload-to-easyimage ~/.claude/skills/upload-to-easyimage
 ln -s ~/.shared-skills/archery-prod-query ~/.claude/skills/archery-prod-query
 ln -s ~/.shared-skills/aliyun-sls-log-query ~/.claude/skills/aliyun-sls-log-query
 ln -s ~/.shared-skills/online-issue-triage ~/.claude/skills/online-issue-triage
@@ -238,6 +241,9 @@ Windows 下还会生成：
 
 - `common`
 - `git-commit`
+- `upload-to-easyimage`
+  - [PicGo web-uploader 配置说明](upload-to-easyimage/references/picgo-config.md)
+  - [线上图文教程](https://www.iminling.com/2025/typora-how-to-use-picgo-upload-image-to-easyimage/)
 - `archery-prod-query`
 - `aliyun-sls-log-query`
 - `online-issue-triage`
@@ -250,6 +256,12 @@ Windows 下还会生成：
 ```bash
 sls --help
 archery --help
+```
+
+不依赖公共命令入口的 skill 可以直接运行自身脚本，例如：
+
+```bash
+python3 "$SKILLS_ROOT/upload-to-easyimage/scripts/upload_easyimage.py" --help
 ```
 
 如果还没把 `SKILLS_ROOT/bin` 加进 PATH，也可以直接运行：
