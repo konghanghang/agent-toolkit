@@ -31,7 +31,8 @@ agent-toolkit/
 ├── claude/
 ├── common/
 └── scripts/
-    └── install.py
+    ├── install.py
+    └── update_ui_ux_pro_max.py
 ```
 
 目录职责：
@@ -233,6 +234,34 @@ git -C ~/.agent-toolkit pull
 ```
 
 软链指向仓库内文件，拉取后不需要重新复制；只有新增或移除 Skill、Rules 时才需要重新运行安装脚本。
+
+### 更新外部 `ui-ux-pro-max`
+
+`ui-ux-pro-max` 来自
+[`nextlevelbuilder/ui-ux-pro-max-skill`](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)，
+本地内容保存在 `skills/ui-ux-pro-max/` 并通过 `.gitignore` 排除，不直接提交上游生成文件。
+
+预览官方最新版的生成和校验结果：
+
+```bash
+python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --dry-run
+```
+
+确认后更新：
+
+```bash
+python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py
+```
+
+脚本会使用官方 npm CLI 在临时目录生成 Codex 版本，只提取主 `ui-ux-pro-max`
+Skill，完成结构校验和搜索 smoke test 后原子替换共享目录。旧版本保存在 Git 忽略的
+`.local/backups/`，版本、来源和内容摘要记录在 `external-skills.lock.json`。
+
+如需安装指定版本：
+
+```bash
+python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --version 2.10.2
+```
 
 提交前至少检查：
 
