@@ -18,6 +18,15 @@ description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容
 - `TAPD_WORKSPACE_ID`：默认工作区；也可以通过命令参数或 JSON 规格临时覆盖。
 - `WORK_ROOT`：可选，仅在扩大代码检索范围时使用。
 
+## Agent 编排
+
+- 主 Agent 只负责识别用户意图、控制 TAPD 写入授权、启动后续任务和汇总最终结果。
+- 当前环境支持 subagent 时，默认使用全新或最小上下文的 TAPD Worker 执行需求读取、图片识别和草稿整理；主 Agent 不要先读取 TAPD 再决定是否委派。
+- TAPD Worker 将完整结果写入临时目录，只返回结果文件路径、简短摘要和待确认项，避免把原始 HTML、图片识别过程和大段中间结果带回主上下文。
+- 需要探索代码时，启动独立的只读 Code Explorer，只传递结构化需求文件路径和目标仓库路径；跨仓库时按仓库并行探索。
+- 需要创建或更新时，使用独立的 TAPD Writer 读取已确认规格；只有主 Agent 已确认用户明确授权后，才能执行真实写入。
+- 当前环境不支持 subagent 时，由主 Agent 按相同边界直接执行。
+
 ## 模式选择
 
 1. 查看需求：运行 `detail`，优先读取标题、原始描述、图片和补充字段。
@@ -83,6 +92,7 @@ python3 scripts/tapd_story.py update --spec /tmp/tapd-story.json
 
 ## 按需读取
 
+- Subagent 职责、交接文件和上下文隔离：`references/agent-orchestration.md`
 - 读取、图片和实施上下文：`references/read-and-plan.md`
 - 创建、更新和授权边界：`references/create-and-update.md`
 - JSON 规格：`references/spec-schema.md`
