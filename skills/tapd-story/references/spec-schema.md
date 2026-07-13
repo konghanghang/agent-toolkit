@@ -4,7 +4,7 @@
 
 ```json
 {
-  "workspace_id": "35238004",
+  "workspace_id": "YOUR_WORKSPACE_ID",
   "story": {
     "name": "【接口优化】统一回调状态字段",
     "description_html": "<h3>背景</h3><p>现有回调状态字段口径不一致。</p><h3>验收标准</h3><ol><li>状态字段使用统一枚举。</li></ol>"
@@ -16,7 +16,7 @@
 
 ```json
 {
-  "workspace_id": "35238004",
+  "workspace_id": "YOUR_WORKSPACE_ID",
   "parent": {
     "name": "【系统改造】统一通知链路",
     "description_html": "<h3>背景</h3><p>统一多个通知渠道的处理边界。</p>"
@@ -34,7 +34,7 @@
 
 ```json
 {
-  "workspace_id": "35238004",
+  "workspace_id": "YOUR_WORKSPACE_ID",
   "stories": [
     {
       "id": "1135238004001000001",

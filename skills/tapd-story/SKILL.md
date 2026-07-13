@@ -10,8 +10,13 @@ description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容
 - 把 TAPD 内容视为需求事实，把仓库代码和当前目录适用的 `AGENTS.md` 视为实现事实。
 - “查看、分析、给方案、整理草稿”均为只读或本地生成操作，不得写入 TAPD。
 - 只有用户明确要求“创建、同步、更新 TAPD”时，才执行 `create` 或 `update`。
-- OCR/视觉识别结果只能作为“图片识别结果（待确认）”，不能自动升级为确认需求。
-- 不处理 TAPD 周报；周报继续使用 `$tapd-weekly-report`。
+- 图片中清晰可辨的内容属于需求事实；识别不清、内容截断或存在歧义的部分必须标记为待确认，不得猜测。
+
+## 环境变量
+
+- `TAPD_TOKEN`：必填，作为 Bearer Token 调用 TAPD API。
+- `TAPD_WORKSPACE_ID`：默认工作区；也可以通过命令参数或 JSON 规格临时覆盖。
+- `WORK_ROOT`：可选，仅在扩大代码检索范围时使用。
 
 ## 模式选择
 
@@ -26,22 +31,22 @@ description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容
 读取需求：
 
 ```bash
-python3 scripts/tapd_story.py detail --id STORY_ID --workspace-id WORKSPACE_ID
+python3 scripts/tapd_story.py detail --id STORY_ID
 ```
 
 下载需求图片供视觉识别：
 
 ```bash
-python3 scripts/tapd_story.py detail --id STORY_ID --workspace-id WORKSPACE_ID --download-images
+python3 scripts/tapd_story.py detail --id STORY_ID --download-images
 ```
 
 生成仓库实施上下文：
 
 ```bash
-python3 scripts/tapd_story.py plan-context --id STORY_ID --workspace-id WORKSPACE_ID --repo . --download-images
+python3 scripts/tapd_story.py plan-context --id STORY_ID --repo . --download-images
 ```
 
-图片下载后，使用当前 Agent 可用的视觉/OCR 能力读取本地文件；在最终输出中保留图片顺序、正文上下文和“待确认”标记。图片失败不得阻塞文字需求分析。
+图片下载后，使用当前 Agent 可用的视觉/OCR 能力读取本地文件；在最终输出中保留图片顺序和正文上下文。清晰内容纳入确认需求事实，不确定部分单独标记为待确认。图片失败不得阻塞文字需求分析。
 
 ## 写入命令
 
@@ -72,7 +77,7 @@ python3 scripts/tapd_story.py update --spec /tmp/tapd-story.json
 
 - 保持 TAPD 原标题，不擅自改写。
 - 清理 HTML 时保持原始段落和列表顺序。
-- 明确分开：确认需求事实、图片识别结果、代码证据、推断路径、待确认项。
+- 明确分开：确认需求事实、图片中的不确定内容、代码证据、推断路径、待确认项。
 - 创建或更新后返回需求 ID、链接、owner 是否设置和执行模式。
 - 父需求成功而子任务失败时，明确输出部分成功、失败项和未执行项，不宣称已回滚。
 

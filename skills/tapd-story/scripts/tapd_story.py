@@ -22,7 +22,7 @@ def _add_read_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fields", default=DEFAULT_FIELDS, help="逗号分隔的 TAPD 字段")
     parser.add_argument(
         "--base-url",
-        default=os.getenv("TAPD_BASE_URL", DEFAULT_BASE_URL),
+        default=DEFAULT_BASE_URL,
         help=f"TAPD API 地址，默认 {DEFAULT_BASE_URL}",
     )
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
@@ -57,7 +57,7 @@ def parse_args() -> argparse.Namespace:
         write.add_argument("--workspace-id", help="TAPD 工作区 ID")
         write.add_argument(
             "--base-url",
-            default=os.getenv("TAPD_BASE_URL", DEFAULT_BASE_URL),
+            default=DEFAULT_BASE_URL,
             help=f"TAPD API 地址，默认 {DEFAULT_BASE_URL}",
         )
         write.add_argument("--dry-run", action="store_true", help="只输出操作计划，不调用写接口")
@@ -138,14 +138,14 @@ def _render_detail_markdown(story: Dict[str, Any]) -> str:
     if story.get("field_codes"):
         lines.extend(["", "## 字段编码", f"- {', '.join(story['field_codes'])}"])
     if story.get("images"):
-        lines.extend(["", "## 图片资源（识别结果需确认）"])
+        lines.extend(["", "## 图片资源"])
         for image in story["images"]:
             lines.append(f"- 图片 {image['index']}：{image['src']}")
             if image.get("context"):
                 lines.append(f"  - 正文上下文：{image['context']}")
             if image.get("local_path"):
                 lines.append(f"  - 本地文件：{image['local_path']}")
-                lines.append("  - 状态：待视觉/OCR 识别并人工确认")
+                lines.append("  - 状态：待视觉/OCR 读取；清晰内容可纳入需求事实")
             if image.get("download_error"):
                 lines.append(f"  - 下载失败：{image['download_error']}")
     return "\n".join(lines).strip() + "\n"
@@ -180,14 +180,14 @@ def _render_plan_context_markdown(story: Dict[str, Any], context: Dict[str, Any]
         lines.extend(f"- 外部链接：{url}" for url in story["urls"])
 
     if story.get("images"):
-        lines.extend(["", "## 图片上下文（待确认）"])
+        lines.extend(["", "## 图片上下文"])
         for image in story["images"]:
             lines.append(f"- 图片 {image['index']}：{image['src']}")
             if image.get("context"):
                 lines.append(f"  - 正文上下文：{image['context']}")
             if image.get("local_path"):
                 lines.append(f"  - 本地文件：{image['local_path']}")
-                lines.append("  - 后续动作：执行视觉/OCR 识别，结果不得直接视为确认需求")
+                lines.append("  - 后续动作：执行视觉/OCR 读取；仅将不清晰或有歧义的部分标记为待确认")
             if image.get("download_error"):
                 lines.append(f"  - 下载失败：{image['download_error']}")
 

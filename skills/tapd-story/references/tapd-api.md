@@ -2,18 +2,14 @@
 
 ## 配置
 
-认证优先级：
-
-1. `TAPD_TOKEN`，使用 Bearer Auth。
-2. `TAPD_API_USER` + `TAPD_API_PASSWORD`，使用 Basic Auth。
+认证只使用 `TAPD_TOKEN`，并通过 Bearer Auth 调用 TAPD API。
 
 其他配置：
 
-- `TAPD_WORKSPACE_ID`：默认工作区；代码不写死工作区。
-- `TAPD_BASE_URL`：默认 `https://api.tapd.cn`。
+- `TAPD_WORKSPACE_ID`：默认工作区；代码不写死工作区，也不提供固定默认值。
 - `WORK_ROOT`：扩大仓库检索时的工作区根目录。
 
-Token、账号、密码、Cookie 和 Session 不得写入 Skill 或规格文件。
+`TAPD_TOKEN`、Cookie 和 Session 不得写入 Skill 或规格文件。API 地址固定为 `https://api.tapd.cn`，仅允许通过 `--base-url` 临时覆盖调试。
 
 ## 需求接口
 
