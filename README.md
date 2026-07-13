@@ -23,6 +23,7 @@ agent-toolkit/
 │   ├── archery-prod-query/
 │   ├── aliyun-sls-log-query/
 │   ├── online-issue-triage/
+│   ├── tapd-story/
 │   └── tapd-weekly-report/
 ├── codex/
 │   └── rules/
@@ -186,6 +187,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `archery-prod-query`
 - `aliyun-sls-log-query`
 - `online-issue-triage`
+- `tapd-story`
 - `tapd-weekly-report`
 
 ## 当前 Codex Rules

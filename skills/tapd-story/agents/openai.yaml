@@ -1,0 +1,4 @@
+interface:
+  display_name: "TAPD 需求管理"
+  short_description: "读取需求、检索代码，并创建或更新结构化 TAPD 需求"
+  default_prompt: "使用 $tapd-story 读取、分析或管理 TAPD 需求；写操作仅在明确要求时执行。"
