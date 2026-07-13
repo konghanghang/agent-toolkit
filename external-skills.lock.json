@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "skills": {
+    "ui-ux-pro-max": {
+      "source": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "package": "ui-ux-pro-max-cli",
+      "version": "2.10.2",
+      "install_scope": "main-skill-only",
+      "content_sha256": "b2f7d1348bf2674dfbe5ff9f747a88900035fbbbbcd9b44546343d06a5b3152e",
+      "updated_at": "2026-07-13T01:47:38+00:00"
+    }
+  }
+}
