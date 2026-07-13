@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
@@ -29,17 +28,7 @@ def _auth_header() -> str:
     token = os.getenv("TAPD_TOKEN", "").strip()
     if token:
         return f"Bearer {token}"
-
-    api_user = os.getenv("TAPD_API_USER", "").strip()
-    api_password = os.getenv("TAPD_API_PASSWORD", "").strip()
-    if api_user and api_password:
-        encoded = base64.b64encode(f"{api_user}:{api_password}".encode("utf-8")).decode("ascii")
-        return f"Basic {encoded}"
-
-    raise TapdError(
-        "缺少 TAPD 认证信息，请设置 TAPD_TOKEN，"
-        "或同时设置 TAPD_API_USER 和 TAPD_API_PASSWORD。"
-    )
+    raise TapdError("缺少 TAPD 认证信息，请设置 TAPD_TOKEN。")
 
 
 def _extract_story(data: Any) -> Optional[Dict[str, Any]]:
@@ -101,7 +90,7 @@ def _safe_filename(value: str, fallback: str) -> str:
 
 class TapdClient:
     def __init__(self, base_url: Optional[str] = None, timeout: int = 30) -> None:
-        self.base_url = (base_url or os.getenv("TAPD_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self.timeout = timeout
 
     def _request_json(
