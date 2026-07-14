@@ -23,7 +23,7 @@ SESSION_ERROR_RE = re.compile(r"ConsoleNeedLogin|Invalid CSRF token|找不到 se
 
 def usage() -> str:
     return """用法:
-  sls login
+  sls login [--keep]
   sls query --service ai-open-api [--size 100]
   sls query --scope domestic --service data-center --keyword ERROR
   sls query --scope overseas --service agentcc --minutes 60
@@ -34,6 +34,7 @@ def usage() -> str:
   - 未初始化时请先运行: python3 $AGENT_TOOLKIT_ROOT/common/bootstrap_work.py
   - 底层脚本来自 $AGENT_TOOLKIT_ROOT/skills/aliyun-sls-log-query/scripts
   - 凭证与 session 目录来自 work 运行时配置里的 sls_dir
+  - login 默认在抓取 session 后关闭浏览器，仅 --keep 保留窗口
   - query 会在 session 缺失或失效时自动转去登录，再重试一次
   - 海外全部服务: example-overseas-project / datalogs
   - 国内 ai-open-api: example-api-project / example-api-project

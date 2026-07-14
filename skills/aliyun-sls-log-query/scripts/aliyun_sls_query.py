@@ -203,16 +203,22 @@ def main() -> int:
         to_ts=args.to_ts,
     )
 
+    if args.out:
+        Path(args.out).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"[+] 完整响应已写入 {args.out}\n")
+
     if isinstance(data, dict):
         print(f"[*] 响应 keys: {list(data.keys())}")
+        if data.get("success") is False:
+            code = data.get("code", "UnknownError")
+            message = data.get("message", "")
+            print(f"[!] SLS 查询失败: code={code}, message={message}", file=sys.stderr)
+            return 2
         # 兼容多种返回字段名
         logs = data.get("data") or data.get("logs") or data.get("items") or []
         print(f"[+] 拿到 {len(logs)} 条日志\n")
-        if args.out:
-            Path(args.out).write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            print(f"[+] 完整响应已写入 {args.out}\n")
         for i, log in enumerate(logs):
             ts = log.get("__time__") or log.get("time") or "?"
             content = (

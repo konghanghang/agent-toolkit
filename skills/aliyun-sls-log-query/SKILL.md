@@ -91,10 +91,10 @@ sls query --service ai-open-api --size 1
 sls login
 ```
 
-如需底层脚本自动关闭浏览器窗口，可直接执行:
+登录成功并验证 session 后会自动关闭浏览器。只有需要人工调试登录页时才保留窗口:
 
 ```bash
-"$PYTHON_BIN" "$AGENT_TOOLKIT_ROOT/skills/aliyun-sls-log-query/scripts/aliyun_login.py" --no-keep
+sls login --keep
 ```
 
 脚本会:
@@ -206,7 +206,7 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 
 | 报错 | 原因 | 解决 |
 |------|------|------|
-| `ConsoleNeedLogin` / `Invalid CSRF token` | session 过期 | 直接重跑 `sls query ...`，入口会自动转去重新登录 |
+| `ConsoleNeedLogin` / `Invalid CSRF token` | session 过期 | 直接重跑 `sls query ...`，入口会自动登录、关闭浏览器并重试一次 |
 | 找不到 `SLS_DIR/aliyun_session.json` | 首次使用 | 先执行 `sls login`，或者直接执行一次 `sls query ...` |
 | 找不到 `SLS_DIR/aliyun-credentials.json` | 凭证未配 | 按 "前置准备" 创建 |
 | MFA 提交后页面没反应 | TOTP 已过期 | 重新跑 (脚本会等新 30s 窗口) |

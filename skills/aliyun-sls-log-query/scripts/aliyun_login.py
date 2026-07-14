@@ -2,7 +2,7 @@
 
 用法:
     PYTHON_BIN aliyun_login.py
-    PYTHON_BIN aliyun_login.py --no-keep
+    PYTHON_BIN aliyun_login.py --keep
 
 凭证从运行时配置里的 SLS_DIR/aliyun-credentials.json 读取, 不进 git。
 
@@ -325,13 +325,17 @@ def wait_manual_login(driver, timeout: int = 180) -> bool:
     return False
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--keep", dest="keep", action="store_true", help="登录完成后保留浏览器窗口")
     parser.add_argument("--no-keep", dest="keep", action="store_false", help="登录完成后自动关闭浏览器窗口")
-    parser.set_defaults(keep=True)
-    args = parser.parse_args()
+    parser.set_defaults(keep=False)
+    return parser.parse_args(argv)
+
+
+def main() -> int:
+    args = parse_args()
     load_runtime_or_exit(__file__)
 
     creds = load_creds()

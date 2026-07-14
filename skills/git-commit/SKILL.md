@@ -49,6 +49,8 @@ git remote -v
 ```bash
 git log @{upstream} -1 --format='%an <%ae> | %cn <%ce>'
 git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
+git log @{upstream} -3 --format='%H'
+git cat-file -p <commit>  # 检查近期提交是否存在 gpgsig
 ```
 
 执行时遵守以下规则：
@@ -57,8 +59,10 @@ git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
 2. 不要仅凭“不是 noreply 地址”就断言配置错误；公开邮箱也可能是用户的明确选择。优先依据仓库历史、用户指令和实际 `GH007` 错误判断。
 3. 普通提交任务中，不静默修改 Git 身份。若用户明确要求修复身份或处理 `GH007`，可以沿用该仓库远端历史中已经被接受的确切 noreply 地址。
 4. 只设置仓库级身份，例如 `git config user.email <address>`；除非用户明确要求，禁止修改 `--global` 或系统级配置。
-5. 检查 `commit.gpgsign` 和 `user.signingkey`，沿用已有签名策略；禁止为解决邮箱问题关闭或绕过签名。
-6. 没有上游分支时，先判断当前分支是否存在对应的 `origin/<branch>`；都不存在时只报告本地身份，不猜测远端惯例。
+5. 同时检查 `commit.gpgsign`、`user.signingkey` 和近期提交对象的 `gpgsig`。`commit.gpgsign=false` 只表示 Git 默认不自动签名，不能用来证明仓库没有通过 `git commit -S` 保持签名的惯例。
+6. 如果近期上游提交稳定包含 `gpgsig`，且当前已配置 `user.signingkey`，将其视为仓库签名惯例，本次使用 `git commit -S`。近期提交签名状态混杂或无法判断时，优先遵循项目规则和用户指令；仍有歧义时先询问用户。
+7. 禁止为解决邮箱问题关闭或绕过签名，也不得为了单次提交静默修改全局签名配置。
+8. 没有上游分支时，先判断当前分支是否存在对应的 `origin/<branch>`；都不存在时只报告本地身份，不猜测远端惯例。
 
 ## 排除不应提交的内容
 
@@ -113,7 +117,7 @@ git diff --cached --check
 ## 执行提交
 
 1. 只有用户明确要求提交，或者当前任务已经明确授权提交时，才能执行 `git commit`。
-2. 沿用当前 Git 的作者和签名配置，禁止主动修改、关闭或绕过签名设置。
+2. 沿用当前 Git 的作者与仓库实际签名惯例；已确认使用签名时执行 `git commit -S`，禁止主动修改、关闭或绕过签名设置。
 3. 禁止自动执行 `git commit --amend`。只有用户明确要求修改提交，或明确要求处理 `GH007` 且满足下方安全条件时，才允许改写尚未推送的提交。
 4. 提交失败时保留现场，报告错误，不通过修改全局 Git 配置强行绕过。
 
@@ -201,6 +205,7 @@ git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
 ```bash
 git status --short --branch
 git log -1 --oneline
+git cat-file -p HEAD  # 如需签名，确认新提交包含 gpgsig
 ```
 
 若存在上游分支，再检查所有领先提交的身份：
