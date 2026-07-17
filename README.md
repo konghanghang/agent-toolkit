@@ -105,7 +105,7 @@ python3 ~/.agent-toolkit/scripts/install.py
 1. 扫描 `skills/*/SKILL.md`。
 2. 将 Skill 链接到 `~/.agents/skills/`。
 3. 将 Skill 链接到 `~/.claude/skills/`。
-4. 将 `codex/rules/*.rules` 链接到 `~/.codex/rules/`。
+4. 默认将 `codex/rules/*.rules` 链接到 `~/.codex/rules/`。
 5. 已有正确软链时跳过。
 6. 普通文件、真实目录或未知软链发生冲突时拒绝覆盖。
 
@@ -121,9 +121,32 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 --dry-run          只显示计划，不修改文件
 --codex-only       只安装 Codex Skills 和 Rules
 --claude-only      只安装 Claude Code Skills
+--rules-only       只安装 Codex Rules
+--codex-home PATH  将 Rules 安装到指定的现有 Codex Home
 --skill NAME       只处理指定 Skill，可重复使用
 --replace-managed  替换指向旧工具箱或旧目录结构的受管软链
 ```
+
+### 自定义 Codex Home
+
+安装脚本无参数运行时始终使用默认的 `~/.codex`，不会扫描磁盘、解析 Shell alias
+或读取 `CODEX_HOME` 来猜测其他 Codex Home。
+
+存在额外 Codex Home 时，由用户或对应环境的初始化脚本明确指定目录，并单独安装一次 Rules：
+
+```bash
+python3 ~/.agent-toolkit/scripts/install.py \
+  --rules-only \
+  --codex-home ~/data/work/.codex \
+  --dry-run
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --rules-only \
+  --codex-home ~/data/work/.codex
+```
+
+自定义 Codex Home 必须已经存在；安装脚本不会因为路径拼写错误而创建一个新的 Home。
+每次运行都会输出实际使用的 Codex Home 和 Rules 目标目录。
 
 ## 安装结果
 
@@ -145,6 +168,9 @@ Codex Rules：
 
 ```text
 ~/.codex/rules/<name>.rules
+  → ~/.agent-toolkit/codex/rules/<name>.rules
+
+<custom-codex-home>/rules/<name>.rules
   → ~/.agent-toolkit/codex/rules/<name>.rules
 ```
 

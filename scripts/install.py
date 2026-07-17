@@ -8,6 +8,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 
 TOOLKIT_ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ SKILLS_DIR = TOOLKIT_ROOT / "skills"
 CODEX_RULES_SOURCE = TOOLKIT_ROOT / "codex" / "rules"
 CODEX_SKILLS_TARGET = Path.home() / ".agents" / "skills"
 CLAUDE_SKILLS_TARGET = Path.home() / ".claude" / "skills"
-CODEX_RULES_TARGET = Path.home() / ".codex" / "rules"
+DEFAULT_CODEX_HOME = Path.home() / ".codex"
 LEGACY_ROOTS = (
     Path.home() / ".shared-skills",
     TOOLKIT_ROOT,
@@ -29,13 +30,18 @@ class LinkSpec:
     label: str
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Install shared skills for Codex and Claude Code, plus Codex rules."
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--codex-only", action="store_true", help="Install only Codex skills and rules")
     mode.add_argument("--claude-only", action="store_true", help="Install only Claude Code skills")
+    mode.add_argument("--rules-only", action="store_true", help="Install only Codex rules")
+    parser.add_argument(
+        "--codex-home",
+        help="Install Codex rules into this existing Codex home instead of ~/.codex",
+    )
     parser.add_argument("--skill", action="append", default=[], help="Install only the named skill; repeatable")
     parser.add_argument("--dry-run", action="store_true", help="Print planned changes without writing")
     parser.add_argument(
@@ -43,7 +49,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Replace symlinks that point to the legacy toolkit root or an old layout",
     )
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.claude_only and args.codex_home:
+        parser.error("--codex-home cannot be used with --claude-only")
+    if args.rules_only and args.skill:
+        parser.error("--skill cannot be used with --rules-only")
+
+    return args
 
 
 def available_skills() -> dict[str, Path]:
@@ -83,22 +96,42 @@ def is_managed_target(path: Path) -> bool:
     return False
 
 
-def plan_links(args: argparse.Namespace) -> list[LinkSpec]:
-    skills = selected_skills(args.skill)
+def installs_codex_rules(args: argparse.Namespace) -> bool:
+    return not args.claude_only
+
+
+def resolve_codex_home(args: argparse.Namespace) -> tuple[Path, str]:
+    if not args.codex_home:
+        return DEFAULT_CODEX_HOME, "default"
+
+    codex_home = Path(args.codex_home).expanduser().resolve(strict=False)
+    if not codex_home.exists():
+        raise SystemExit(f"Custom Codex home does not exist: {codex_home}")
+    if not codex_home.is_dir():
+        raise SystemExit(f"Custom Codex home is not a directory: {codex_home}")
+    return codex_home, "custom"
+
+
+def plan_links(args: argparse.Namespace, codex_home: Optional[Path] = None) -> list[LinkSpec]:
+    skills = {} if args.rules_only else selected_skills(args.skill)
     specs: list[LinkSpec] = []
 
-    if not args.claude_only:
+    if not args.claude_only and not args.rules_only:
         specs.extend(
             LinkSpec(source, CODEX_SKILLS_TARGET / name, "Codex skill")
             for name, source in skills.items()
         )
+
+    if installs_codex_rules(args):
+        if codex_home is None:
+            codex_home, _ = resolve_codex_home(args)
         if CODEX_RULES_SOURCE.is_dir():
             specs.extend(
-                LinkSpec(rule, CODEX_RULES_TARGET / rule.name, "Codex rule")
+                LinkSpec(rule, codex_home / "rules" / rule.name, "Codex rule")
                 for rule in sorted(CODEX_RULES_SOURCE.glob("*.rules"))
             )
 
-    if not args.codex_only:
+    if not args.codex_only and not args.rules_only:
         specs.extend(
             LinkSpec(source, CLAUDE_SKILLS_TARGET / name, "Claude Code skill")
             for name, source in skills.items()
@@ -139,7 +172,13 @@ def install_link(spec: LinkSpec, args: argparse.Namespace) -> tuple[str, bool]:
 
 def main() -> int:
     args = parse_args()
-    specs = plan_links(args)
+    codex_home = None
+    if installs_codex_rules(args):
+        codex_home, home_kind = resolve_codex_home(args)
+        print(f"Codex home: {codex_home} ({home_kind})")
+        print(f"Rules target: {codex_home / 'rules'}\n")
+
+    specs = plan_links(args, codex_home)
     failures = 0
 
     for spec in specs:
