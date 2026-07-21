@@ -23,7 +23,7 @@ description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容
 - 主 Agent 只负责识别用户意图、控制 TAPD 写入授权、启动后续任务和汇总最终结果。
 - 当前环境支持 subagent 时，默认使用全新或最小上下文的 TAPD Worker 执行需求读取、图片识别和草稿整理；主 Agent 不要先读取 TAPD 再决定是否委派。
 - TAPD Worker 将完整结果写入临时目录，只返回结果文件路径、简短摘要和待确认项，避免把原始 HTML、图片识别过程和大段中间结果带回主上下文。
-- 需要探索代码时，启动独立的只读 Code Explorer，只传递结构化需求文件路径和目标仓库路径；跨仓库时按仓库并行探索。
+- 需要探索代码时，启动独立的只读 Code Explorer；按 `references/agent-orchestration.md` 判断与 TAPD 读取并行还是串行，并按 `references/read-and-plan.md` 从足以回答当前问题的最小范围开始逐步扩大。
 - 需要创建或更新时，使用独立的 TAPD Writer 读取已确认规格；只有主 Agent 已确认用户明确授权后，才能执行真实写入。
 - 当前环境不支持 subagent 时，由主 Agent 按相同边界直接执行。
 
