@@ -1,3 +1,4 @@
+# Managed by agent-toolkit.
 # Allow common read-only GitHub CLI inspection commands.
 # Commands that create, merge, close, publish, dispatch, or call arbitrary API
 # endpoints intentionally remain outside these rules.

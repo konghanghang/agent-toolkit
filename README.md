@@ -105,9 +105,9 @@ python3 ~/.agent-toolkit/scripts/install.py
 1. 扫描 `skills/*/SKILL.md`。
 2. 将 Skill 链接到 `~/.agents/skills/`。
 3. 将 Skill 链接到 `~/.claude/skills/`。
-4. 默认将 `codex/rules/*.rules` 链接到 `~/.codex/rules/`。
-5. 已有正确软链时跳过。
-6. 普通文件、真实目录或未知软链发生冲突时拒绝覆盖。
+4. 默认将 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
+5. Skill 已有正确软链、Rule 已与源文件一致时跳过。
+6. 旧版受管 Rule 软链自动迁移为真实文件，未知文件或未知软链发生冲突时拒绝覆盖。
 
 从旧的 `~/.shared-skills` 迁移时使用：
 
@@ -124,7 +124,7 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 --rules-only       只安装 Codex Rules
 --codex-home PATH  将 Rules 安装到指定的现有 Codex Home
 --skill NAME       只处理指定 Skill，可重复使用
---replace-managed  替换指向旧工具箱或旧目录结构的受管软链
+--replace-managed  替换指向旧工具箱或旧目录结构的受管链接
 ```
 
 ### 自定义 Codex Home
@@ -167,16 +167,16 @@ Claude Code Skills：
 Codex Rules：
 
 ```text
-~/.codex/rules/<name>.rules
-  → ~/.agent-toolkit/codex/rules/<name>.rules
+~/.agent-toolkit/codex/rules/<name>.rules
+  --原子复制--> ~/.codex/rules/<name>.rules
 
-<custom-codex-home>/rules/<name>.rules
-  → ~/.agent-toolkit/codex/rules/<name>.rules
+~/.agent-toolkit/codex/rules/<name>.rules
+  --原子复制--> <custom-codex-home>/rules/<name>.rules
 ```
 
-保留 `~/.codex/rules/` 为真实目录，不把整个目录替换为软链。这样 Codex 自动生成的 `default.rules` 和版本控制的规则可以共存。
+Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是软链。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 目录软链不受影响。
 
-Codex 在启动时加载 Rules；新增或更新规则后，新开会话或重启客户端。
+Codex 在启动时加载 Rules；新增或更新规则后，重新运行 `scripts/install.py --rules-only`，再新开会话或重启客户端。
 
 ## work 公共运行时
 
@@ -261,7 +261,13 @@ git config --global iminling.repoPath /absolute/path/to/iminling-pages
 git -C ~/.agent-toolkit pull
 ```
 
-软链指向仓库内文件，拉取后不需要重新复制；只有新增或移除 Skill、Rules 时才需要重新运行安装脚本。
+Skill 软链会立即读取仓库内更新。Rules 是受管副本，拉取后需要重新运行：
+
+```bash
+python3 ~/.agent-toolkit/scripts/install.py --rules-only
+```
+
+Rules 安装完成后，新开会话或重启客户端使其生效。
 
 ### 更新外部 `ui-ux-pro-max`
 
@@ -296,6 +302,6 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --version 2.10.2
 - 所有 Skill 均能通过格式校验。
 - `scripts/install.py --dry-run` 无未知冲突。
 - Codex 与 Claude Code 的 Skill 软链目标正确。
-- Codex Rules 软链和 `execpolicy check` 正常。
+- Codex Rules 是与源文件一致的真实文件，且 `execpolicy check` 正常。
 - 除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
 - 没有凭证和机器相关运行时文件进入 Git。

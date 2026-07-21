@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Install Agent Toolkit skills and Codex rules with safe symlinks."""
+"""Install Agent Toolkit skills with symlinks and Codex rules as managed files."""
 
 from __future__ import annotations
 
 import argparse
 import os
+import tempfile
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,13 +22,17 @@ LEGACY_ROOTS = (
     Path.home() / ".shared-skills",
     TOOLKIT_ROOT,
 )
+RULE_MANAGED_MARKER = "# Managed by agent-toolkit."
+SYMLINK_STRATEGY = "symlink"
+COPY_STRATEGY = "copy"
 
 
 @dataclass(frozen=True)
-class LinkSpec:
+class InstallSpec:
     source: Path
     target: Path
     label: str
+    strategy: str
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -47,7 +52,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--replace-managed",
         action="store_true",
-        help="Replace symlinks that point to the legacy toolkit root or an old layout",
+        help="Replace managed links that point to a legacy toolkit root or an old layout",
     )
     args = parser.parse_args(argv)
 
@@ -112,13 +117,13 @@ def resolve_codex_home(args: argparse.Namespace) -> tuple[Path, str]:
     return codex_home, "custom"
 
 
-def plan_links(args: argparse.Namespace, codex_home: Optional[Path] = None) -> list[LinkSpec]:
+def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -> list[InstallSpec]:
     skills = {} if args.rules_only else selected_skills(args.skill)
-    specs: list[LinkSpec] = []
+    specs: list[InstallSpec] = []
 
     if not args.claude_only and not args.rules_only:
         specs.extend(
-            LinkSpec(source, CODEX_SKILLS_TARGET / name, "Codex skill")
+            InstallSpec(source, CODEX_SKILLS_TARGET / name, "Codex skill", SYMLINK_STRATEGY)
             for name, source in skills.items()
         )
 
@@ -127,20 +132,20 @@ def plan_links(args: argparse.Namespace, codex_home: Optional[Path] = None) -> l
             codex_home, _ = resolve_codex_home(args)
         if CODEX_RULES_SOURCE.is_dir():
             specs.extend(
-                LinkSpec(rule, codex_home / "rules" / rule.name, "Codex rule")
+                InstallSpec(rule, codex_home / "rules" / rule.name, "Codex rule", COPY_STRATEGY)
                 for rule in sorted(CODEX_RULES_SOURCE.glob("*.rules"))
             )
 
     if not args.codex_only and not args.rules_only:
         specs.extend(
-            LinkSpec(source, CLAUDE_SKILLS_TARGET / name, "Claude Code skill")
+            InstallSpec(source, CLAUDE_SKILLS_TARGET / name, "Claude Code skill", SYMLINK_STRATEGY)
             for name, source in skills.items()
         )
 
     return specs
 
 
-def install_link(spec: LinkSpec, args: argparse.Namespace) -> tuple[str, bool]:
+def install_symlink(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     source = spec.source.resolve()
     target = spec.target
 
@@ -170,6 +175,76 @@ def install_link(spec: LinkSpec, args: argparse.Namespace) -> tuple[str, bool]:
     return message, True
 
 
+def is_managed_rule_file(path: Path) -> bool:
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            return file.readline().rstrip("\n") == RULE_MANAGED_MARKER
+    except (OSError, UnicodeError):
+        return False
+
+
+def atomic_copy(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(source.read_bytes())
+        os.chmod(temporary_path, source.stat().st_mode & 0o777)
+        os.replace(temporary_path, target)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+def install_copy(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    source = spec.source.resolve()
+    target = spec.target
+
+    if not is_managed_rule_file(source):
+        return f"CONFLICT {spec.label}: {source} is missing the managed marker", False
+
+    if os.path.lexists(target):
+        if target.is_symlink():
+            existing = resolve_link_target(target)
+            if existing == source:
+                action = "MIGRATE"
+            elif args.replace_managed and is_managed_target(existing):
+                action = "REPLACE"
+            else:
+                return f"CONFLICT {spec.label}: {target} -> {existing}", False
+        elif not target.is_file():
+            return f"CONFLICT {spec.label}: {target} exists and is not a regular file", False
+        elif target.read_bytes() == source.read_bytes():
+            return f"OK       {spec.label}: {target} matches {source}", True
+        elif is_managed_rule_file(target):
+            action = "UPDATE "
+        else:
+            return f"CONFLICT {spec.label}: {target} exists and is not managed", False
+    else:
+        action = "COPY   "
+
+    message = f"{action} {spec.label}: {source} -> {target}"
+    if args.dry_run:
+        return message, True
+
+    atomic_copy(source, target)
+    return message, True
+
+
+def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    if spec.strategy == SYMLINK_STRATEGY:
+        return install_symlink(spec, args)
+    if spec.strategy == COPY_STRATEGY:
+        return install_copy(spec, args)
+    return f"CONFLICT {spec.label}: unknown install strategy {spec.strategy}", False
+
+
 def main() -> int:
     args = parse_args()
     codex_home = None
@@ -178,11 +253,11 @@ def main() -> int:
         print(f"Codex home: {codex_home} ({home_kind})")
         print(f"Rules target: {codex_home / 'rules'}\n")
 
-    specs = plan_links(args, codex_home)
+    specs = plan_installs(args, codex_home)
     failures = 0
 
     for spec in specs:
-        message, success = install_link(spec, args)
+        message, success = install_spec(spec, args)
         print(message)
         if not success:
             failures += 1
@@ -192,7 +267,7 @@ def main() -> int:
         return 1
 
     mode = "dry-run" if args.dry_run else "complete"
-    print(f"\nInstallation {mode}: {len(specs)} link(s) checked.")
+    print(f"\nInstallation {mode}: {len(specs)} item(s) checked.")
     return 0
 
 

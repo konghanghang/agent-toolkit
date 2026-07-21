@@ -54,12 +54,13 @@ class InstallTest(unittest.TestCase):
             args = install.parse_args(["--rules-only", "--codex-home", str(custom_home)])
             codex_home, home_kind = install.resolve_codex_home(args)
 
-            specs = install.plan_links(args, codex_home)
+            specs = install.plan_installs(args, codex_home)
 
         self.assertEqual("custom", home_kind)
         self.assertTrue(specs)
         self.assertTrue(all(spec.label == "Codex rule" for spec in specs))
         self.assertTrue(all(spec.target.parent == codex_home / "rules" for spec in specs))
+        self.assertTrue(all(spec.strategy == install.COPY_STRATEGY for spec in specs))
 
     def test_rules_install_preserves_local_default_rules(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -69,14 +70,97 @@ class InstallTest(unittest.TestCase):
             default_rules = rules_dir / "default.rules"
             default_rules.write_text("local rule\n", encoding="utf-8")
             args = install.parse_args(["--rules-only", "--codex-home", str(custom_home)])
-            specs = install.plan_links(args, custom_home)
+            specs = install.plan_installs(args, custom_home)
 
-            results = [install.install_link(spec, args) for spec in specs]
+            results = [install.install_spec(spec, args) for spec in specs]
 
             self.assertTrue(all(success for _, success in results))
             self.assertEqual("local rule\n", default_rules.read_text(encoding="utf-8"))
             self.assertFalse(default_rules.is_symlink())
-            self.assertTrue(all(spec.target.is_symlink() for spec in specs))
+            self.assertTrue(all(spec.target.is_file() for spec in specs))
+            self.assertTrue(all(not spec.target.is_symlink() for spec in specs))
+            self.assertTrue(
+                all(spec.target.read_bytes() == spec.source.read_bytes() for spec in specs)
+            )
+
+    def test_rules_install_migrates_current_managed_symlink_to_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(["--rules-only", "--codex-home", str(custom_home)])
+            spec = install.plan_installs(args, custom_home)[0]
+            spec.target.parent.mkdir()
+            spec.target.symlink_to(spec.source)
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("MIGRATE", message)
+            self.assertTrue(spec.target.is_file())
+            self.assertFalse(spec.target.is_symlink())
+            self.assertEqual(spec.source.read_bytes(), spec.target.read_bytes())
+
+    def test_rules_install_updates_managed_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(["--rules-only", "--codex-home", str(custom_home)])
+            spec = install.plan_installs(args, custom_home)[0]
+            spec.target.parent.mkdir()
+            spec.target.write_text(
+                f"{install.RULE_MANAGED_MARKER}\nold rule\n",
+                encoding="utf-8",
+            )
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("UPDATE", message)
+            self.assertEqual(spec.source.read_bytes(), spec.target.read_bytes())
+
+    def test_rules_install_rejects_unmanaged_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(["--rules-only", "--codex-home", str(custom_home)])
+            spec = install.plan_installs(args, custom_home)[0]
+            spec.target.parent.mkdir()
+            spec.target.write_text("local rule\n", encoding="utf-8")
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertFalse(success)
+            self.assertIn("is not managed", message)
+            self.assertEqual("local rule\n", spec.target.read_text(encoding="utf-8"))
+
+    def test_rules_dry_run_does_not_migrate_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(
+                ["--rules-only", "--codex-home", str(custom_home), "--dry-run"]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+            spec.target.parent.mkdir()
+            spec.target.symlink_to(spec.source)
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("MIGRATE", message)
+            self.assertTrue(spec.target.is_symlink())
+
+    def test_skills_remain_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "skill"
+            spec = install.InstallSpec(
+                install.SKILLS_DIR / "git-commit",
+                target,
+                "Codex skill",
+                install.SYMLINK_STRATEGY,
+            )
+            args = install.parse_args([])
+
+            _, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertTrue(target.is_symlink())
 
     def test_codex_home_is_rejected_for_claude_only(self) -> None:
         with mock.patch("sys.stderr", new=io.StringIO()):
