@@ -218,7 +218,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 
 ## 当前 Codex Rules
 
-- `git-commit.rules`：自动允许受控的 `git add`、新提交和普通主分支推送。
+- `git-commit.rules`：自动允许从 `origin` 获取更新、通过 `git switch -c` 新建分支，以及受控的 `git add`、新提交和普通主分支推送。
 - `github-readonly.rules`：自动允许 `gh pr view/checks`、`gh run list/view`、`gh issue view` 和 `gh repo view`。
 
 Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGENTS.md` 或用户指令中的操作边界。
