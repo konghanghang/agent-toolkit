@@ -5,6 +5,7 @@
 当前包含：
 
 - Codex 与 Claude Code 共用的 Skills
+- Codex 通用 custom Agents
 - Codex 全局 Rules
 - 公共运行时和命令入口
 - 跨平台安装脚本
@@ -26,6 +27,8 @@ agent-toolkit/
 │   ├── tapd-story/
 │   └── tapd-weekly-report/
 ├── codex/
+│   ├── agents/
+│   │   └── evidence_explorer.toml
 │   └── rules/
 │       ├── git-commit.rules
 │       └── github-readonly.rules
@@ -39,7 +42,7 @@ agent-toolkit/
 目录职责：
 
 - `skills/`：Codex、Claude Code 共用的 Skills，每个目录必须包含 `SKILL.md`。
-- `codex/`：Codex 专属配置，目前保存可版本控制的全局 Rules。
+- `codex/`：Codex 专属配置，保存可版本控制的 custom Agents 和全局 Rules。
 - `claude/`：Claude Code 专属配置占位；没有真实配置前保持为空。
 - `common/`：work 公共运行时、入口脚本和命令模板，不作为 Skill 安装。
 - `scripts/`：工具箱自身的安装和维护脚本。
@@ -94,7 +97,7 @@ git clone git@github.com:konghanghang/agent-toolkit.git ~/.agent-toolkit
 python3 ~/.agent-toolkit/scripts/install.py --dry-run
 ```
 
-### 安装 Codex、Claude Code 和 Codex Rules
+### 安装 Codex、Claude Code、Codex Agents 和 Rules
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py
@@ -104,10 +107,11 @@ python3 ~/.agent-toolkit/scripts/install.py
 
 1. 扫描 `skills/*/SKILL.md`。
 2. 将 Skill 链接到 `~/.agents/skills/`。
-3. 将 Skill 链接到 `~/.claude/skills/`。
+3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
 4. 默认将 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
-5. Skill 已有正确软链、Rule 已与源文件一致时跳过。
-6. 旧版受管 Rule 软链自动迁移为真实文件，未知文件或未知软链发生冲突时拒绝覆盖。
+5. 将 Skill 链接到 `~/.claude/skills/`。
+6. Skill 和 Agent 已有正确软链、Rule 已与源文件一致时跳过。
+7. 旧版受管链接可以显式迁移；未知文件、真实目录或未知软链发生冲突时拒绝覆盖。
 
 从旧的 `~/.shared-skills` 迁移时使用：
 
@@ -119,10 +123,11 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 
 ```text
 --dry-run          只显示计划，不修改文件
---codex-only       只安装 Codex Skills 和 Rules
+--codex-only       只安装 Codex Skills、Agents 和 Rules
 --claude-only      只安装 Claude Code Skills
 --rules-only       只安装 Codex Rules
---codex-home PATH  将 Rules 安装到指定的现有 Codex Home
+--agents-only      只安装 Codex Agents
+--codex-home PATH  将 Agents 和 Rules 安装到指定的现有 Codex Home
 --skill NAME       只处理指定 Skill，可重复使用
 --replace-managed  替换指向旧工具箱或旧目录结构的受管链接
 ```
@@ -132,13 +137,22 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 安装脚本无参数运行时始终使用默认的 `~/.codex`，不会扫描磁盘、解析 Shell alias
 或读取 `CODEX_HOME` 来猜测其他 Codex Home。
 
-存在额外 Codex Home 时，由用户或对应环境的初始化脚本明确指定目录，并单独安装一次 Rules：
+存在额外 Codex Home 时，由用户或对应环境的初始化脚本明确指定目录，并分别安装 Agents 和 Rules：
 
 ```bash
+python3 ~/.agent-toolkit/scripts/install.py \
+  --agents-only \
+  --codex-home ~/data/work/.codex \
+  --dry-run
+
 python3 ~/.agent-toolkit/scripts/install.py \
   --rules-only \
   --codex-home ~/data/work/.codex \
   --dry-run
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --agents-only \
+  --codex-home ~/data/work/.codex
 
 python3 ~/.agent-toolkit/scripts/install.py \
   --rules-only \
@@ -146,7 +160,7 @@ python3 ~/.agent-toolkit/scripts/install.py \
 ```
 
 自定义 Codex Home 必须已经存在；安装脚本不会因为路径拼写错误而创建一个新的 Home。
-每次运行都会输出实际使用的 Codex Home 和 Rules 目标目录。
+每次运行都会输出实际使用的 Codex Home，以及本次涉及的 Agents 或 Rules 目标目录。
 
 ## 安装结果
 
@@ -164,6 +178,16 @@ Claude Code Skills：
   → ~/.agent-toolkit/skills/<name>
 ```
 
+Codex Agents：
+
+```text
+~/.codex/agents
+  → ~/.agent-toolkit/codex/agents
+
+<custom-codex-home>/agents
+  → ~/.agent-toolkit/codex/agents
+```
+
 Codex Rules：
 
 ```text
@@ -174,9 +198,11 @@ Codex Rules：
   --原子复制--> <custom-codex-home>/rules/<name>.rules
 ```
 
-Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是软链。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 目录软链不受影响。
+Codex Agents 使用目录软链，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。目标 `agents/` 已经是真实目录或未知软链时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
 
-Codex 在启动时加载 Rules；新增或更新规则后，重新运行 `scripts/install.py --rules-only`，再新开会话或重启客户端。
+Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是软链。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录软链不受影响。
+
+Codex 会为新会话加载 Agents 和 Rules。Agent 源文件通过软链立即更新，Rule 拉取后需要重新安装；两者变更后都应新开会话或重启客户端。
 
 ## work 公共运行时
 
@@ -216,12 +242,27 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `tapd-story`
 - `tapd-weekly-report`
 
+## 当前 Codex Agents
+
+- `evidence_explorer`：只读探索真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。
+
 ## 当前 Codex Rules
 
 - `git-commit.rules`：自动允许从 `origin` 获取更新、通过 `git switch -c` 新建分支，以及受控的 `git add`、新提交和普通主分支推送。
 - `github-readonly.rules`：自动允许 `gh pr view/checks`、`gh run list/view`、`gh issue view` 和 `gh repo view`。
 
 Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGENTS.md` 或用户指令中的操作边界。
+
+## 新增 Codex Agent
+
+新的 Codex custom Agent 必须：
+
+1. 放入 `codex/agents/<agent-name>.toml`。
+2. 至少定义 `name`、`description` 和 `developer_instructions`。
+3. 使用清晰、稳定、项目无关的职责边界；项目特定规则继续放在项目 `AGENTS.md`。
+4. 只读 Agent 必须显式配置 `sandbox_mode = "read-only"`。
+5. 不写入凭证、个人机器绝对路径或某个项目独有的业务口径。
+6. 完成后运行安装器单元测试，以及默认和自定义 Codex Home 的 `--agents-only --dry-run`。
 
 ## 新增 Skill
 
@@ -261,13 +302,13 @@ git config --global iminling.repoPath /absolute/path/to/iminling-pages
 git -C ~/.agent-toolkit pull
 ```
 
-Skill 软链会立即读取仓库内更新。Rules 是受管副本，拉取后需要重新运行：
+Skill 和 Agent 软链会立即读取仓库内更新。Rules 是受管副本，拉取后需要重新运行：
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py --rules-only
 ```
 
-Rules 安装完成后，新开会话或重启客户端使其生效。
+Agent 或 Rule 更新后，新开会话或重启客户端使其生效。
 
 ### 更新外部 `ui-ux-pro-max`
 
@@ -302,6 +343,7 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --version 2.10.2
 - 所有 Skill 均能通过格式校验。
 - `scripts/install.py --dry-run` 无未知冲突。
 - Codex 与 Claude Code 的 Skill 软链目标正确。
+- 默认和自定义 Codex Home 的 Agent 目录软链目标正确。
 - Codex Rules 是与源文件一致的真实文件，且 `execpolicy check` 正常。
 - 除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
 - 没有凭证和机器相关运行时文件进入 Git。

@@ -62,6 +62,32 @@ class InstallTest(unittest.TestCase):
         self.assertTrue(all(spec.target.parent == codex_home / "rules" for spec in specs))
         self.assertTrue(all(spec.strategy == install.COPY_STRATEGY for spec in specs))
 
+    def test_agents_only_plans_agents_directory_symlink_for_custom_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(["--agents-only", "--codex-home", str(custom_home)])
+            codex_home, home_kind = install.resolve_codex_home(args)
+
+            specs = install.plan_installs(args, codex_home)
+
+        self.assertEqual("custom", home_kind)
+        self.assertEqual(1, len(specs))
+        self.assertEqual("Codex agents", specs[0].label)
+        self.assertEqual(install.CODEX_AGENTS_SOURCE, specs[0].source)
+        self.assertEqual(codex_home / "agents", specs[0].target)
+        self.assertEqual(install.SYMLINK_STRATEGY, specs[0].strategy)
+
+    def test_full_install_includes_agents_for_custom_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(["--codex-home", str(custom_home)])
+
+            specs = install.plan_installs(args, custom_home)
+
+        agent_specs = [spec for spec in specs if spec.label == "Codex agents"]
+        self.assertEqual(1, len(agent_specs))
+        self.assertEqual(custom_home / "agents", agent_specs[0].target)
+
     def test_rules_install_preserves_local_default_rules(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             custom_home = Path(temp_dir)
@@ -146,6 +172,122 @@ class InstallTest(unittest.TestCase):
             self.assertIn("MIGRATE", message)
             self.assertTrue(spec.target.is_symlink())
 
+    def test_agents_install_creates_directory_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(["--agents-only", "--codex-home", str(custom_home)])
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("CREATE", message)
+            self.assertTrue(spec.target.is_symlink())
+            self.assertEqual(
+                install.CODEX_AGENTS_SOURCE.resolve(),
+                install.resolve_link_target(spec.target),
+            )
+
+    def test_agents_install_rejects_existing_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            agents_target = custom_home / "agents"
+            agents_target.mkdir()
+            args = install.parse_args(["--agents-only", "--codex-home", str(custom_home)])
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertFalse(success)
+            self.assertIn("exists and is not a symlink", message)
+            self.assertTrue(agents_target.is_dir())
+            self.assertFalse(agents_target.is_symlink())
+
+    def test_agents_install_rejects_unknown_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            custom_home = root / "codex-home"
+            custom_home.mkdir()
+            unknown_source = root / "external-agents"
+            unknown_source.mkdir()
+            agents_target = custom_home / "agents"
+            agents_target.symlink_to(unknown_source, target_is_directory=True)
+            args = install.parse_args(
+                [
+                    "--agents-only",
+                    "--codex-home",
+                    str(custom_home),
+                    "--replace-managed",
+                ]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertFalse(success)
+            self.assertIn(str(unknown_source), message)
+            self.assertEqual(unknown_source.resolve(), install.resolve_link_target(agents_target))
+
+    def test_agents_install_replaces_managed_symlink_with_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            agents_target = custom_home / "agents"
+            agents_target.symlink_to(install.SKILLS_DIR, target_is_directory=True)
+            args = install.parse_args(
+                [
+                    "--agents-only",
+                    "--codex-home",
+                    str(custom_home),
+                    "--replace-managed",
+                ]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("REPLACE", message)
+            self.assertEqual(
+                install.CODEX_AGENTS_SOURCE.resolve(),
+                install.resolve_link_target(agents_target),
+            )
+
+    def test_agents_dry_run_does_not_create_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(
+                ["--agents-only", "--codex-home", str(custom_home), "--dry-run"]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("CREATE", message)
+            self.assertFalse(os.path.lexists(spec.target))
+
+    def test_agent_validation_rejects_missing_required_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            source.mkdir()
+            (source / "invalid.toml").write_text(
+                'name = "invalid"\n',
+                encoding="utf-8",
+            )
+            custom_home = root / "codex-home"
+            custom_home.mkdir()
+            args = install.parse_args(
+                ["--agents-only", "--codex-home", str(custom_home)]
+            )
+
+            with mock.patch.object(install, "CODEX_AGENTS_SOURCE", source):
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    "missing required fields: description, developer_instructions",
+                ):
+                    install.plan_installs(args, custom_home)
+
     def test_skills_remain_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "skill"
@@ -171,6 +313,11 @@ class InstallTest(unittest.TestCase):
         with mock.patch("sys.stderr", new=io.StringIO()):
             with self.assertRaises(SystemExit):
                 install.parse_args(["--rules-only", "--skill", "git-commit"])
+
+    def test_skill_is_rejected_for_agents_only(self) -> None:
+        with mock.patch("sys.stderr", new=io.StringIO()):
+            with self.assertRaises(SystemExit):
+                install.parse_args(["--agents-only", "--skill", "git-commit"])
 
 
 if __name__ == "__main__":
