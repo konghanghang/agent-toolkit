@@ -25,7 +25,7 @@ if str(COMMON_DIR) not in sys.path:
 
 from runtime import load_runtime_or_exit
 
-SESSION_MAX_AGE = 11 * 3600  # 11 小时视为过期 (Archery session 默认比这长, 但 csrf/cookie 中间件可能更短)
+SESSION_WARN_AGE = 5 * 24 * 3600  # 本地经验提示阈值；真实有效性仍以服务端响应为准
 LOGIN_SCRIPT = Path(__file__).parent / "archery_login.py"
 
 
@@ -113,7 +113,7 @@ def resolve_credentials() -> dict:
     age_hint = ""
     if sess and sess.get("saved_at"):
         age = int(time.time() - sess["saved_at"])
-        if age > SESSION_MAX_AGE:
+        if age > SESSION_WARN_AGE:
             age_hint = f" ⚠ age={age//3600}h 建议重跑 archery_login.py"
         else:
             age_hint = f" age={age//60}min"
