@@ -191,6 +191,16 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 
 默认 `default_query` 是 `data-center | with_pack_meta` — 查 work data-center 服务的全部日志。
 
+### 聚合统计与精确总数（pSql）
+
+`sls query` 默认 `pSql=false`，**做不了 count / GROUP BY / 精确总数**（`Size` 上限 100，`meta.count` 是返回行数不是命中数）。需要"今天多少条 ERROR""按任务分组计数""精确去重总数""列表 >100 条"时，用 pSql 自己发请求（复用 skill session），**可靠模式与避坑见 [references/advanced-query.md](references/advanced-query.md)**：
+
+- 中文/纯数字 token 一律用 `like '%...%'`，别用 index `"中文"`/`"606332"`
+- 精确去重总数用 `count(distinct case when ...)` 且**无 GROUP BY**
+- 分组先 index 限定子集再 GROUP BY + HAVING；全表 GROUP BY 不稳定
+- 列表 >100 条 → 分时段查询合并去重
+- **查不到 ≠ 没有**：换口径（like vs index、count vs GROUP BY）交叉验证再下结论
+
 ## 查询路由判断
 
 对话中默认按下面规则路由:

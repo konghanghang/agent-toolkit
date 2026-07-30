@@ -92,6 +92,55 @@ class SlsWorkflowTest(unittest.TestCase):
         self.assertEqual("--no-keep", run.call_args_list[1].args[0][-1])
         self.assertEqual(3, run.call_count)
 
+    def test_agg_rejects_unknown_argument(self):
+        with self.assertRaises(SystemExit) as raised:
+            self.cli.resolve_agg_args([
+                "--service", "data-center",
+                "--sql", "SELECT count(*) as c",
+                "--minuts", "5",
+            ])
+
+        self.assertEqual(2, raised.exception.code)
+
+    def test_agg_infers_logstore_from_explicit_project(self):
+        args = self.cli.resolve_agg_args([
+            "--project", "example-api-project",
+            "--sql", "SELECT count(*) as c",
+        ])
+
+        self.assertEqual("example-api-project", args[args.index("--project") + 1])
+        self.assertEqual("example-api-project", args[args.index("--logstore") + 1])
+
+    def test_agg_requires_logstore_for_unknown_project(self):
+        with self.assertRaisesRegex(SystemExit, "请补充 --logstore"):
+            self.cli.resolve_agg_args([
+                "--project", "custom-project",
+                "--sql", "SELECT count(*) as c",
+            ])
+
+    def test_agg_rejects_size_above_sls_limit(self):
+        with self.assertRaisesRegex(SystemExit, "--size 必须在 1-100"):
+            self.cli.resolve_agg_args([
+                "--service", "data-center",
+                "--sql", "SELECT content",
+                "--size", "200",
+            ])
+
+    def test_query_logs_enables_psql_in_request(self):
+        response = unittest.mock.Mock()
+        response.status_code = 200
+        response.json.return_value = {"success": True, "data": [{"c": "1"}]}
+
+        with patch.object(self.query.requests, "post", return_value=response) as post:
+            self.query.query_logs(
+                {"cookies": {}, "csrf": "token"},
+                {"project": "example-api-project", "logstore": "example-api-project"},
+                query="ai-open-api | SELECT count(*) as c",
+                psql=True,
+            )
+
+        self.assertEqual("true", post.call_args.kwargs["data"]["pSql"])
+
 
 if __name__ == "__main__":
     unittest.main()

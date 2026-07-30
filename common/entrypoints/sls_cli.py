@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -28,6 +29,7 @@ def usage() -> str:
   sls query --scope domestic --service data-center --keyword ERROR
   sls query --scope overseas --service agentcc --minutes 60
   sls query --project <project> [--logstore <logstore>] --query '*'
+  sls agg --service <svc> --sql 'SELECT count(*) as c' [--minutes 60|--from F --to T] [--size 100] [--out FILE]
 
 说明:
   - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 work 运行时配置
@@ -36,6 +38,7 @@ def usage() -> str:
   - 凭证与 session 目录来自 work 运行时配置里的 sls_dir
   - login 默认在抓取 session 后关闭浏览器，仅 --keep 保留窗口
   - query 会在 session 缺失或失效时自动转去登录，再重试一次
+  - agg 走 pSql 聚合(count / GROUP BY / 精确去重总数), 使用 --index + --sql, 避坑见 references/advanced-query.md
   - 海外全部服务: example-overseas-project / datalogs
   - 国内 ai-open-api: example-api-project / example-api-project
   - 国内其他服务: example-domestic-project / datalogs
@@ -225,6 +228,114 @@ def run_query(args: list[str]) -> int:
     return result.returncode
 
 
+AGG_USAGE = """sls agg — pSql 聚合统计 (count / GROUP BY / HAVING / 精确去重总数)
+
+  sls agg --service <svc> --sql 'SELECT ...' [--index '*'] [--minutes 60|--from F --to T] [--size 100] [--out FILE]
+  sls agg --scope domestic --service call-task-number --sql 'SELECT count(*) as c' --minutes 60
+  sls agg --project P --logstore L --index 'svc and "ERR"' --sql 'SELECT count(*) as c' --from F --to T
+
+参数:
+  --sql     必选, 管道后的 SQL (不要带 index 查询部分)
+  --index   管道前的 SLS 查询, 默认取 --service 名, 再不然 *
+  --scope   domestic|overseas (路由 project/logstore)
+  --service 服务名 (路由 + 默认 index)
+  --project/--logstore  直接指定, 覆盖 scope/service 推断
+  --from/--to  Unix 秒; 不带则用 --minutes (默认 60)
+  --size    聚合结果行数, 1-100, 默认 100 (SLS 服务端硬上限 100)
+  --out     落盘 JSON
+
+避坑 (详见 references/advanced-query.md):
+  - 中文/纯数字过滤写进 SQL 的 like, 别塞 --index 的 "中文"/"606332"
+  - 精确去重总数用 count(distinct case when ...), 不要配 GROUP BY
+  - 分组先在 --index 限定日志子集再 GROUP BY; 全表 GROUP BY 不稳
+"""
+
+
+def resolve_agg_args(args: list[str]) -> list[str]:
+    """解析 sls agg 参数, 推断 project/logstore, 拼成底层 --psql --query 调用参数。"""
+    parser = argparse.ArgumentParser(prog="sls agg", add_help=False, allow_abbrev=False)
+    parser.add_argument("--sql")
+    parser.add_argument("--index")
+    parser.add_argument("--scope")
+    parser.add_argument("--service", default="")
+    parser.add_argument("--project")
+    parser.add_argument("--logstore")
+    parser.add_argument("--from", dest="from_ts", type=int)
+    parser.add_argument("--to", dest="to_ts", type=int)
+    parser.add_argument("--minutes", type=int, default=60)
+    parser.add_argument("--size", type=int, default=100)
+    parser.add_argument("--out")
+    parsed = parser.parse_args(args)
+
+    if not parsed.sql:
+        raise SystemExit("[!] sls agg 需要 --sql 'SELECT ...' (管道后的 SQL)")
+    if not 1 <= parsed.size <= 100:
+        raise SystemExit("[!] sls agg 的 --size 必须在 1-100 之间；超过 100 请分时段查询后合并去重")
+
+    scope = normalize_scope(parsed.scope) if parsed.scope else ""
+    project = parsed.project
+    logstore = parsed.logstore
+
+    if project:
+        if not logstore:
+            logstore = infer_logstore_by_project(project)
+            if not logstore:
+                raise SystemExit(
+                    f"[!] 已指定 --project={project}，但无法自动推断 logstore。\n"
+                    "    请补充 --logstore。"
+                )
+    elif scope == "overseas":
+        project = PROJECT_OVERSEAS
+        logstore = logstore or LOGSTORE_OVERSEAS
+    elif parsed.service == "ai-open-api":
+        project = PROJECT_CN_OPENAPI
+        logstore = logstore or LOGSTORE_CN_OPENAPI
+    else:
+        project = PROJECT_CN_DEFAULT
+        logstore = logstore or LOGSTORE_CN_DEFAULT
+
+    index = parsed.index if parsed.index is not None else parsed.service or "*"
+
+    out_args = ["--psql", "--query", f"{index} | {parsed.sql}", "--size", str(parsed.size)]
+    if parsed.from_ts is not None:
+        out_args += ["--from", str(parsed.from_ts)]
+    if parsed.to_ts is not None:
+        out_args += ["--to", str(parsed.to_ts)]
+    if parsed.from_ts is None and parsed.to_ts is None:
+        out_args += ["--minutes", str(parsed.minutes)]
+    out_args += ["--project", project, "--logstore", logstore]
+    if parsed.out:
+        out_args += ["--out", parsed.out]
+    return out_args
+
+
+def run_agg(args: list[str]) -> int:
+    runtime, _, query_script = runtime_and_paths()
+    if wants_help(args) or not args:
+        print(AGG_USAGE, end="")
+        return 0
+
+    resolved_args = resolve_agg_args(args)
+    require_credentials(runtime)
+    session_file = Path(runtime["sls_dir"]) / "aliyun_session.json"
+    if not session_file.exists():
+        print("[*] 未找到 session，先执行登录")
+        code = run_login_auto()
+        if code != 0:
+            return code
+
+    result = run_subprocess([runtime["python_bin"], str(query_script), *resolved_args])
+    if SESSION_ERROR_RE.search(result.stdout + result.stderr):
+        print_output(result)
+        print("[*] 检测到 session 失效，转去重新登录")
+        code = run_login_auto()
+        if code != 0:
+            return code
+        result = run_subprocess([runtime["python_bin"], str(query_script), *resolved_args])
+    print_output(result)
+    return result.returncode
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in {"help", "-h", "--help"}:
@@ -235,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_login(args)
     if cmd == "query":
         return run_query(args)
+    if cmd == "agg":
+        return run_agg(args)
     print(f"[!] 未知子命令: {cmd}")
     print(usage(), end="")
     return 1

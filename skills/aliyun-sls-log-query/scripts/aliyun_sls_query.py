@@ -101,6 +101,7 @@ def query_logs(
     logstore: str | None = None,
     from_ts: int | None = None,
     to_ts: int | None = None,
+    psql: bool = False,
 ) -> dict:
     project = project or creds.get("project", "")
     logstore = logstore or creds.get("logstore", "")
@@ -116,7 +117,7 @@ def query_logs(
         "Page": 1,
         "Size": size,
         "Reverse": "true",
-        "pSql": "false",
+        "pSql": "true" if psql else "false",
         "fullComplete": "false",
         "schemaFree": "false",
         "needHighlight": "true",
@@ -175,6 +176,7 @@ def main() -> int:
     parser.add_argument("--logstore", default=None)
     parser.add_argument("--out", help="保存原始 JSON 到该文件")
     parser.add_argument("--full", action="store_true", help="打印完整日志内容(不截断)")
+    parser.add_argument("--psql", action="store_true", help="pSql 聚合模式, --query 写成 'index 查询 | SQL'")
     args = parser.parse_args()
     load_runtime_or_exit(__file__)
     creds = load_creds()
@@ -201,6 +203,7 @@ def main() -> int:
         logstore=args.logstore,
         from_ts=args.from_ts,
         to_ts=args.to_ts,
+        psql=args.psql,
     )
 
     if args.out:
@@ -218,6 +221,11 @@ def main() -> int:
             return 2
         # 兼容多种返回字段名
         logs = data.get("data") or data.get("logs") or data.get("items") or []
+        if args.psql:
+            print(f"[+] pSql 聚合结果 {len(logs)} 行:")
+            for row in logs:
+                print(json.dumps(row, ensure_ascii=False))
+            return 0
         print(f"[+] 拿到 {len(logs)} 条日志\n")
         for i, log in enumerate(logs):
             ts = log.get("__time__") or log.get("time") or "?"
