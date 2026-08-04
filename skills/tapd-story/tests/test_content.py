@@ -39,6 +39,15 @@ class ContentTest(unittest.TestCase):
         errors = validate_description_html('<p><a href="javascript:alert(1)">错误链接</a></p>')
         self.assertTrue(any("HTTP/HTTPS" in error for error in errors))
 
+    def test_html_validator_allows_compact_description_without_acceptance_section(self):
+        html = (
+            "<h3>背景</h3><p>取消原因记录不准确。</p>"
+            "<h3>需求说明</h3>"
+            "<ul><li>智能任务取消记录为智能任务调用取消。</li>"
+            "<li>外部 API 取消保持原有记录。</li></ul>"
+        )
+        self.assertEqual([], validate_description_html(html))
+
 
 if __name__ == "__main__":
     unittest.main()

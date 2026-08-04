@@ -7,7 +7,7 @@
   "workspace_id": "YOUR_WORKSPACE_ID",
   "story": {
     "name": "【接口优化】统一回调状态字段",
-    "description_html": "<h3>背景</h3><p>现有回调状态字段口径不一致。</p><h3>验收标准</h3><ol><li>状态字段使用统一枚举。</li></ol>"
+    "description_html": "<h3>背景</h3><p>现有回调状态字段口径不一致。</p><h3>需求说明</h3><ul><li>统一回调状态字段和异常返回。</li><li>历史默认行为保持不变。</li></ul>"
   }
 }
 ```
