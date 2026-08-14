@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import secrets
 import sys
 import time
@@ -27,6 +28,21 @@ if str(COMMON_DIR) not in sys.path:
 from runtime import load_runtime_or_exit
 
 GET_LOGS_URL = "https://sls.console.aliyun.com/console/logs/getLogs.json"
+SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)((?:\\?[\"'])?(?:authorization|proxy-authorization|cookie|set-cookie|"
+    r"x-auth-token|x-api-key|password|passwd|secret)(?:\\?[\"'])?\s*[:=]\s*(?:\\?[\"'])?)"
+    r"([^\"'\r\n,}&]+)"
+)
+PHONE_RE = re.compile(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d{9}(?!\d)")
+EMAIL_RE = re.compile(
+    r"(?<![\w.+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w.-])"
+)
+
+
+def redact_sensitive_output(text: str) -> str:
+    text = SENSITIVE_VALUE_RE.sub(r"\1***", text)
+    text = PHONE_RE.sub("1**********", text)
+    return EMAIL_RE.sub("***@***", text)
 
 
 def storage_paths() -> tuple[Path, Path]:
@@ -102,6 +118,7 @@ def query_logs(
     from_ts: int | None = None,
     to_ts: int | None = None,
     psql: bool = False,
+    redact: bool = False,
 ) -> dict:
     project = project or creds.get("project", "")
     logstore = logstore or creds.get("logstore", "")
@@ -111,8 +128,8 @@ def query_logs(
     body = {
         "ProjectName": project,
         "LogStoreName": logstore,
-        "from": from_ts if from_ts else now - minutes * 60,
-        "to": to_ts if to_ts else now,
+        "from": from_ts if from_ts is not None else now - minutes * 60,
+        "to": to_ts if to_ts is not None else now,
         "query": query,
         "Page": 1,
         "Size": size,
@@ -158,7 +175,8 @@ def query_logs(
     )
     print(f"[*] POST {GET_LOGS_URL} -> {resp.status_code}")
     if resp.status_code != 200:
-        print(f"[!] 响应: {resp.text[:500]}")
+        response_text = redact_sensitive_output(resp.text) if redact else resp.text
+        print(f"[!] 响应: {response_text[:500]}")
         resp.raise_for_status()
     return resp.json()
 
@@ -177,6 +195,7 @@ def main() -> int:
     parser.add_argument("--out", help="保存原始 JSON 到该文件")
     parser.add_argument("--full", action="store_true", help="打印完整日志内容(不截断)")
     parser.add_argument("--psql", action="store_true", help="pSql 聚合模式, --query 写成 'index 查询 | SQL'")
+    parser.add_argument("--redact", action="store_true", help="输出时脱敏认证信息、手机号和邮箱")
     args = parser.parse_args()
     load_runtime_or_exit(__file__)
     creds = load_creds()
@@ -189,7 +208,7 @@ def main() -> int:
 
     session = load_session()
     print(
-        f"[*] Session: csrf={session.get('csrf','')[:12]!r}, "
+        f"[*] Session: csrf_present={bool(session.get('csrf'))}, "
         f"cookies={len(session.get('cookies', {}))}, "
         f"age={int(time.time() - session.get('saved_at', time.time()))}s"
     )
@@ -204,19 +223,26 @@ def main() -> int:
         from_ts=args.from_ts,
         to_ts=args.to_ts,
         psql=args.psql,
+        redact=args.redact,
     )
 
     if args.out:
+        serialized = json.dumps(data, ensure_ascii=False, indent=2)
+        if args.redact:
+            serialized = redact_sensitive_output(serialized)
         Path(args.out).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+            serialized, encoding="utf-8"
         )
-        print(f"[+] 完整响应已写入 {args.out}\n")
+        label = "脱敏响应" if args.redact else "完整响应"
+        print(f"[+] {label}已写入 {args.out}\n")
 
     if isinstance(data, dict):
         print(f"[*] 响应 keys: {list(data.keys())}")
         if data.get("success") is False:
             code = data.get("code", "UnknownError")
-            message = data.get("message", "")
+            message = str(data.get("message", ""))
+            if args.redact:
+                message = redact_sensitive_output(message)
             print(f"[!] SLS 查询失败: code={code}, message={message}", file=sys.stderr)
             return 2
         # 兼容多种返回字段名
@@ -224,7 +250,8 @@ def main() -> int:
         if args.psql:
             print(f"[+] pSql 聚合结果 {len(logs)} 行:")
             for row in logs:
-                print(json.dumps(row, ensure_ascii=False))
+                output = json.dumps(row, ensure_ascii=False)
+                print(redact_sensitive_output(output) if args.redact else output)
             return 0
         print(f"[+] 拿到 {len(logs)} 条日志\n")
         for i, log in enumerate(logs):
@@ -237,9 +264,14 @@ def main() -> int:
             )
             if isinstance(content, str) and not args.full:
                 content = content[:300]
+            if args.redact:
+                content = redact_sensitive_output(str(content))
             print(f"[{i}] {ts} {content}")
     else:
-        print(json.dumps(data, ensure_ascii=False, indent=2)[:2000])
+        output = json.dumps(data, ensure_ascii=False, indent=2)
+        if args.redact:
+            output = redact_sensitive_output(output)
+        print(output[:2000])
     return 0
 
 

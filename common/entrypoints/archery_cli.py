@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -26,6 +27,9 @@ def usage() -> str:
   archery list-databases --scope overseas
   archery list-databases --module agentcc
   archery list-tables --instance <instance> --database <database>
+  archery list-instances-safe [--format table|json]
+  archery list-databases-safe --scope domestic|overseas
+  archery list-tables-safe --instance <instance> --database <database>
   archery query --scope domestic --database <database> --sql '<sql>'
   archery query --module sms --database <database> --sql '<sql>'
 
@@ -35,6 +39,7 @@ def usage() -> str:
   - 底层脚本来自 $AGENT_TOOLKIT_ROOT/skills/archery-prod-query/scripts
   - 凭证与 session 目录来自 work 运行时配置里的 archery_dir
   - list/query 在 session 缺失或失效时会自动转去登录，再重试一次
+  - 三个 *-safe 元数据入口会在需要时自动登录，且仅开放元数据参数，供 Codex Rules 默认放行
   - 轻路由只负责自动补 --instance，不会自动猜数据库名或 SQL
   - --instance 显式指定时优先级最高
   - --scope overseas -> example-overseas-instance
@@ -148,6 +153,30 @@ def resolve_instance_args(args: list[str]) -> list[str]:
     return pass_args
 
 
+def resolve_metadata_safe_args(argv: list[str]) -> list[str]:
+    cmd = argv[0]
+    raw_cmd = cmd.removesuffix("-safe")
+    parser = argparse.ArgumentParser(prog=f"archery {cmd}", allow_abbrev=False)
+    parser.add_argument("--format", choices=["table", "json"], default="table")
+    if raw_cmd in {"list-databases", "list-tables"}:
+        route = parser.add_mutually_exclusive_group(required=True)
+        route.add_argument("--instance")
+        route.add_argument("--scope", choices=["domestic", "overseas"])
+        route.add_argument(
+            "--module",
+            choices=["main", "newbiz", "sms", "short-link", "wa", "callback", "agentcc", "overseas"],
+        )
+    if raw_cmd == "list-tables":
+        parser.add_argument("--database", required=True)
+    args = parser.parse_args(argv[1:])
+    resolved = [raw_cmd, "--format", args.format]
+    for name in ("instance", "scope", "module", "database"):
+        value = getattr(args, name, None)
+        if value is not None:
+            resolved.extend(["--" + name, value])
+    return resolved
+
+
 def run_login(args: list[str]) -> int:
     runtime, login_script, _ = runtime_and_paths()
     if wants_help(args):
@@ -205,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_login(args)
     if cmd in {"list-instances", "list-databases", "list-tables", "query"}:
         return run_data_command([cmd, *args])
+    if cmd in {"list-instances-safe", "list-databases-safe", "list-tables-safe"}:
+        return run_data_command(resolve_metadata_safe_args([cmd, *args]))
     print(f"[!] 未知子命令: {cmd}")
     print(usage(), end="")
     return 1

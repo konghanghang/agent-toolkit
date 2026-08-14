@@ -12,13 +12,18 @@ from runtime import detect_agent_toolkit_root
 
 CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
 CONFIG_FILE = CONFIG_DIR / "runtime.json"
-DEPENDENCIES = ["selenium", "webdriver-manager", "pyotp", "requests"]
+REQUIREMENTS_FILE_NAME = "requirements.txt"
 
 
-def platform_default_python(work_root: Path) -> Path:
+def platform_default_python(toolkit_root: Path) -> Path:
     if os.name == "nt":
-        return work_root / ".venv" / "Scripts" / "python.exe"
-    return work_root / ".venv" / "bin" / "python"
+        return toolkit_root / ".venv" / "Scripts" / "python.exe"
+    return toolkit_root / ".venv" / "bin" / "python"
+
+
+def configured_python_path(python_bin: Path) -> Path:
+    """Keep the virtualenv entrypoint instead of resolving its interpreter symlink."""
+    return python_bin.expanduser().absolute()
 
 
 def prompt_path(label: str, default: str | None = None, required: bool = True) -> Path:
@@ -54,10 +59,18 @@ def ensure_venv(python_bin: Path, system_python: str) -> None:
         raise SystemExit(f"[!] 虚拟环境创建后仍找不到解释器: {python_bin}")
 
 
-def install_dependencies(python_bin: Path) -> None:
-    if not prompt_yes_no("是否安装通用依赖 selenium/webdriver-manager/pyotp/requests？", default=True):
+def install_dependencies(python_bin: Path, requirements_file: Path) -> None:
+    if not requirements_file.is_file():
+        raise SystemExit(f"[!] 找不到 Python 依赖清单: {requirements_file}")
+    if not prompt_yes_no(
+        f"是否从 {requirements_file.name} 安装项目依赖？",
+        default=True,
+    ):
         return
-    subprocess.run([str(python_bin), "-m", "pip", "install", *DEPENDENCIES], check=True)
+    subprocess.run(
+        [str(python_bin), "-m", "pip", "install", "-r", str(requirements_file)],
+        check=True,
+    )
 
 
 def install_command_templates(toolkit_root: Path) -> None:
@@ -66,9 +79,9 @@ def install_command_templates(toolkit_root: Path) -> None:
     target_dir.mkdir(parents=True, exist_ok=True)
 
     if os.name == "nt":
-        names = ["sls.cmd", "archery.cmd", "sls.ps1", "archery.ps1"]
+        names = ["sls.cmd", "archery.cmd", "jms.cmd", "sls.ps1", "archery.ps1", "jms.ps1"]
     else:
-        names = ["sls", "archery"]
+        names = ["sls", "archery", "jms"]
 
     for name in names:
         src = template_dir / name
@@ -109,7 +122,9 @@ def main() -> int:
     sls_dir = prompt_path("SLS 凭证与 session 目录 SLS_DIR", sls_dir_default)
     archery_dir_default = existing.get("archery_dir") or str(CONFIG_DIR / "archery")
     archery_dir = prompt_path("Archery 凭证与 session 目录 ARCHERY_DIR", archery_dir_default)
-    python_default = existing.get("python_bin") or str(platform_default_python(work_root))
+    jms_dir_default = existing.get("jms_dir") or str(CONFIG_DIR / "jms")
+    jms_dir = prompt_path("JumpServer 凭证与 session 目录 JMS_DIR", jms_dir_default)
+    python_default = existing.get("python_bin") or str(platform_default_python(toolkit_root))
     python_bin = prompt_path("统一 Python 解释器 PYTHON_BIN", python_default)
 
     if not work_root.exists():
@@ -118,9 +133,10 @@ def main() -> int:
         raise SystemExit(f"[!] TMP_DIR 不存在: {tmp_dir}")
     sls_dir.mkdir(parents=True, exist_ok=True)
     archery_dir.mkdir(parents=True, exist_ok=True)
+    jms_dir.mkdir(parents=True, exist_ok=True)
 
     ensure_venv(python_bin, sys.executable or "python3")
-    install_dependencies(python_bin)
+    install_dependencies(python_bin, toolkit_root / REQUIREMENTS_FILE_NAME)
     install_command_templates(toolkit_root)
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -128,10 +144,11 @@ def main() -> int:
         "work_root": str(work_root.resolve()),
         "agent_toolkit_root": str(toolkit_root.resolve()),
         "skills_root": str(toolkit_root.resolve()),
-        "python_bin": str(python_bin.resolve()),
+        "python_bin": str(configured_python_path(python_bin)),
         "tmp_dir": str(tmp_dir.resolve()),
         "sls_dir": str(sls_dir.resolve()),
         "archery_dir": str(archery_dir.resolve()),
+        "jms_dir": str(jms_dir.resolve()),
     }
     CONFIG_FILE.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -142,12 +159,15 @@ def main() -> int:
     print("[+] 需要补充的凭证文件:")
     print(f"    {sls_dir / 'aliyun-credentials.json'}")
     print(f"    {archery_dir / 'archery-credentials.json'}")
+    print(f"    {jms_dir / 'jms-credentials.json'}")
     print("[+] session 文件会自动写到:")
     print(f"    {sls_dir / 'aliyun_session.json'}")
     print(f"    {archery_dir / 'archery_session.json'}")
+    print(f"    {jms_dir / 'jms_session.json'}")
     print("[+] 后续可直接使用:")
     print("    sls login")
     print("    archery list-instances")
+    print("    jms logs --service data-center")
     print("[+] 跨平台基础入口始终可用:")
     print("    PYTHON_BIN + AGENT_TOOLKIT_ROOT/skills/.../scripts/*.py")
     return 0

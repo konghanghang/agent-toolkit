@@ -1,0 +1,4 @@
+interface:
+  display_name: "JumpServer 测试日志查询"
+  short_description: "经 JumpServer 定位 Pod 节点并只读查询测试环境日志"
+  default_prompt: "使用 $jumpserver-k8s-log-query 查询测试环境指定服务的日志，并定位关键异常链路。"

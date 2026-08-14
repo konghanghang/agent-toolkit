@@ -20,6 +20,26 @@ LOGSTORE_CN_OPENAPI = "example-api-project"
 PROJECT_CN_DEFAULT = "example-domestic-project"
 LOGSTORE_CN_DEFAULT = "datalogs"
 SESSION_ERROR_RE = re.compile(r"ConsoleNeedLogin|Invalid CSRF token|找不到 session 文件")
+SAFE_MAX_MINUTES = 3 * 24 * 60
+SAFE_MAX_SIZE = 100
+SAFE_AGG_RE = re.compile(r"\b(count|sum|avg|min|max|approx_distinct)\s*\(", re.I)
+SAFE_AGG_EXPRESSION_RE = re.compile(
+    r"^(count|sum|avg|min|max|approx_distinct)\s*\(.*\)$", re.I | re.S
+)
+CATCH_ALL_REGEX_RE = re.compile(
+    r"(?<!\\)\.\s*(?:[*+]\??|\{\s*\d*\s*,)|"
+    r"\[\s*\\s\s*\\S\s*\]\s*[*+]\??",
+    re.I,
+)
+RAW_LOG_FIELD_RE = re.compile(
+    r"(?<![\w$])(?:[`\"]?)(content|message|__content__)(?:[`\"]?)(?![\w$])",
+    re.I,
+)
+DIRECT_RAW_LOG_FIELD_RE = re.compile(
+    r"^(?:(?:[`\"]?[A-Za-z_][\w$]*[`\"]?)\.)?"
+    r"[`\"]?(?:content|message|__content__)[`\"]?$",
+    re.I,
+)
 
 
 def usage() -> str:
@@ -30,6 +50,8 @@ def usage() -> str:
   sls query --scope overseas --service agentcc --minutes 60
   sls query --project <project> [--logstore <logstore>] --query '*'
   sls agg --service <svc> --sql 'SELECT count(*) as c' [--minutes 60|--from F --to T] [--size 100] [--out FILE]
+  sls search-safe --scope domestic --service data-center --trace-id <id>
+  sls agg-safe --scope domestic --service data-center --sql 'SELECT count(*) as c'
 
 说明:
   - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 work 运行时配置
@@ -38,6 +60,7 @@ def usage() -> str:
   - 凭证与 session 目录来自 work 运行时配置里的 sls_dir
   - login 默认在抓取 session 后关闭浏览器，仅 --keep 保留窗口
   - query 会在 session 缺失或失效时自动转去登录，再重试一次
+  - search-safe/agg-safe 禁止自选 project/logstore、完整输出和落盘，并限制窗口与结果量
   - agg 走 pSql 聚合(count / GROUP BY / 精确去重总数), 使用 --index + --sql, 避坑见 references/advanced-query.md
   - 海外全部服务: example-overseas-project / datalogs
   - 国内 ai-open-api: example-api-project / example-api-project
@@ -180,6 +203,212 @@ def resolve_route_args(args: list[str]) -> list[str]:
     return pass_args
 
 
+def add_safe_route_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--scope", choices=["domestic", "overseas"])
+    parser.add_argument("--service", required=True)
+    parser.add_argument("--minutes", type=int, default=60)
+    parser.add_argument("--from", dest="from_ts", type=int)
+    parser.add_argument("--to", dest="to_ts", type=int)
+    parser.add_argument("--size", type=int, default=20)
+
+
+def validate_safe_window(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if not 1 <= args.size <= SAFE_MAX_SIZE:
+        parser.error(f"--size 必须在 1-{SAFE_MAX_SIZE} 之间")
+    if not 1 <= args.minutes <= SAFE_MAX_MINUTES:
+        parser.error(f"--minutes 必须在 1-{SAFE_MAX_MINUTES} 之间")
+    if (args.from_ts is None) != (args.to_ts is None):
+        parser.error("--from 和 --to 必须同时提供")
+    if args.from_ts is not None:
+        if args.to_ts < args.from_ts:
+            parser.error("--to 不能早于 --from")
+        if args.to_ts - args.from_ts > SAFE_MAX_MINUTES * 60:
+            parser.error(f"时间窗口不能超过 {SAFE_MAX_MINUTES} 分钟")
+
+
+def safe_common_args(args: argparse.Namespace) -> list[str]:
+    resolved = ["--service", args.service, "--size", str(args.size), "--redact"]
+    if args.scope:
+        resolved.extend(["--scope", args.scope])
+    if args.from_ts is not None:
+        resolved.extend(["--from", str(args.from_ts), "--to", str(args.to_ts)])
+    else:
+        resolved.extend(["--minutes", str(args.minutes)])
+    return resolved
+
+
+def split_top_level_sql(value: str, separator: str = ",") -> list[str]:
+    """Split a small SQL fragment without treating quoted/nested separators as syntax."""
+    parts: list[str] = []
+    start = 0
+    depth = 0
+    quote = ""
+    i = 0
+    while i < len(value):
+        char = value[i]
+        if quote:
+            if char == quote:
+                if i + 1 < len(value) and value[i + 1] == quote:
+                    i += 2
+                    continue
+                quote = ""
+            elif char == "\\" and i + 1 < len(value):
+                i += 2
+                continue
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == separator and depth == 0:
+            parts.append(value[start:i].strip())
+            start = i + 1
+        i += 1
+    parts.append(value[start:].strip())
+    return [part for part in parts if part]
+
+
+def find_top_level_sql_clause(sql: str, clauses: tuple[str, ...], start: int = 0) -> tuple[int, str]:
+    depth = 0
+    quote = ""
+    i = start
+    while i < len(sql):
+        char = sql[i]
+        if quote:
+            if char == quote:
+                if i + 1 < len(sql) and sql[i + 1] == quote:
+                    i += 2
+                    continue
+                quote = ""
+            elif char == "\\" and i + 1 < len(sql):
+                i += 2
+                continue
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            for clause in clauses:
+                end = i + len(clause)
+                if sql[i:end].lower() == clause and (
+                    i == 0 or not (sql[i - 1].isalnum() or sql[i - 1] == "_")
+                ) and (
+                    end == len(sql) or not (sql[end].isalnum() or sql[end] == "_")
+                ):
+                    return i, clause
+        i += 1
+    return len(sql), ""
+
+
+def strip_sql_alias(expression: str) -> str:
+    match = re.match(
+        r"^(.*?)(?:\s+as\s+|\s+)(?:[`\"]?[A-Za-z_][\w$]*[`\"]?)\s*$",
+        expression,
+        re.I | re.S,
+    )
+    return match.group(1).strip() if match else expression.strip()
+
+
+def validate_safe_regexp_dimension(
+    parser: argparse.ArgumentParser, expression: str
+) -> bool:
+    match = re.match(r"^regexp_extract\s*\((.*)\)$", expression, re.I | re.S)
+    if not match:
+        return False
+    arguments = split_top_level_sql(match.group(1))
+    if len(arguments) != 3 or not DIRECT_RAW_LOG_FIELD_RE.fullmatch(arguments[0]):
+        parser.error("--sql 的 regexp_extract 只允许从明确的原始日志字段派生维度")
+    pattern_literal = arguments[1].strip()
+    if (
+        len(pattern_literal) < 2
+        or pattern_literal[0] not in {"'", '"'}
+        or pattern_literal[-1] != pattern_literal[0]
+        or not re.fullmatch(r"[1-9]\d*", arguments[2].strip())
+    ):
+        parser.error("--sql 的 regexp_extract 必须使用字符串模式和正整数捕获组")
+    pattern = pattern_literal[1:-1]
+    if len(pattern) > 256 or CATCH_ALL_REGEX_RE.search(pattern):
+        parser.error("--sql 的 regexp_extract 不允许无边界捕获完整日志")
+    return True
+
+
+def validate_safe_aggregate_sql(parser: argparse.ArgumentParser, sql: str) -> None:
+    select_start = re.match(r"^select\b", sql, re.I)
+    if not select_start:
+        parser.error("--sql 只允许 SELECT 聚合查询")
+    if any(token in sql for token in (";", "--", "/*", "*/")):
+        parser.error("--sql 不允许多语句或注释")
+    if not SAFE_AGG_RE.search(sql):
+        parser.error("--sql 必须包含 count/sum/avg/min/max 等聚合函数")
+
+    clause_names = ("from", "where", "group by", "having", "order by", "limit")
+    select_end, _ = find_top_level_sql_clause(sql, clause_names, select_start.end())
+    select_items = split_top_level_sql(sql[select_start.end():select_end])
+    if not select_items:
+        parser.error("--sql 必须包含聚合结果列")
+
+    for item in select_items:
+        expression = strip_sql_alias(item)
+        if DIRECT_RAW_LOG_FIELD_RE.fullmatch(expression):
+            parser.error("--sql 不允许直接输出 content/message/__content__ 原始日志字段")
+        aggregate = SAFE_AGG_EXPRESSION_RE.fullmatch(expression)
+        if RAW_LOG_FIELD_RE.search(expression):
+            if aggregate:
+                if aggregate.group(1).lower() in {"min", "max"}:
+                    parser.error("--sql 不允许通过 min/max 输出原始日志字段")
+            elif not validate_safe_regexp_dimension(parser, expression):
+                parser.error(
+                    "--sql 中的原始日志字段只能用于完整聚合表达式或 regexp_extract 派生维度"
+                )
+
+    group_start, group_clause = find_top_level_sql_clause(sql, ("group by",), select_end)
+    if group_clause:
+        group_value_start = group_start + len(group_clause)
+        group_end, _ = find_top_level_sql_clause(
+            sql, ("having", "order by", "limit"), group_value_start
+        )
+        for item in split_top_level_sql(sql[group_value_start:group_end]):
+            if DIRECT_RAW_LOG_FIELD_RE.fullmatch(item.strip()):
+                parser.error("--sql 不允许按 content/message/__content__ 原始日志字段分组")
+
+
+def resolve_search_safe_args(argv: list[str]) -> list[str]:
+    parser = argparse.ArgumentParser(prog="sls search-safe", allow_abbrev=False)
+    add_safe_route_args(parser)
+    filters = parser.add_mutually_exclusive_group()
+    filters.add_argument("--trace-id")
+    filters.add_argument("--keyword")
+    filters.add_argument("--query")
+    args = parser.parse_args(argv)
+    validate_safe_window(parser, args)
+    resolved = safe_common_args(args)
+    for name in ("trace_id", "keyword", "query"):
+        value = getattr(args, name)
+        if value is not None:
+            resolved.extend(["--" + name.replace("_", "-"), value])
+    return resolved
+
+
+def resolve_agg_safe_args(argv: list[str]) -> list[str]:
+    parser = argparse.ArgumentParser(prog="sls agg-safe", allow_abbrev=False)
+    add_safe_route_args(parser)
+    parser.set_defaults(size=100)
+    parser.add_argument("--sql", required=True)
+    parser.add_argument("--index")
+    args = parser.parse_args(argv)
+    validate_safe_window(parser, args)
+    sql = args.sql.strip()
+    validate_safe_aggregate_sql(parser, sql)
+    resolved = safe_common_args(args)
+    resolved.extend(["--sql", sql])
+    if args.index is not None:
+        resolved.extend(["--index", args.index])
+    return resolved
+
+
 def run_login(args: list[str]) -> int:
     runtime, login_script, _ = runtime_and_paths()
     if wants_help(args):
@@ -265,6 +494,7 @@ def resolve_agg_args(args: list[str]) -> list[str]:
     parser.add_argument("--minutes", type=int, default=60)
     parser.add_argument("--size", type=int, default=100)
     parser.add_argument("--out")
+    parser.add_argument("--redact", action="store_true")
     parsed = parser.parse_args(args)
 
     if not parsed.sql:
@@ -306,6 +536,8 @@ def resolve_agg_args(args: list[str]) -> list[str]:
     out_args += ["--project", project, "--logstore", logstore]
     if parsed.out:
         out_args += ["--out", parsed.out]
+    if parsed.redact:
+        out_args += ["--redact"]
     return out_args
 
 
@@ -348,6 +580,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_query(args)
     if cmd == "agg":
         return run_agg(args)
+    if cmd == "search-safe":
+        return run_query(resolve_search_safe_args(args))
+    if cmd == "agg-safe":
+        return run_agg(resolve_agg_safe_args(args))
     print(f"[!] 未知子命令: {cmd}")
     print(usage(), end="")
     return 1

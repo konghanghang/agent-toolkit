@@ -1,0 +1,6 @@
+cryptography
+pyotp
+PyYAML
+requests
+selenium
+webdriver-manager

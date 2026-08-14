@@ -23,6 +23,7 @@ agent-toolkit/
 │   ├── capture-iminling-draft/
 │   ├── archery-prod-query/
 │   ├── aliyun-sls-log-query/
+│   ├── jumpserver-k8s-log-query/
 │   ├── online-issue-triage/
 │   ├── tapd-story/
 │   └── tapd-weekly-report/
@@ -30,6 +31,7 @@ agent-toolkit/
 │   ├── agents/
 │   │   └── evidence_explorer.toml
 │   └── rules/
+│       ├── work-readonly.rules
 │       ├── git-commit.rules
 │       └── github-readonly.rules
 ├── claude/
@@ -70,7 +72,7 @@ description: 说明能力和触发场景
 统一使用：
 
 - `AGENT_TOOLKIT_ROOT`：本仓库根目录，例如 `~/.agent-toolkit`。
-- `PYTHON_BIN`：公共运行时使用的 Python 解释器。
+- `PYTHON_BIN`：公共运行时使用的 Python 解释器，默认指向 `AGENT_TOOLKIT_ROOT/.venv` 中的解释器。
 - `WORK_ROOT`：业务工作区根目录。
 - `TMP_DIR`：临时文件目录。
 
@@ -212,12 +214,21 @@ Codex 会为新会话加载 Agents 和 Rules。Agent 源文件通过软链立即
 python3 ~/.agent-toolkit/common/bootstrap_work.py
 ```
 
+首次初始化默认在仓库根目录创建 `.venv`，并从 `requirements.txt` 安装公共运行时和 Skill 校验依赖。`.venv` 是本机环境，不进入 Git；业务凭证和 Session 仍保存在 `~/.local/agent-toolkit/work/`。已有运行时配置会保留当前 `PYTHON_BIN` 默认值，迁移到项目环境时在交互提示中明确输入 `~/.agent-toolkit/.venv/bin/python`（Windows 使用 `.venv\Scripts\python.exe`）。
+
+后续仓库测试和维护命令统一使用项目解释器，例如：
+
+```bash
+~/.agent-toolkit/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+```
+
 初始化会配置：
 
 - `WORK_ROOT`
 - `TMP_DIR`
 - `SLS_DIR`
 - `ARCHERY_DIR`
+- `JMS_DIR`
 - `PYTHON_BIN`
 - `AGENT_TOOLKIT_ROOT`
 
@@ -225,6 +236,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 
 - `sls`
 - `archery`
+- `jms`
 - Windows 对应的 `.cmd` 与 `.ps1` 入口
 
 `~/.local/agent-toolkit/work/runtime.json`、凭证和 Session 都是本机状态，不提交到本仓库。
@@ -238,6 +250,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `capture-iminling-draft`
 - `archery-prod-query`
 - `aliyun-sls-log-query`
+- `jumpserver-k8s-log-query`
 - `online-issue-triage`
 - `tapd-story`
 - `tapd-weekly-report`
@@ -248,6 +261,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 
 ## 当前 Codex Rules
 
+- `work-readonly.rules`：允许 work 的登录、受限 SLS 查询、Archery 元数据查询和固定测试命名空间日志查询；原始 SQL、任意 SLS 查询和通用 JMS 命令仍需审批。
 - `git-commit.rules`：自动允许从 `origin` 获取更新、通过 `git switch -c` 新建分支，以及受控的 `git add`、新提交和普通主分支推送。
 - `github-readonly.rules`：自动允许 `gh pr view/checks`、`gh run list/view`、`gh issue view` 和 `gh repo view`。
 

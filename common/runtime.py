@@ -109,6 +109,8 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
     normalized["tmp_dir"] = str(Path(str(data["tmp_dir"])).expanduser().resolve())
     normalized["sls_dir"] = str(Path(str(data["sls_dir"])).expanduser().resolve())
     normalized["archery_dir"] = str(Path(str(data["archery_dir"])).expanduser().resolve())
+    jms_dir = Path(str(data.get("jms_dir") or (CONFIG_DIR / "jms"))).expanduser()
+    normalized["jms_dir"] = str(jms_dir.resolve())
     return normalized
 
 
@@ -123,7 +125,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="work runtime config helper")
     parser.add_argument(
         "--get",
-        choices=(*REQUIRED_KEYS, "agent_toolkit_root", "skills_root", "codex_home"),
+        choices=(*REQUIRED_KEYS, "jms_dir", "agent_toolkit_root", "skills_root", "codex_home"),
         help="输出某个运行时配置字段",
     )
     args = parser.parse_args()
