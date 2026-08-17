@@ -1,0 +1,4 @@
+interface:
+  display_name: "测试库验证"
+  short_description: "自动定位多测试实例，安全查询、快照对比、断言和受控修改 MySQL 数据"
+  default_prompt: "使用 $verify-test-db 自动定位测试数据库实例，并验证操作前后的数据变化。"
