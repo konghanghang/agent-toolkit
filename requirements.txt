@@ -3,4 +3,5 @@ pyotp
 PyYAML
 requests
 selenium
+tzdata
 webdriver-manager

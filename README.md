@@ -25,6 +25,7 @@ agent-toolkit/
 │   ├── aliyun-sls-log-query/
 │   ├── jumpserver-k8s-log-query/
 │   ├── online-issue-triage/
+│   ├── prometheus-query/
 │   ├── tapd-story/
 │   └── tapd-weekly-report/
 ├── codex/
@@ -226,6 +227,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 
 - `WORK_ROOT`
 - `TMP_DIR`
+- `PROMETHEUS_BASE_URL`
 - `SLS_DIR`
 - `ARCHERY_DIR`
 - `JMS_DIR`
@@ -252,6 +254,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `aliyun-sls-log-query`
 - `jumpserver-k8s-log-query`
 - `online-issue-triage`
+- `prometheus-query`
 - `tapd-story`
 - `tapd-weekly-report`
 
@@ -299,6 +302,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 - SSH 私钥和认证文件
 - EasyImage、PicGo 的真实凭证
 - 数据库和生产环境凭证
+- Prometheus 等通过 `runtime.json` 管理的内部服务地址
 - `~/.local/agent-toolkit/work/runtime.json`
 - 工作区绝对路径
 

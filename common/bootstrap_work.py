@@ -8,7 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from runtime import detect_agent_toolkit_root
+from runtime import RuntimeConfigError, detect_agent_toolkit_root, normalize_http_base_url
 
 CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
 CONFIG_FILE = CONFIG_DIR / "runtime.json"
@@ -46,6 +46,19 @@ def prompt_yes_no(label: str, default: bool = True) -> bool:
     if not raw:
         return default
     return raw in {"y", "yes"}
+
+
+def prompt_url(label: str, default: str | None = None) -> str:
+    while True:
+        suffix = f" [{default}]" if default else ""
+        raw = input(f"{label}{suffix}: ").strip() or (default or "")
+        if not raw:
+            print("  [!] 不能为空")
+            continue
+        try:
+            return normalize_http_base_url(raw, label)
+        except RuntimeConfigError as exc:
+            print(f"  [!] {exc}")
 
 
 def ensure_venv(python_bin: Path, system_python: str) -> None:
@@ -118,6 +131,10 @@ def main() -> int:
     work_root = prompt_path("work 工作区根目录 WORK_ROOT", str(guessed_work_root))
     tmp_dir_default = existing.get("tmp_dir") or tempfile.gettempdir()
     tmp_dir = prompt_path("临时目录 TMP_DIR", tmp_dir_default)
+    prometheus_base_url = prompt_url(
+        "Prometheus 地址 PROMETHEUS_BASE_URL",
+        existing.get("prometheus_base_url"),
+    )
     sls_dir_default = existing.get("sls_dir") or str(CONFIG_DIR / "sls")
     sls_dir = prompt_path("SLS 凭证与 session 目录 SLS_DIR", sls_dir_default)
     archery_dir_default = existing.get("archery_dir") or str(CONFIG_DIR / "archery")
@@ -146,6 +163,7 @@ def main() -> int:
         "skills_root": str(toolkit_root.resolve()),
         "python_bin": str(configured_python_path(python_bin)),
         "tmp_dir": str(tmp_dir.resolve()),
+        "prometheus_base_url": prometheus_base_url,
         "sls_dir": str(sls_dir.resolve()),
         "archery_dir": str(archery_dir.resolve()),
         "jms_dir": str(jms_dir.resolve()),
@@ -154,6 +172,7 @@ def main() -> int:
 
     print("\n[+] work 运行时配置已写入:")
     print(f"    {CONFIG_FILE}")
+    print("[+] Prometheus 地址已写入本机运行时配置")
     print("[+] 建议确认 PATH 已包含:")
     print(f"    {toolkit_root / 'bin'}")
     print("[+] 需要补充的凭证文件:")

@@ -69,6 +69,50 @@ class RuntimeTest(unittest.TestCase):
 
             self.assertEqual(str(expected_jms_dir.resolve()), loaded["jms_dir"])
             self.assertFalse(expected_jms_dir.exists())
+            self.assertNotIn("prometheus_base_url", loaded)
+
+    def test_loading_runtime_normalizes_separate_prometheus_url(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_dir = root / "config"
+            config_dir.mkdir()
+            paths = {
+                key: root / key
+                for key in ("work_root", "tmp_dir", "sls_dir", "archery_dir")
+            }
+            for path in paths.values():
+                path.mkdir()
+            python_bin = root / "python"
+            python_bin.touch()
+            config_file = config_dir / "runtime.json"
+            config_file.write_text(
+                json.dumps(
+                    {
+                        **{key: str(path) for key, path in paths.items()},
+                        "agent_toolkit_root": str(ROOT),
+                        "python_bin": str(python_bin),
+                        "prometheus_base_url": "https://monitor.example/prometheus/",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(runtime, "CONFIG_FILE", config_file), patch.object(
+                runtime, "CONFIG_DIR", config_dir
+            ):
+                loaded = runtime.load_runtime(COMMON_DIR / "runtime.py")
+
+            self.assertEqual(
+                "https://monitor.example/prometheus",
+                loaded["prometheus_base_url"],
+            )
+
+    def test_prometheus_url_rejects_credentials(self) -> None:
+        with self.assertRaisesRegex(runtime.RuntimeConfigError, "用户名或密码"):
+            runtime.normalize_http_base_url(
+                "https://user:secret@monitor.example/prometheus",
+                "prometheus_base_url",
+            )
 
     def test_bootstrap_defaults_to_project_virtual_environment(self) -> None:
         expected = (
@@ -92,6 +136,15 @@ class RuntimeTest(unittest.TestCase):
             self.assertEqual(venv_python.absolute(), configured)
             self.assertNotEqual(base_python.resolve(), configured)
 
+    def test_bootstrap_prompts_until_prometheus_url_is_valid(self) -> None:
+        with patch(
+            "builtins.input",
+            side_effect=["not-a-url", "https://monitor.example/prometheus/"],
+        ), patch("builtins.print"):
+            configured = bootstrap.prompt_url("Prometheus 地址")
+
+        self.assertEqual("https://monitor.example/prometheus", configured)
+
     def test_bootstrap_installs_project_requirements(self) -> None:
         requirements = ROOT / "requirements.txt"
         dependency_names = {
@@ -101,6 +154,7 @@ class RuntimeTest(unittest.TestCase):
         }
         self.assertIn("cryptography", dependency_names)
         self.assertIn("pyyaml", dependency_names)
+        self.assertIn("tzdata", dependency_names)
 
         python_bin = ROOT / ".venv" / "bin" / "python"
         with patch.object(bootstrap, "prompt_yes_no", return_value=True), patch.object(

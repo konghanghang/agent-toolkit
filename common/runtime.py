@@ -6,15 +6,29 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
+from urllib import parse as urllib_parse
 
 
 CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
 CONFIG_FILE = CONFIG_DIR / "runtime.json"
 REQUIRED_KEYS = ("work_root", "python_bin", "tmp_dir", "sls_dir", "archery_dir")
+OPTIONAL_KEYS = ("jms_dir", "prometheus_base_url")
 
 
 class RuntimeConfigError(RuntimeError):
     pass
+
+
+def normalize_http_base_url(value: str, key: str = "URL") -> str:
+    base_url = value.strip().rstrip("/")
+    parsed = urllib_parse.urlsplit(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeConfigError(f"{key} 必须是完整的 http 或 https URL")
+    if parsed.username or parsed.password:
+        raise RuntimeConfigError(f"{key} 不得包含用户名或密码")
+    if parsed.query or parsed.fragment:
+        raise RuntimeConfigError(f"{key} 不得包含 query string 或 fragment")
+    return base_url
 
 
 def detect_agent_toolkit_root(current_file: str | Path) -> Path:
@@ -111,6 +125,12 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
     normalized["archery_dir"] = str(Path(str(data["archery_dir"])).expanduser().resolve())
     jms_dir = Path(str(data.get("jms_dir") or (CONFIG_DIR / "jms"))).expanduser()
     normalized["jms_dir"] = str(jms_dir.resolve())
+    prometheus_base_url = str(data.get("prometheus_base_url") or "").strip()
+    if prometheus_base_url:
+        normalized["prometheus_base_url"] = normalize_http_base_url(
+            prometheus_base_url,
+            "prometheus_base_url",
+        )
     return normalized
 
 
@@ -125,7 +145,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="work runtime config helper")
     parser.add_argument(
         "--get",
-        choices=(*REQUIRED_KEYS, "jms_dir", "agent_toolkit_root", "skills_root", "codex_home"),
+        choices=(*REQUIRED_KEYS, *OPTIONAL_KEYS, "agent_toolkit_root", "skills_root", "codex_home"),
         help="输出某个运行时配置字段",
     )
     args = parser.parse_args()
@@ -134,6 +154,8 @@ def main() -> int:
     if args.get:
         if args.get in {"codex_home", "skills_root"}:
             print(runtime["agent_toolkit_root"])
+        elif args.get not in runtime:
+            raise SystemExit(f"[!] 运行时配置缺少字段: {args.get}")
         else:
             print(runtime[args.get])
     else:
