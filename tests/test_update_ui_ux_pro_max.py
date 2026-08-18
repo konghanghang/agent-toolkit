@@ -25,6 +25,29 @@ updater = load_module()
 
 
 class UpdateUiUxProMaxTest(unittest.TestCase):
+    def test_run_decodes_subprocess_output_as_utf8(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="推荐设计系统",
+            stderr=None,
+        )
+
+        with patch.object(updater.subprocess, "run", return_value=completed) as run:
+            result = updater.run(["example-command"])
+
+        self.assertEqual("推荐设计系统", result.stdout)
+        run.assert_called_once_with(
+            ["example-command"],
+            cwd=None,
+            env=None,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=True,
+        )
+
     def test_read_locked_release_validates_reproducibility_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             lock_file = Path(temp_dir) / "external-skills.lock.json"

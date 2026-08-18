@@ -98,6 +98,7 @@ def run(
         cwd=cwd,
         env=env,
         text=True,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         check=True,
