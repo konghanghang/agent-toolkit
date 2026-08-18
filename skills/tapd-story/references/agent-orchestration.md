@@ -18,10 +18,10 @@ TAPD 读取和代码探索不固定为串行流程：
 
 ## 交接目录
 
-按需求使用系统临时目录：
+按需求使用 `Path(tempfile.gettempdir()) / f"tapd-story-{story_id}"` 作为交接目录。下文的 `<TAPD_TEMP>` 仅表示这个实际路径，使用前必须替换，不要原样传给命令：
 
 ```text
-/tmp/tapd-story-STORY_ID/
+<TAPD_TEMP>/
 ├── detail.json
 ├── images/
 ├── requirement-context.json
@@ -41,8 +41,8 @@ python3 scripts/tapd_story.py detail \
   --id STORY_ID \
   --download-images \
   --format json \
-  --image-dir /tmp/tapd-story-STORY_ID/images \
-  --output /tmp/tapd-story-STORY_ID/detail.json
+  --image-dir "<TAPD_TEMP>/images" \
+  --output "<TAPD_TEMP>/detail.json"
 ```
 
 完成图片识别后生成 `requirement-context.json` 和 `requirement-context.md`。结构化结果至少包含：
@@ -68,7 +68,7 @@ python3 scripts/tapd_story.py detail \
   "images": [
     {
       "index": 1,
-      "local_path": "/tmp/tapd-story-STORY_ID/images/001.png"
+      "local_path": "<TAPD_TEMP>/images/001.png"
     }
   ]
 }

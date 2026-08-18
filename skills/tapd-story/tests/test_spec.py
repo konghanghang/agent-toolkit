@@ -1,16 +1,28 @@
+import tempfile
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from tapd_api import TapdError  # noqa: E402
-from tapd_story import _validate_spec  # noqa: E402
+from tapd_story import _image_dir, _validate_spec  # noqa: E402
 
 
 class SpecTest(unittest.TestCase):
+    def test_default_image_directory_uses_system_temporary_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch(
+            "tapd_story.tempfile.gettempdir",
+            return_value=temp_dir,
+        ):
+            path = _image_dir(SimpleNamespace(image_dir=None), "123")
+
+        self.assertEqual(Path(temp_dir) / "tapd-story-123" / "images", path)
+
     def test_create_single_is_valid(self):
         operations = _validate_spec(
             "create",

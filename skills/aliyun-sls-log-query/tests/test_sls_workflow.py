@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 
 TOOLKIT_ROOT = Path(__file__).resolve().parents[3]
+TEST_TMP_ROOT = Path(tempfile.gettempdir()) / "agent-toolkit-sls-tests"
 
 
 def load_module(name: str, path: Path):
@@ -105,9 +106,9 @@ class SlsWorkflowTest(unittest.TestCase):
         login_ok = subprocess.CompletedProcess(["login"], 0, stdout="login ok\n", stderr="")
         query_ok = subprocess.CompletedProcess(["query"], 0, stdout="query ok\n", stderr="")
         runtime = {
-            "python_bin": "/tmp/python",
+            "python_bin": str(TEST_TMP_ROOT / "python"),
             "agent_toolkit_root": str(TOOLKIT_ROOT),
-            "sls_dir": "/tmp/sls",
+            "sls_dir": str(TEST_TMP_ROOT / "sls"),
         }
 
         with patch.object(self.cli, "runtime_and_paths", return_value=(
@@ -202,7 +203,7 @@ class SlsWorkflowTest(unittest.TestCase):
         self.assertNotIn("--full", args)
         with self.assertRaises(SystemExit):
             self.cli.resolve_search_safe_args([
-                "--service", "ai-open-api", "--out", "/tmp/logs.json",
+                "--service", "ai-open-api", "--out", str(TEST_TMP_ROOT / "logs.json"),
             ])
         with self.assertRaises(SystemExit):
             self.cli.resolve_search_safe_args([
@@ -267,13 +268,13 @@ class SlsWorkflowTest(unittest.TestCase):
 
     def test_safe_query_auto_logins_when_session_is_missing(self):
         runtime = {
-            "python_bin": "/tmp/python",
+            "python_bin": str(TEST_TMP_ROOT / "python"),
             "agent_toolkit_root": str(TOOLKIT_ROOT),
-            "sls_dir": "/tmp/sls",
+            "sls_dir": str(TEST_TMP_ROOT / "sls"),
         }
         with patch.object(
             self.cli, "runtime_and_paths", return_value=(
-                runtime, Path("/tmp/login.py"), Path("/tmp/query.py")
+                runtime, TEST_TMP_ROOT / "login.py", TEST_TMP_ROOT / "query.py"
             )
         ), patch.object(self.cli, "require_credentials"), patch.object(
             self.cli.Path, "exists", return_value=False

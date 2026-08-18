@@ -40,8 +40,9 @@ python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_work.py"
 - 所有依赖都安装到 `PYTHON_BIN` 对应的虚拟环境里
 - 脚本目录固定为 `$AGENT_TOOLKIT_ROOT/skills/aliyun-sls-log-query/scripts`
 - 跨平台稳定入口始终是 `PYTHON_BIN + AGENT_TOOLKIT_ROOT/skills/.../scripts/*.py`
-- 所有临时文件统一写到系统 `/tmp`，不要落到当前项目目录
-- 如果当前执行环境的沙箱拦截 `/tmp` 写入，直接申请权限，不回退到项目目录
+- 需要导出日志时，先读取运行时配置的 `TMP_DIR`，使用当前平台的路径 API 拼接文件名
+- 所有临时文件统一写到 `TMP_DIR`，不要落到当前项目目录，也不要硬编码某个平台的临时根目录
+- 如果当前执行环境的沙箱拦截 `TMP_DIR` 写入，直接申请该目录的权限，不回退到项目目录
 
 推荐优先使用短命令:
 
@@ -132,8 +133,10 @@ sls query --scope domestic --service data-center --query 'data-center and ERROR 
 sls query --scope overseas --service agentcc --from 1783392000 --to 1783395000
 
 # 完整内容不截断 + 落盘
-sls query --scope domestic --service data-center --full --out /tmp/logs.json
+sls query --scope domestic --service data-center --full --out "<TMP_DIR>/logs.json"
 ```
+
+命令中的 `<TMP_DIR>` 是运行时配置值的占位符；执行前必须替换成实际路径，不要把占位符原样传给命令。
 
 `sls` 入口支持自动路由参数:
 
@@ -168,10 +171,10 @@ sls query --project <other-project> --logstore <other-logstore> --query '*'
 ```
 1. 用户提供 trace ID (16 hex 字符)
 2. 先判断路由:
-   - 海外 -> sls query --scope overseas --service <service> --trace-id <id> --minutes 60 --size 50 --full --out /tmp/trace.json
-   - 国内 ai-open-api -> sls query --service ai-open-api --trace-id <id> --minutes 60 --size 50 --full --out /tmp/trace.json
-   - 国内其他服务 -> sls query --scope domestic --service <service> --trace-id <id> --minutes 60 --size 50 --full --out /tmp/trace.json
-3. 解析 `/tmp/trace.json`: 按 span 顺序看 SPRING_REQ → OKHTTP_REQ → OKHTTP_RESP → SPRING_RESP
+   - 海外 -> sls query --scope overseas --service <service> --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
+   - 国内 ai-open-api -> sls query --service ai-open-api --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
+   - 国内其他服务 -> sls query --scope domestic --service <service> --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
+3. 解析 `<TMP_DIR>/trace.json`: 按 span 顺序看 SPRING_REQ → OKHTTP_REQ → OKHTTP_RESP → SPRING_RESP
 4. 找 ERROR / Exception / 慢调用 (PerfLog 字段里有耗时)
 5. 跨服务: 同一 trace ID 在不同服务里的 span, 拼出完整调用链
 ```
@@ -187,7 +190,7 @@ sls query --project <other-project> --logstore <other-logstore> --query '*'
 
 - 不知道时间: 先 `--minutes 60 --size 20` 探一次, 看日志最新时间戳
 - 知道大致时间: 先确认时间位于最近 3 天保留期内，再用 `--from`/`--to` 精确窗口, 避免漏掉
-- 排查偶发问题: `--minutes 1440 --size 500 --out /tmp/day.json` 拉全天再筛选
+- 排查偶发问题: `--minutes 1440 --size 500 --out "<TMP_DIR>/day.json"` 拉全天再筛选
 
 ### 关键词组合
 
@@ -252,8 +255,9 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 
 ## 临时文件约定
 
-- 对话执行中需要导出 JSON、trace、day 级别结果时，统一写入 `/tmp/*.json`
+- `<TMP_DIR>` 表示 `~/.local/agent-toolkit/work/runtime.json` 中 `tmp_dir` 的实际值；通过 `pathlib.Path` 或当前平台等价的路径 API 拼接文件名
+- 对话执行中需要导出 JSON、trace、day 级别结果时，统一写入 `TMP_DIR`
 - 不要把临时日志结果写进当前项目目录
-- 如果当前运行环境限制 `/tmp` 写入，先申请权限，再继续执行
+- 如果当前运行环境限制 `TMP_DIR` 写入，先申请该目录的权限，再继续执行
 
 用 `PYTHON_BIN <script> --help` 查看完整参数。

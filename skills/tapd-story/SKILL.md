@@ -59,25 +59,27 @@ python3 scripts/tapd_story.py plan-context --id STORY_ID --repo . --download-ima
 
 ## 写入命令
 
+先使用 `Path(tempfile.gettempdir()) / "tapd-story.json"` 或同等平台 API 生成临时规格文件路径，并在下列命令中用实际路径替换 `<SPEC_FILE>`。不要把占位符原样传给命令，也不要把临时规格写入当前项目目录。
+
 先校验和预览：
 
 ```bash
-python3 scripts/tapd_story.py validate-spec --operation create --spec /tmp/tapd-story.json
-python3 scripts/tapd_story.py create --spec /tmp/tapd-story.json --dry-run
+python3 scripts/tapd_story.py validate-spec --operation create --spec "<SPEC_FILE>"
+python3 scripts/tapd_story.py create --spec "<SPEC_FILE>" --dry-run
 ```
 
 用户明确确认后创建：
 
 ```bash
-python3 scripts/tapd_story.py create --spec /tmp/tapd-story.json
+python3 scripts/tapd_story.py create --spec "<SPEC_FILE>"
 ```
 
 更新已有需求：
 
 ```bash
-python3 scripts/tapd_story.py validate-spec --operation update --spec /tmp/tapd-story.json
-python3 scripts/tapd_story.py update --spec /tmp/tapd-story.json --dry-run
-python3 scripts/tapd_story.py update --spec /tmp/tapd-story.json
+python3 scripts/tapd_story.py validate-spec --operation update --spec "<SPEC_FILE>"
+python3 scripts/tapd_story.py update --spec "<SPEC_FILE>" --dry-run
+python3 scripts/tapd_story.py update --spec "<SPEC_FILE>"
 ```
 
 禁止隐式 upsert：`create` 规格不得包含 `id`，`update` 的每个条目必须包含 `id`。

@@ -29,8 +29,10 @@ sls agg --service call-task-number \
 # 分组统计（--index 限定日志子集再 GROUP BY）
 sls agg --service call-task-number --index 'call-task-number and "普通消息消费失败"' \
         --sql 'SELECT regexp_extract(content,"messageId[: ]*([0-9A-F]{20,})",1) as mid, count(*) as c GROUP BY mid HAVING max(case when content like "%606332%" then 1 else 0 end)=1' \
-        --from 1785286800 --to 1785304800 --size 100 --out /tmp/agg.json
+        --from 1785286800 --to 1785304800 --size 100 --out "<TMP_DIR>/agg.json"
 ```
+
+`<TMP_DIR>` 是共享运行时配置中 `tmp_dir` 的实际值占位符；执行前使用当前平台的路径 API 生成真实输出路径。
 
 参数：`--sql`（管道后 SQL，必选）、`--index`（管道前查询，默认 service 名或 `*`）、`--scope/--service` 或 `--project/--logstore`、`--from/--to` 或 `--minutes`、`--size`（1-100）、`--out`。需要取超过 100 个分组时，按时间段拆分查询后合并去重。
 
