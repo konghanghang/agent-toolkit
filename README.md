@@ -28,7 +28,8 @@ agent-toolkit/
 │   ├── prometheus-query/
 │   ├── tapd-story/
 │   ├── tapd-weekly-report/
-│   └── verify-test-db/
+│   ├── verify-test-db/
+│   └── local-browser-verify/
 ├── codex/
 │   ├── agents/
 │   │   └── evidence_explorer.toml
@@ -263,6 +264,8 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `tapd-weekly-report`
 - `verify-test-db`
   - [测试库配置](skills/verify-test-db/references/configuration.md)
+- `local-browser-verify`
+  - [线索信息管理待初审夹具](skills/local-browser-verify/references/clue-unsubmitted-fixture.md)
 
 ## 当前 Codex Agents
 
