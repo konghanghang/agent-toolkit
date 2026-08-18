@@ -90,10 +90,43 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 ## 安装
 
+### Windows 前置条件
+
+仓库的真实 Windows CI 使用 `windows-latest` 和 Python 3.11。Windows 本机安装前先准备：
+
+- Git for Windows，并确保 `git.exe` 已加入 `PATH`。
+- CPython 3.11，并安装 `py.exe` launcher、`pip` 和 `venv`。
+- Windows PowerShell 5.1 的 `powershell.exe`。安装器使用它创建 directory junction；PowerShell 7 的 `pwsh` 可以作为交互终端，但当前不能替代 `powershell.exe`。
+- 将工具箱、用户 Home 以及 Codex/Claude 安装目标放在本机 NTFS 卷。网络盘、FAT/exFAT 和跨卷 junction 不属于已验证范围。
+
+在 PowerShell 中先检查基础依赖：
+
+```powershell
+git --version
+py -3.11 --version
+py -3.11 -m pip --version
+py -3.11 -c "import venv"
+powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'
+```
+
+`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，不创建公共虚拟环境，也不安装 Python 包。需要使用 work 公共入口或带脚本的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
+
+以下外部程序只在对应能力中需要，不是基础安装的硬依赖：
+
+- Google Chrome：SLS 和 Archery 自动登录。
+- Hugo：`capture-iminling-draft` 的草稿构建验证。
+- `rsvg-convert`（librsvg）：`upload-to-easyimage --convert-svg`；不转换 SVG 时不需要。
+
 ### 克隆
 
 ```bash
 git clone git@github.com:konghanghang/agent-toolkit.git ~/.agent-toolkit
+```
+
+Windows PowerShell：
+
+```powershell
+git clone git@github.com:konghanghang/agent-toolkit.git "$HOME\.agent-toolkit"
 ```
 
 ### 预览安装计划
@@ -128,9 +161,32 @@ python3 ~/.agent-toolkit/scripts/install.py
 Windows PowerShell 示例：
 
 ```powershell
-py -3 "$HOME\.agent-toolkit\scripts\install.py" --dry-run
-py -3 "$HOME\.agent-toolkit\scripts\install.py"
+py -3.11 "$HOME\.agent-toolkit\scripts\install.py" --dry-run
+py -3.11 "$HOME\.agent-toolkit\scripts\install.py"
 ```
+
+### Windows 命令入口与 ExecutionPolicy
+
+运行 bootstrap 后会同时生成 `.cmd` 和 `.ps1` 入口。PowerShell 中默认使用 `.cmd`；它不受 PowerShell ExecutionPolicy 限制，也不需要修改本机策略：
+
+```powershell
+& "$HOME\.agent-toolkit\bin\sls.cmd" --help
+& "$HOME\.agent-toolkit\bin\archery.cmd" list-instances-safe
+```
+
+只有明确选择运行 `.ps1` 时才检查策略：
+
+```powershell
+Get-ExecutionPolicy -List
+```
+
+如果 `MachinePolicy` 或 `UserPolicy` 已由组织配置，保留组织策略并继续使用 `.cmd`，不要尝试覆盖。如果没有组织策略、且用户明确希望启用本机 `.ps1` wrapper，可以只在当前用户范围使用 `RemoteSigned`：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+安装器不会修改 `ExecutionPolicy`。不要设置 `LocalMachine` 范围，不要使用 `Unrestricted`，也不要通过持久化 `Bypass` 绕过策略；无法修改当前用户策略时继续使用 `.cmd`。
 
 从旧的 `~/.shared-skills` 迁移时使用：
 
@@ -231,12 +287,24 @@ Codex 会为新会话加载 Agents 和 Rules。Agent 源文件通过目录链接
 python3 ~/.agent-toolkit/common/bootstrap_work.py
 ```
 
+Windows PowerShell：
+
+```powershell
+py -3.11 "$HOME\.agent-toolkit\common\bootstrap_work.py"
+```
+
 首次初始化默认在仓库根目录创建 `.venv`，并从 `requirements.txt` 安装公共运行时和 Skill 校验依赖。`.venv` 是本机环境，不进入 Git；业务凭证和 Session 仍保存在 `~/.local/agent-toolkit/work/`。已有运行时配置会保留当前 `PYTHON_BIN` 默认值，迁移到项目环境时在交互提示中明确输入 `~/.agent-toolkit/.venv/bin/python`（Windows 使用 `.venv\Scripts\python.exe`）。
 
 后续仓库测试和维护命令统一使用项目解释器，例如：
 
 ```bash
 ~/.agent-toolkit/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+```
+
+Windows PowerShell：
+
+```powershell
+& "$HOME\.agent-toolkit\.venv\Scripts\python.exe" -m unittest discover -s tests -p "test_*.py"
 ```
 
 初始化会配置：
