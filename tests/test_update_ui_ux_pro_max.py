@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import subprocess
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
 
@@ -232,6 +233,54 @@ class UpdateUiUxProMaxTest(unittest.TestCase):
             self.assertEqual(expected, updater.content_digest(skill_dir))
             source.write_text("print('changed')\n", encoding="utf-8")
             self.assertNotEqual(expected, updater.content_digest(skill_dir))
+
+    def test_content_digest_uses_platform_independent_path_order(self) -> None:
+        contents = {
+            "SKILL.md": b"skill\n",
+            "data/colors.csv": b"colors\n",
+        }
+
+        class WindowsOrderedFile:
+            def __init__(self, relative: str, content: bytes) -> None:
+                self.relative = PureWindowsPath(relative)
+                self.content = content
+
+            def __lt__(self, other: object) -> bool:
+                if not isinstance(other, WindowsOrderedFile):
+                    return NotImplemented
+                return str(self.relative).casefold() < str(other.relative).casefold()
+
+            @property
+            def suffix(self) -> str:
+                return self.relative.suffix
+
+            def is_file(self) -> bool:
+                return True
+
+            def relative_to(self, _root: object) -> PureWindowsPath:
+                return self.relative
+
+            def read_bytes(self) -> bytes:
+                return self.content
+
+        class WindowsOrderedSkillDirectory:
+            def rglob(self, _pattern: str) -> list[WindowsOrderedFile]:
+                return [
+                    WindowsOrderedFile(relative, content)
+                    for relative, content in contents.items()
+                ]
+
+        expected = hashlib.sha256()
+        for relative in sorted(contents):
+            expected.update(relative.encode("utf-8"))
+            expected.update(b"\0")
+            expected.update(contents[relative])
+            expected.update(b"\0")
+
+        self.assertEqual(
+            expected.hexdigest(),
+            updater.content_digest(WindowsOrderedSkillDirectory()),
+        )
 
     def test_write_lock_records_local_transform(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

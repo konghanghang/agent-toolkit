@@ -311,7 +311,10 @@ def content_digest(skill_dir: Path) -> str:
         and "__pycache__" not in item.relative_to(skill_dir).parts
         and item.suffix.lower() not in {".pyc", ".pyo"}
     )
-    for path in sorted(files):
+    for path in sorted(
+        files,
+        key=lambda item: item.relative_to(skill_dir).as_posix(),
+    ):
         relative = path.relative_to(skill_dir).as_posix()
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
