@@ -1,0 +1,186 @@
+name: Windows
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run repository tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run all Skill tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $testDirectories = Get-ChildItem -Path skills -Directory |
+            ForEach-Object { Join-Path $_.FullName "tests" } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+
+          if (-not $testDirectories) {
+            throw "No Skill test directories were found"
+          }
+
+          foreach ($testDirectory in $testDirectories) {
+            Write-Host "Running Skill tests: $testDirectory"
+            python -m unittest discover -s $testDirectory -p "test*.py" -v
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+
+      - name: Verify installer junctions, Rules, and idempotency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $isolatedHome = Join-Path $env:RUNNER_TEMP "agent-toolkit-windows-home"
+          $env:USERPROFILE = $isolatedHome
+          $env:HOME = $isolatedHome
+          $codexHome = Join-Path $isolatedHome ".codex"
+          New-Item -ItemType Directory -Force -Path $codexHome | Out-Null
+
+          python scripts/install.py --codex-home $codexHome
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          function Assert-Junction {
+            param(
+              [Parameter(Mandatory = $true)][string]$Path,
+              [Parameter(Mandatory = $true)][string]$ContentPath
+            )
+
+            $item = Get-Item -LiteralPath $Path -Force
+            if ($item.LinkType -ne "Junction") {
+              throw "Expected a directory junction at $Path, got LinkType=$($item.LinkType)"
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $Path $ContentPath) -PathType Leaf)) {
+              throw "Junction target content is unavailable: $Path\$ContentPath"
+            }
+          }
+
+          $skillNames = Get-ChildItem -Path skills -Directory |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "SKILL.md") -PathType Leaf } |
+            Select-Object -ExpandProperty Name
+
+          if (-not $skillNames) {
+            throw "No installable Skills were found"
+          }
+
+          foreach ($skillName in $skillNames) {
+            Assert-Junction `
+              -Path (Join-Path $isolatedHome ".agents\skills\$skillName") `
+              -ContentPath "SKILL.md"
+            Assert-Junction `
+              -Path (Join-Path $isolatedHome ".claude\skills\$skillName") `
+              -ContentPath "SKILL.md"
+          }
+
+          Assert-Junction -Path (Join-Path $codexHome "agents") -ContentPath "evidence_explorer.toml"
+
+          $sourceRules = Get-ChildItem -Path "codex\rules" -Filter "*.rules" -File
+          if (-not $sourceRules) {
+            throw "No managed Rules were found"
+          }
+
+          foreach ($sourceRule in $sourceRules) {
+            $installedRulePath = Join-Path $codexHome "rules\$($sourceRule.Name)"
+            $installedRule = Get-Item -LiteralPath $installedRulePath -Force
+            if ($installedRule.PSIsContainer -or -not [string]::IsNullOrEmpty([string]$installedRule.LinkType)) {
+              throw "Expected a regular Rule file at $installedRulePath"
+            }
+            if ((Get-FileHash -LiteralPath $sourceRule.FullName).Hash -ne
+                (Get-FileHash -LiteralPath $installedRulePath).Hash) {
+              throw "Installed Rule differs from its source: $installedRulePath"
+            }
+          }
+
+          python scripts/install.py --codex-home $codexHome
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          python scripts/install.py --codex-home $codexHome --dry-run
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Verify Windows command wrappers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $repoRoot = (Get-Location).Path
+          $isolatedHome = Join-Path $env:RUNNER_TEMP "agent-toolkit-windows-home"
+          $env:USERPROFILE = $isolatedHome
+          $env:HOME = $isolatedHome
+          $runtimeDir = Join-Path $isolatedHome ".local\agent-toolkit\work"
+          $slsDir = Join-Path $runtimeDir "sls"
+          $archeryDir = Join-Path $runtimeDir "archery"
+          $jmsDir = Join-Path $runtimeDir "jms"
+          $testDbDir = Join-Path $runtimeDir "test-db"
+
+          foreach ($directory in @($runtimeDir, $slsDir, $archeryDir, $jmsDir, $testDbDir)) {
+            New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          }
+
+          $pythonBin = (python -c "import sys; print(sys.executable)").Trim()
+          $runtime = @{
+            work_root = $repoRoot
+            agent_toolkit_root = $repoRoot
+            skills_root = $repoRoot
+            python_bin = $pythonBin
+            tmp_dir = $env:RUNNER_TEMP
+            sls_dir = $slsDir
+            archery_dir = $archeryDir
+            jms_dir = $jmsDir
+            test_db_dir = $testDbDir
+          }
+          $runtimeJson = $runtime | ConvertTo-Json
+          $runtimePath = Join-Path $runtimeDir "runtime.json"
+          [IO.File]::WriteAllText($runtimePath, $runtimeJson, [Text.UTF8Encoding]::new($false))
+
+          python -c "import sys; from pathlib import Path; sys.path.insert(0, str(Path('common').resolve())); import bootstrap_work; bootstrap_work.install_command_templates(Path.cwd())"
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          function Invoke-Wrapper {
+            param([Parameter(Mandatory = $true)][string]$Path)
+
+            Write-Host "Running $Path --help"
+            & $Path --help
+            if ($LASTEXITCODE -ne 0) {
+              throw "Wrapper failed with exit code $LASTEXITCODE`: $Path --help"
+            }
+          }
+
+          Invoke-Wrapper (Join-Path $repoRoot "bin\sls.cmd")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\sls.ps1")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\archery.cmd")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\archery.ps1")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\jms.cmd")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\jms.ps1")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\testdb.cmd")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\testdb.ps1")

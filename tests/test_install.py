@@ -109,6 +109,7 @@ class InstallTest(unittest.TestCase):
                 all(spec.target.read_bytes() == spec.source.read_bytes() for spec in specs)
             )
 
+    @unittest.skipIf(os.name == "nt", "requires file symlink creation")
     def test_rules_install_migrates_current_managed_symlink_to_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             custom_home = Path(temp_dir)
@@ -156,6 +157,7 @@ class InstallTest(unittest.TestCase):
             self.assertIn("is not managed", message)
             self.assertEqual("local rule\n", spec.target.read_text(encoding="utf-8"))
 
+    @unittest.skipIf(os.name == "nt", "requires file symlink creation")
     def test_rules_dry_run_does_not_migrate_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             custom_home = Path(temp_dir)
@@ -172,7 +174,7 @@ class InstallTest(unittest.TestCase):
             self.assertIn("MIGRATE", message)
             self.assertTrue(spec.target.is_symlink())
 
-    def test_agents_install_creates_directory_symlink(self) -> None:
+    def test_agents_install_creates_directory_link(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             custom_home = Path(temp_dir)
             args = install.parse_args(["--agents-only", "--codex-home", str(custom_home)])
@@ -182,10 +184,11 @@ class InstallTest(unittest.TestCase):
 
             self.assertTrue(success)
             self.assertIn("CREATE", message)
-            self.assertTrue(spec.target.is_symlink())
+            expected_kind = "junction" if os.name == "nt" else "symlink"
+            self.assertEqual(expected_kind, install.directory_link_kind(spec.target))
             self.assertEqual(
                 install.CODEX_AGENTS_SOURCE.resolve(),
-                install.resolve_link_target(spec.target),
+                install.resolve_directory_link(spec.target),
             )
 
     def test_agents_install_rejects_existing_directory(self) -> None:
@@ -203,6 +206,7 @@ class InstallTest(unittest.TestCase):
             self.assertTrue(agents_target.is_dir())
             self.assertFalse(agents_target.is_symlink())
 
+    @unittest.skipIf(os.name == "nt", "requires directory symlink creation")
     def test_agents_install_rejects_unknown_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -228,6 +232,7 @@ class InstallTest(unittest.TestCase):
             self.assertIn(str(unknown_source), message)
             self.assertEqual(unknown_source.resolve(), install.resolve_link_target(agents_target))
 
+    @unittest.skipIf(os.name == "nt", "requires directory symlink creation")
     def test_agents_install_replaces_managed_symlink_with_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             custom_home = Path(temp_dir)
@@ -288,11 +293,12 @@ class InstallTest(unittest.TestCase):
                 ):
                     install.plan_installs(args, custom_home)
 
-    def test_skills_remain_symlinks(self) -> None:
+    def test_skills_remain_directory_links(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "skill"
+            source = install.SKILLS_DIR / "git-commit"
             spec = install.InstallSpec(
-                install.SKILLS_DIR / "git-commit",
+                source,
                 target,
                 "Codex skill",
                 install.DIRECTORY_LINK_STRATEGY,
@@ -302,7 +308,9 @@ class InstallTest(unittest.TestCase):
             _, success = install.install_spec(spec, args)
 
             self.assertTrue(success)
-            self.assertTrue(target.is_symlink())
+            expected_kind = "junction" if os.name == "nt" else "symlink"
+            self.assertEqual(expected_kind, install.directory_link_kind(target))
+            self.assertEqual(source.resolve(), install.resolve_directory_link(target))
 
     def test_windows_directory_link_uses_junction(self) -> None:
         source = install.SKILLS_DIR / "git-commit"

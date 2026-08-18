@@ -247,14 +247,15 @@ class JmsWorkflowTest(unittest.TestCase):
             self.ops.log_dir(creds, "test", "data-center"),
         )
 
-    def test_save_session_is_atomic_mode_0600_and_wraps_permission_error(self):
+    def test_save_session_is_atomic_and_wraps_permission_error(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             runtime = {"jms_dir": tmp_dir}
             payload = {"token": "secret", "cookies": {"jms_sessionid": "web"}}
             path = self.ops.save_session(
                 payload, runtime
             )
-            self.assertEqual(0o600, path.stat().st_mode & 0o777)
+            if os.name != "nt":
+                self.assertEqual(0o600, path.stat().st_mode & 0o777)
             self.assertEqual(payload, json.loads(path.read_text(encoding="utf-8")))
             self.assertEqual([], list(Path(tmp_dir).glob(".jms_session.json.*.tmp")))
             with patch.object(

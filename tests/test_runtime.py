@@ -125,6 +125,7 @@ class RuntimeTest(unittest.TestCase):
         )
         self.assertEqual(expected, bootstrap.platform_default_python(ROOT))
 
+    @unittest.skipIf(os.name == "nt", "virtualenv interpreter symlinks are Unix-specific")
     def test_bootstrap_preserves_virtual_environment_python_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
