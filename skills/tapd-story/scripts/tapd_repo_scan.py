@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections import OrderedDict
 from pathlib import Path
@@ -72,12 +73,10 @@ def _run_rg(term: str, root: Path) -> List[Dict[str, str]]:
         result = subprocess.run(
             [
                 "rg",
-                "-n",
+                "--json",
                 "-F",
                 "-m",
                 str(MAX_HITS_PER_TERM),
-                "--color",
-                "never",
                 term,
                 str(root),
             ],
@@ -93,14 +92,26 @@ def _run_rg(term: str, root: Path) -> List[Dict[str, str]]:
 
     hits = []
     for line in result.stdout.splitlines():
-        parts = line.split(":", 2)
-        if len(parts) != 3:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("rg 返回了无法解析的 JSON 输出。") from exc
+        if event.get("type") != "match":
             continue
-        path, lineno, snippet = parts
+        data = event.get("data", {})
+        path = data.get("path", {}).get("text")
+        lineno = data.get("line_number")
+        snippet = data.get("lines", {}).get("text")
+        if (
+            not isinstance(path, str)
+            or not isinstance(lineno, int)
+            or not isinstance(snippet, str)
+        ):
+            continue
         hits.append(
             {
                 "path": path,
-                "line": lineno,
+                "line": str(lineno),
                 "snippet": snippet.strip(),
                 "term": term,
                 "category": classify_path(path),

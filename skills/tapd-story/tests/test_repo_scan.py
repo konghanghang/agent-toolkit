@@ -1,16 +1,73 @@
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from tapd_repo_scan import build_repo_terms, classify_path, detect_project_root, rank_candidate_files  # noqa: E402
+from tapd_repo_scan import (  # noqa: E402
+    _run_rg,
+    build_repo_terms,
+    classify_path,
+    detect_project_root,
+    rank_candidate_files,
+)
 
 
 class RepoScanTest(unittest.TestCase):
+    def test_rg_json_preserves_posix_and_windows_paths(self):
+        events = [
+            {
+                "type": "match",
+                "data": {
+                    "path": {"text": "/work/repo/src/Demo.java"},
+                    "lines": {"text": "class Demo {}\n"},
+                    "line_number": 12,
+                },
+            },
+            {
+                "type": "match",
+                "data": {
+                    "path": {"text": "C:\\work\\repo\\src\\Demo.java"},
+                    "lines": {"text": "String value = \"a:b\";\r\n"},
+                    "line_number": 34,
+                },
+            },
+            {"type": "summary", "data": {}},
+        ]
+        output = "\n".join(json.dumps(event) for event in events)
+        completed = subprocess.CompletedProcess(["rg"], 0, stdout=output, stderr="")
+
+        with mock.patch("tapd_repo_scan.subprocess.run", return_value=completed) as run:
+            hits = _run_rg("Demo", Path("C:/work/repo"))
+
+        command = run.call_args.args[0]
+        self.assertIn("--json", command)
+        self.assertEqual(
+            [
+                {
+                    "path": "/work/repo/src/Demo.java",
+                    "line": "12",
+                    "snippet": "class Demo {}",
+                    "term": "Demo",
+                    "category": "source",
+                },
+                {
+                    "path": "C:\\work\\repo\\src\\Demo.java",
+                    "line": "34",
+                    "snippet": 'String value = "a:b";',
+                    "term": "Demo",
+                    "category": "source",
+                },
+            ],
+            hits,
+        )
+
     def test_classification_is_not_backend_first(self):
         self.assertEqual("source", classify_path("src/main/java/Demo.java"))
         self.assertEqual("source", classify_path("src/views/Demo.vue"))
