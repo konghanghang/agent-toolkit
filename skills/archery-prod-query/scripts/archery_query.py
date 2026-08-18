@@ -23,6 +23,7 @@ COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
 if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
+from private_files import secure_private_directory, secure_private_file
 from runtime import load_runtime_or_exit
 
 SESSION_WARN_AGE = 5 * 24 * 3600  # 本地经验提示阈值；真实有效性仍以服务端响应为准
@@ -79,6 +80,8 @@ def load_session_file() -> Optional[dict]:
     if not session_file.exists():
         return None
     try:
+        secure_private_directory(session_file.parent)
+        secure_private_file(session_file)
         return json.loads(session_file.read_text(encoding="utf-8"))
     except Exception as exc:
         print(f"[!] session 文件解析失败 ({exc}), 改用环境变量", file=sys.stderr)

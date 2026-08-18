@@ -27,7 +27,7 @@ python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_work.py"
 }
 ```
 
-新文件在 macOS/Linux 上以 `0600` 创建，父目录为 `0700`。如果文件是手工复制的，再确认权限：
+脚本会在读取或写入前收紧权限：macOS/Linux 使用 `0600` 文件与 `0700` 目录；Windows 使用关闭继承的受保护 ACL，只保留当前用户、`SYSTEM` 和内置管理员。如果文件是手工复制的，后续运行 `testdb` 时也会先完成权限保护。macOS/Linux 仍可手工确认：
 
 ```bash
 chmod 600 ~/.local/agent-toolkit/work/test-db/profiles.json
@@ -134,4 +134,4 @@ test-db/
 - `database-routes.json` 保存短期数据库/表到实例的自动发现结果，不包含密码。
 - `snapshots/` 保存查询条件和脱敏基线。
 - `plans/` 保存完整写入 SQL、回滚 SQL、范围和执行状态。
-- 这些文件均为本机运行时状态，不得提交到 Git；脚本在 macOS/Linux 上使用 `0600` 文件权限和原子替换。
+- 这些文件均为本机运行时状态，不得提交到 Git；脚本在所有支持的平台上先收紧文件权限，再执行原子替换。

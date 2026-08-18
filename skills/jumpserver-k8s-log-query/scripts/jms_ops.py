@@ -29,6 +29,12 @@ COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
 if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
+from private_files import (
+    PrivatePathError,
+    atomic_write_private_json,
+    secure_private_directory,
+    secure_private_file,
+)
 from runtime import load_runtime_or_exit
 
 DEFAULT_ORG = "00000000-0000-0000-0000-000000000002"
@@ -102,8 +108,8 @@ def jms_dir(runtime: dict[str, Any] | None = None) -> Path:
         runtime = load_runtime_or_exit(__file__)
     path = Path(runtime["jms_dir"])
     try:
-        path.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
+        secure_private_directory(path)
+    except PrivatePathError as exc:
         raise JmsError(f"JumpServer 运行目录不可用: {path} ({exc})") from exc
     return path
 
@@ -123,6 +129,10 @@ def load_creds(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
             f"找不到凭证文件: {path}\n"
             "请按 skill 文档创建 jms-credentials.json"
         )
+    try:
+        secure_private_file(path)
+    except PrivatePathError as exc:
+        raise JmsError(f"无法保护 JumpServer 凭证文件: {path} ({exc})") from exc
     data = json.loads(path.read_text(encoding="utf-8"))
     required = ("base_url", "username", "password")
     missing = [key for key in required if not data.get(key)]
@@ -142,44 +152,20 @@ def load_session(runtime: dict[str, Any] | None = None) -> dict[str, Any] | None
     if not path.exists():
         return None
     try:
+        secure_private_file(path)
         return json.loads(path.read_text(encoding="utf-8"))
+    except PrivatePathError as exc:
+        raise JmsError(f"无法保护 JumpServer 会话文件: {path} ({exc})") from exc
     except json.JSONDecodeError:
         return None
 
 
 def save_session(payload: dict[str, Any], runtime: dict[str, Any] | None = None) -> Path:
     path = session_path(runtime)
-    fd: int | None = None
-    temporary_path: Path | None = None
     try:
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-        )
-        temporary_path = Path(temporary_name)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            fd = None
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(temporary_path, 0o600)
-        os.replace(temporary_path, path)
-        temporary_path = None
+        atomic_write_private_json(path, payload)
     except OSError as exc:
         raise JmsError(f"无法写入 JumpServer 会话文件: {path} ({exc})") from exc
-    finally:
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        if temporary_path is not None:
-            try:
-                temporary_path.unlink()
-            except FileNotFoundError:
-                pass
-            except OSError:
-                pass
     return path
 
 

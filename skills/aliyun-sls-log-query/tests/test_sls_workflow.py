@@ -69,6 +69,63 @@ class SlsWorkflowTest(unittest.TestCase):
                     element.mock_calls,
                 )
 
+    def test_credentials_and_session_are_secured_before_read(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base_dir = Path(tmp_dir)
+            credentials = base_dir / "aliyun-credentials.json"
+            session = base_dir / "aliyun_session.json"
+            credentials.write_text('{"username":"tester"}', encoding="utf-8")
+            session.write_text('{"csrf":"token"}', encoding="utf-8")
+
+            with patch.object(
+                self.query,
+                "storage_paths",
+                return_value=(credentials, session),
+            ), patch.object(
+                self.query, "secure_private_directory"
+            ) as secure_directory, patch.object(
+                self.query, "secure_private_file"
+            ) as secure_file:
+                self.assertEqual("tester", self.query.load_creds()["username"])
+                self.assertEqual("token", self.query.load_session()["csrf"])
+
+            self.assertEqual(
+                [call(base_dir), call(base_dir)],
+                secure_directory.call_args_list,
+            )
+            self.assertEqual(
+                [call(credentials), call(session)],
+                secure_file.call_args_list,
+            )
+
+    def test_login_session_is_written_atomically_with_private_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            credentials = Path(tmp_dir) / "aliyun-credentials.json"
+            session_path = Path(tmp_dir) / "aliyun_session.json"
+            driver = Mock()
+            driver.current_url = "https://sls.console.aliyun.com/lognext"
+            driver.execute_cdp_cmd.return_value = {
+                "cookies": [{"name": "sid", "value": "value", "domain": ".aliyun.com"}]
+            }
+            driver.get_cookies.return_value = []
+            driver.execute_script.side_effect = lambda script: (
+                "agent" if "navigator.userAgent" in script else "csrf-token"
+            )
+
+            with patch.object(
+                self.login,
+                "storage_paths",
+                return_value=(credentials, session_path),
+            ), patch.object(self.login.time, "sleep"):
+                session = self.login.dump_session(driver)
+
+            self.assertEqual("csrf-token", session["csrf"])
+            self.assertEqual(
+                session,
+                json.loads(session_path.read_text(encoding="utf-8")),
+            )
+            self.assertEqual([], list(Path(tmp_dir).glob(".aliyun_session.json.*.tmp")))
+
     def test_query_returns_nonzero_for_expired_session(self):
         response = {
             "success": False,

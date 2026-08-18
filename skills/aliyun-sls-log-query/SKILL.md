@@ -32,6 +32,8 @@ python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_work.py"
 
 凭证文件路径: `SLS_DIR/aliyun-credentials.json` (不进 git, 初始化时配置)
 
+脚本在读取凭证和写入 session 前会收紧本机权限：macOS/Linux 使用 `0600` 文件与 `0700` 目录，Windows 使用关闭继承的受保护 ACL，只保留当前用户、`SYSTEM` 和内置管理员。
+
 统一约定:
 
 - 推荐入口命令: `sls`（脚本位置 `$AGENT_TOOLKIT_ROOT/bin/sls`）

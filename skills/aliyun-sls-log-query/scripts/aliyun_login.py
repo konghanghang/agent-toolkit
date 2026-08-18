@@ -35,6 +35,12 @@ COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
 if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
+from private_files import (
+    PrivatePathError,
+    atomic_write_private_json,
+    secure_private_directory,
+    secure_private_file,
+)
 from runtime import load_runtime_or_exit
 
 
@@ -60,6 +66,11 @@ def load_creds() -> dict:
             '  "default_query": "<query>"\n'
             "}"
         )
+    try:
+        secure_private_directory(cred_file.parent)
+        secure_private_file(cred_file)
+    except PrivatePathError as exc:
+        sys.exit(f"[!] 无法保护凭证文件: {exc}")
     return json.loads(cred_file.read_text(encoding="utf-8"))
 
 
@@ -205,7 +216,6 @@ def dump_session(driver) -> dict | None:
     try:
         time.sleep(2.0)
         _, session_file = storage_paths()
-        session_file.parent.mkdir(parents=True, exist_ok=True)
         all_cookies = driver.execute_cdp_cmd("Network.getAllCookies", {}).get("cookies", [])
         all_cookies.extend(driver.get_cookies())
         seen, merged = set(), []
@@ -274,7 +284,7 @@ def dump_session(driver) -> dict | None:
             "cookie_domains": sorted({c.get("domain", "") for c in merged}),
             "saved_at": time.time(),
         }
-        session_file.write_text(json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_private_json(session_file, session)
         print(f"[+] Session 已保存: {session_file} (cookies={len(cookies_dict)}, csrf={csrf[:20]!r})")
         return session
     except Exception as e:
@@ -493,7 +503,7 @@ def main() -> int:
         if xhr_csrf and session_file.exists():
             sess = json.loads(session_file.read_text(encoding="utf-8"))
             sess["csrf"] = xhr_csrf
-            session_file.write_text(json.dumps(sess, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_private_json(session_file, sess)
             print("[+] Session 文件 csrf 已更新为 XHR 真实值")
 
         # 验证 session 能用 (页面 fetch + 真实 csrf)

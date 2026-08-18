@@ -266,6 +266,32 @@ class JmsWorkflowTest(unittest.TestCase):
                 ):
                     self.ops.save_session({"token": "secret"}, runtime)
 
+    def test_credentials_and_session_are_secured_before_read(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            runtime = {"jms_dir": tmp_dir}
+            credentials = Path(tmp_dir) / "jms-credentials.json"
+            session = Path(tmp_dir) / "jms_session.json"
+            credentials.write_text(
+                json.dumps(
+                    {
+                        "base_url": "https://jms.example",
+                        "username": "tester",
+                        "password": "secret",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session.write_text('{"token":"session"}', encoding="utf-8")
+
+            with patch.object(self.ops, "secure_private_file") as secure:
+                self.assertEqual("tester", self.ops.load_creds(runtime)["username"])
+                self.assertEqual("session", self.ops.load_session(runtime)["token"])
+
+            self.assertEqual(
+                [unittest.mock.call(credentials), unittest.mock.call(session)],
+                secure.call_args_list,
+            )
+
     def test_save_session_preserves_previous_file_when_replace_fails(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             runtime = {"jms_dir": tmp_dir}

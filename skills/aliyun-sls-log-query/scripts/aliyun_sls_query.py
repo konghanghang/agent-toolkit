@@ -25,6 +25,11 @@ COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
 if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
+from private_files import (
+    PrivatePathError,
+    secure_private_directory,
+    secure_private_file,
+)
 from runtime import load_runtime_or_exit
 
 GET_LOGS_URL = "https://sls.console.aliyun.com/console/logs/getLogs.json"
@@ -55,6 +60,11 @@ def load_creds() -> dict:
     cred_file, _ = storage_paths()
     if not cred_file.exists():
         sys.exit(f"[!] 凭证文件不存在: {cred_file}")
+    try:
+        secure_private_directory(cred_file.parent)
+        secure_private_file(cred_file)
+    except PrivatePathError as exc:
+        sys.exit(f"[!] 无法保护凭证文件: {exc}")
     return json.loads(cred_file.read_text(encoding="utf-8"))
 
 
@@ -64,6 +74,11 @@ def load_session() -> dict:
         sys.exit(
             f"[!] 找不到 session 文件: {session_file}\n请先运行 aliyun_login.py 完成登录"
         )
+    try:
+        secure_private_directory(session_file.parent)
+        secure_private_file(session_file)
+    except PrivatePathError as exc:
+        sys.exit(f"[!] 无法保护 session 文件: {exc}")
     return json.loads(session_file.read_text(encoding="utf-8"))
 
 

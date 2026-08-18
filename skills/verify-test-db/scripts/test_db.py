@@ -14,9 +14,7 @@ import json
 import os
 import re
 import secrets
-import stat
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -26,6 +24,12 @@ COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
 if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
+from private_files import (
+    PrivatePathError,
+    atomic_write_private_json,
+    secure_private_directory,
+    secure_private_file,
+)
 from runtime import load_runtime_or_exit
 
 
@@ -68,39 +72,21 @@ def runtime_directory() -> Path:
 
 
 def ensure_private_directory(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    if os.name != "nt":
-        path.chmod(0o700)
+    try:
+        secure_private_directory(path)
+    except PrivatePathError as exc:
+        raise TestDbError(f"无法保护测试库运行目录: {path} ({exc})") from exc
 
 
 def ensure_private_file(path: Path) -> None:
-    if os.name == "nt" or not path.exists():
-        return
-    permissions = stat.S_IMODE(path.stat().st_mode)
-    if permissions & 0o077:
-        raise TestDbError(
-            f"凭据配置权限过宽: {path} mode={permissions:04o}；请执行 chmod 600 {path}"
-        )
+    try:
+        secure_private_file(path)
+    except PrivatePathError as exc:
+        raise TestDbError(f"无法保护测试库私有文件: {path} ({exc})") from exc
 
 
 def atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    ensure_private_directory(path.parent)
-    temporary_path: Path | None = None
-    try:
-        descriptor, raw_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        temporary_path = Path(raw_path)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2, default=json_default)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        if os.name != "nt":
-            temporary_path.chmod(0o600)
-        os.replace(temporary_path, path)
-        temporary_path = None
-    finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
+    atomic_write_private_json(path, payload, default=json_default)
 
 
 def json_default(value: Any) -> Any:
@@ -208,6 +194,7 @@ def load_profiles(base_dir: Path) -> dict[str, dict[str, Any]]:
             f"找不到测试库配置: {profile_file}\n"
             "请按 verify-test-db/references/configuration.md 创建并设置为 0600"
         )
+    ensure_private_directory(base_dir)
     ensure_private_file(profile_file)
     try:
         payload = json.loads(profile_file.read_text(encoding="utf-8"))
@@ -555,6 +542,7 @@ def redaction_key(base_dir: Path) -> bytes:
         handle.write(value)
         handle.flush()
         os.fsync(handle.fileno())
+    ensure_private_file(key_file)
     return value
 
 

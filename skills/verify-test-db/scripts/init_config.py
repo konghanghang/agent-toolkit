@@ -6,10 +6,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import stat
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+
+COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
+if str(COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_DIR))
+
+from private_files import (
+    PrivatePathError,
+    secure_private_directory,
+    secure_private_file,
+)
 
 
 DEFAULT_CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
@@ -59,12 +70,7 @@ def render_template(template: Mapping[str, Any] = PROFILE_TEMPLATE) -> bytes:
 
 
 def existing_file_message(profile_file: Path) -> str:
-    message = f"OK       Test DB profile: {profile_file} exists; preserved"
-    if os.name != "nt":
-        permissions = stat.S_IMODE(profile_file.stat().st_mode)
-        if permissions & 0o077:
-            message += f" (WARNING mode={permissions:04o}, expected 0600)"
-    return message
+    return f"OK       Test DB profile: {profile_file} exists; preserved"
 
 
 def initialize_profile(
@@ -80,18 +86,22 @@ def initialize_profile(
     if os.path.lexists(profile_file):
         if profile_file.is_symlink() or not profile_file.is_file():
             return f"CONFLICT Test DB profile: {profile_file} is not a regular file", False
+        if not dry_run:
+            try:
+                secure_private_directory(base_dir)
+                secure_private_file(profile_file)
+            except PrivatePathError as exc:
+                return f"CONFLICT Test DB profile: unable to protect {profile_file}: {exc}", False
         return existing_file_message(profile_file), True
 
-    message = f"CREATE   Test DB profile: {profile_file} (template, mode 0600)"
+    message = f"CREATE   Test DB profile: {profile_file} (private ACL/mode)"
     if dry_run:
         return message, True
 
     try:
-        base_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
+        secure_private_directory(base_dir)
+    except PrivatePathError as exc:
         return f"CONFLICT Test DB directory: unable to create {base_dir}: {exc}", False
-    if os.name != "nt":
-        base_dir.chmod(0o700)
 
     temporary_path: Path | None = None
     try:
@@ -101,8 +111,7 @@ def initialize_profile(
             handle.write(render_template(template))
             handle.flush()
             os.fsync(handle.fileno())
-        if os.name != "nt":
-            temporary_path.chmod(0o600)
+        secure_private_file(temporary_path)
         try:
             os.link(temporary_path, profile_file)
         except FileExistsError:

@@ -96,7 +96,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 - Git for Windows，并确保 `git.exe` 已加入 `PATH`。
 - CPython 3.11，并安装 `py.exe` launcher、`pip` 和 `venv`。
-- Windows PowerShell 5.1 的 `powershell.exe`。安装器使用它创建 directory junction；PowerShell 7 的 `pwsh` 可以作为交互终端，但当前不能替代 `powershell.exe`。
+- Windows PowerShell 5.1 的 `powershell.exe`。安装器使用它创建 directory junction，运行时使用它收紧敏感文件 ACL；PowerShell 7 的 `pwsh` 可以作为交互终端，但当前不能替代 `powershell.exe`。
 - 将工具箱、用户 Home 以及 Codex/Claude 安装目标放在本机 NTFS 卷。网络盘、FAT/exFAT 和跨卷 junction 不属于已验证范围。
 
 在 PowerShell 中先检查基础依赖：
