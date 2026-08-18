@@ -28,6 +28,25 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Validate all Skills
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $skillDirectories = Get-ChildItem -Path skills -Directory |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "SKILL.md") -PathType Leaf }
+
+          if (-not $skillDirectories) {
+            throw "No Skill directories were found"
+          }
+
+          foreach ($skillDirectory in $skillDirectories) {
+            Write-Host "Validating Skill: $($skillDirectory.FullName)"
+            python scripts/quick_validate.py $skillDirectory.FullName
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+
       - name: Run repository tests
         run: python -m unittest discover -s tests -v
 
@@ -48,6 +67,38 @@ jobs:
             python -m unittest discover -s $testDirectory -p "test*.py" -v
             if ($LASTEXITCODE -ne 0) {
               exit $LASTEXITCODE
+            }
+          }
+
+      - name: Run direct Skill CLI smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cliScripts = @(
+            "skills\aliyun-sls-log-query\scripts\aliyun_login.py"
+            "skills\aliyun-sls-log-query\scripts\aliyun_sls_query.py"
+            "skills\archery-prod-query\scripts\archery_login.py"
+            "skills\archery-prod-query\scripts\archery_query.py"
+            "skills\capture-iminling-draft\scripts\resolve_iminling_repo.py"
+            "skills\jumpserver-k8s-log-query\scripts\jms_ops.py"
+            "skills\prometheus-query\scripts\prometheus_query.py"
+            "skills\tapd-story\scripts\tapd_story.py"
+            "skills\tapd-weekly-report\scripts\tapd_weekly_report.py"
+            "skills\ui-ux-pro-max\scripts\design_system.py"
+            "skills\ui-ux-pro-max\scripts\search.py"
+            "skills\upload-to-easyimage\scripts\upload_easyimage.py"
+            "skills\verify-test-db\scripts\init_config.py"
+            "skills\verify-test-db\scripts\test_db.py"
+          )
+
+          foreach ($scriptPath in $cliScripts) {
+            if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+              throw "Skill CLI script was not found: $scriptPath"
+            }
+            Write-Host "Running direct CLI: python $scriptPath --help"
+            python $scriptPath --help
+            if ($LASTEXITCODE -ne 0) {
+              throw "Direct Skill CLI failed with exit code $LASTEXITCODE`: $scriptPath --help"
             }
           }
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -39,6 +40,30 @@ class WindowsWorkflowTest(unittest.TestCase):
         self.assertIn("Get-ChildItem -Path skills -Directory", skill_script)
         self.assertIn("unittest discover -s $testDirectory", skill_script)
         self.assertIn("$LASTEXITCODE", skill_script)
+
+    def test_workflow_validates_every_skill(self) -> None:
+        script = self.steps["Validate all Skills"]["run"]
+        self.assertIn("Get-ChildItem -Path skills -Directory", script)
+        self.assertIn("python scripts/quick_validate.py $skillDirectory.FullName", script)
+        self.assertIn("$LASTEXITCODE", script)
+
+    def test_workflow_smoke_tests_every_direct_skill_cli(self) -> None:
+        script = self.steps["Run direct Skill CLI smoke tests"]["run"]
+        direct_clis = {
+            path.relative_to(ROOT).as_posix().replace("/", "\\")
+            for path in (ROOT / "skills").glob("*/scripts/*.py")
+            if re.search(
+                r"if\s+__name__\s*==\s*['\"]__main__['\"]",
+                path.read_text(encoding="utf-8"),
+            )
+        }
+        self.assertTrue(direct_clis)
+        for cli_path in direct_clis:
+            with self.subTest(cli_path=cli_path):
+                self.assertIn(f'"{cli_path}"', script)
+        self.assertIn("Test-Path -LiteralPath $scriptPath -PathType Leaf", script)
+        self.assertIn("python $scriptPath --help", script)
+        self.assertIn("$LASTEXITCODE", script)
 
     def test_workflow_verifies_real_installation_and_idempotency(self) -> None:
         script = self.steps[
