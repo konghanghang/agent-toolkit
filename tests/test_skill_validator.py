@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +47,48 @@ class SkillValidatorTest(unittest.TestCase):
                 self.assertTrue(
                     tests,
                     f"{skill_directory.relative_to(ROOT)} has scripts but no tests",
+                )
+
+    def test_repository_owned_skills_include_openai_metadata(self) -> None:
+        lock_data = json.loads(
+            (ROOT / "external-skills.lock.json").read_text(encoding="utf-8")
+        )
+        external_skills = set(lock_data.get("skills", {}))
+        skill_directories = sorted(
+            path.parent for path in (ROOT / "skills").glob("*/SKILL.md")
+        )
+        repository_owned_skills = [
+            path for path in skill_directories if path.name not in external_skills
+        ]
+        self.assertTrue(repository_owned_skills)
+
+        for skill_directory in repository_owned_skills:
+            with self.subTest(skill=skill_directory.name):
+                metadata_path = skill_directory / "agents" / "openai.yaml"
+                self.assertTrue(
+                    metadata_path.is_file(),
+                    f"{metadata_path.relative_to(ROOT)} is missing",
+                )
+                metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+                self.assertIsInstance(metadata, dict)
+                interface = metadata.get("interface")
+                self.assertIsInstance(interface, dict)
+
+                for field in (
+                    "display_name",
+                    "short_description",
+                    "default_prompt",
+                ):
+                    value = interface.get(field)
+                    self.assertIsInstance(value, str)
+                    self.assertTrue(value.strip())
+
+                short_description = interface["short_description"]
+                self.assertGreaterEqual(len(short_description), 25)
+                self.assertLessEqual(len(short_description), 64)
+                self.assertIn(
+                    f"${skill_directory.name}",
+                    interface["default_prompt"],
                 )
 
     def test_utf8_crlf_frontmatter_is_valid_on_windows(self) -> None:

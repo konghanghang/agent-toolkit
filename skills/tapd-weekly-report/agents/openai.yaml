@@ -1,0 +1,4 @@
+interface:
+  display_name: "TAPD 工作周报"
+  short_description: "拉取 TAPD 需求并按成员生成本周完成和下周计划"
+  default_prompt: "使用 $tapd-weekly-report 拉取指定版本的 TAPD 需求，并生成结构化工作周报草稿。"

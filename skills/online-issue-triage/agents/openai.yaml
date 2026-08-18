@@ -1,0 +1,4 @@
+interface:
+  display_name: "work 线上问题排查"
+  short_description: "编排日志、代码与数据库证据定位 work 线上和测试问题"
+  default_prompt: "使用 $online-issue-triage 排查这个 work 生产或测试环境问题，并给出可复核的根因证据。"

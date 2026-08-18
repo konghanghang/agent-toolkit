@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prometheus 监控查询"
+  short_description: "安全查询 Prometheus 或 VictoriaMetrics 时序指标"
+  default_prompt: "使用 $prometheus-query 查询指定时间范围的监控指标，并基于时序证据分析峰值和趋势。"
