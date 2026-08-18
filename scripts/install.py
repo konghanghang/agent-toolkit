@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import tempfile
 import sys
 from dataclasses import dataclass
@@ -29,6 +30,9 @@ SYMLINK_STRATEGY = "symlink"
 COPY_STRATEGY = "copy"
 AGENT_REQUIRED_KEYS = ("name", "description", "developer_instructions")
 TOML_KEY_PATTERN = re.compile(r"(?m)^\s*([A-Za-z0-9_-]+)\s*=")
+SKILL_INITIALIZERS = {
+    "verify-test-db": SKILLS_DIR / "verify-test-db" / "scripts" / "init_config.py",
+}
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,31 @@ def selected_skills(names: list[str]) -> dict[str, Path]:
     if unknown:
         raise SystemExit(f"Unknown skill: {', '.join(unknown)}")
     return {name: available[name] for name in names}
+
+
+def selected_skill_initializers(args: argparse.Namespace) -> list[Path]:
+    if args.rules_only or args.agents_only:
+        return []
+    selected = selected_skills(args.skill)
+    initializers: list[Path] = []
+    for name in selected:
+        initializer = SKILL_INITIALIZERS.get(name)
+        if initializer is None:
+            continue
+        if not initializer.is_file():
+            raise SystemExit(f"Skill initializer does not exist: {initializer}")
+        initializers.append(initializer)
+    return initializers
+
+
+def run_skill_initializer(initializer: Path, args: argparse.Namespace) -> bool:
+    command = [sys.executable, str(initializer)]
+    if args.dry_run:
+        command.append("--dry-run")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    result = subprocess.run(command)
+    return result.returncode == 0
 
 
 def available_codex_agents() -> list[Path]:
@@ -323,8 +352,17 @@ def main() -> int:
         print(f"\n{failures} conflict(s); no conflicting path was overwritten.", file=sys.stderr)
         return 1
 
+    initializers = selected_skill_initializers(args)
+    for initializer in initializers:
+        if not run_skill_initializer(initializer, args):
+            failures += 1
+
+    if failures:
+        print(f"\n{failures} skill initializer(s) failed.", file=sys.stderr)
+        return 1
+
     mode = "dry-run" if args.dry_run else "complete"
-    print(f"\nInstallation {mode}: {len(specs)} item(s) checked.")
+    print(f"\nInstallation {mode}: {len(specs) + len(initializers)} item(s) checked.")
     return 0
 
 

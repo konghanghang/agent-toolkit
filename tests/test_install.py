@@ -319,6 +319,33 @@ class InstallTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 install.parse_args(["--agents-only", "--skill", "git-commit"])
 
+    def test_verify_test_db_install_selects_private_config_initializer(self) -> None:
+        args = install.parse_args(["--skill", "verify-test-db", "--dry-run"])
+
+        initializers = install.selected_skill_initializers(args)
+
+        self.assertEqual(
+            [install.SKILLS_DIR / "verify-test-db" / "scripts" / "init_config.py"],
+            initializers,
+        )
+
+    def test_rules_and_agents_only_skip_skill_initializers(self) -> None:
+        for argv in (["--rules-only"], ["--agents-only"]):
+            with self.subTest(argv=argv):
+                args = install.parse_args(argv)
+                self.assertEqual([], install.selected_skill_initializers(args))
+
+    def test_dry_run_is_forwarded_to_skill_initializer(self) -> None:
+        initializer = install.SKILLS_DIR / "verify-test-db" / "scripts" / "init_config.py"
+        args = install.parse_args(["--skill", "verify-test-db", "--dry-run"])
+        completed = mock.Mock(returncode=0)
+
+        with mock.patch.object(install.subprocess, "run", return_value=completed) as run:
+            success = install.run_skill_initializer(initializer, args)
+
+        self.assertTrue(success)
+        run.assert_called_once_with([sys.executable, str(initializer), "--dry-run"])
+
 
 if __name__ == "__main__":
     unittest.main()

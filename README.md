@@ -27,7 +27,8 @@ agent-toolkit/
 │   ├── online-issue-triage/
 │   ├── prometheus-query/
 │   ├── tapd-story/
-│   └── tapd-weekly-report/
+│   ├── tapd-weekly-report/
+│   └── verify-test-db/
 ├── codex/
 │   ├── agents/
 │   │   └── evidence_explorer.toml
@@ -113,8 +114,9 @@ python3 ~/.agent-toolkit/scripts/install.py
 3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
 4. 默认将 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
 5. 将 Skill 链接到 `~/.claude/skills/`。
-6. Skill 和 Agent 已有正确软链、Rule 已与源文件一致时跳过。
-7. 旧版受管链接可以显式迁移；未知文件、真实目录或未知软链发生冲突时拒绝覆盖。
+6. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
+7. Skill 和 Agent 已有正确软链、Rule 已与源文件一致时跳过。
+8. 旧版受管链接可以显式迁移；未知文件、真实目录或未知软链发生冲突时拒绝覆盖。
 
 从旧的 `~/.shared-skills` 迁移时使用：
 
@@ -231,6 +233,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `SLS_DIR`
 - `ARCHERY_DIR`
 - `JMS_DIR`
+- `TEST_DB_DIR`
 - `PYTHON_BIN`
 - `AGENT_TOOLKIT_ROOT`
 
@@ -239,6 +242,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `sls`
 - `archery`
 - `jms`
+- `testdb`
 - Windows 对应的 `.cmd` 与 `.ps1` 入口
 
 `~/.local/agent-toolkit/work/runtime.json`、凭证和 Session 都是本机状态，不提交到本仓库。
@@ -257,6 +261,8 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 - `prometheus-query`
 - `tapd-story`
 - `tapd-weekly-report`
+- `verify-test-db`
+  - [测试库配置](skills/verify-test-db/references/configuration.md)
 
 ## 当前 Codex Agents
 
@@ -264,7 +270,7 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 
 ## 当前 Codex Rules
 
-- `work-readonly.rules`：允许 work 的登录、受限 SLS 查询、Archery 元数据查询和固定测试命名空间日志查询；原始 SQL、任意 SLS 查询和通用 JMS 命令仍需审批。
+- `work-readonly.rules`：允许 work 的登录、受限 SLS 查询、Archery 元数据查询、固定测试命名空间日志查询，以及测试库元数据、受限查询、脱敏验证和只生成计划的写入准备；生产 SQL、测试库实际写入、任意 SLS 查询和通用 JMS 命令仍需审批。
 - `git-commit.rules`：自动允许从 `origin` 获取更新、通过 `git switch -c` 新建分支，以及受控的 `git add`、新提交和普通主分支推送。
 - `github-readonly.rules`：自动允许 `gh pr view/checks`、`gh run list/view`、`gh issue view` 和 `gh repo view`。
 

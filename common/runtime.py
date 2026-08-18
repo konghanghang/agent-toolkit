@@ -12,7 +12,7 @@ from urllib import parse as urllib_parse
 CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
 CONFIG_FILE = CONFIG_DIR / "runtime.json"
 REQUIRED_KEYS = ("work_root", "python_bin", "tmp_dir", "sls_dir", "archery_dir")
-OPTIONAL_KEYS = ("jms_dir", "prometheus_base_url")
+OPTIONAL_KEYS = ("jms_dir", "test_db_dir", "prometheus_base_url")
 
 
 class RuntimeConfigError(RuntimeError):
@@ -125,6 +125,10 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
     normalized["archery_dir"] = str(Path(str(data["archery_dir"])).expanduser().resolve())
     jms_dir = Path(str(data.get("jms_dir") or (CONFIG_DIR / "jms"))).expanduser()
     normalized["jms_dir"] = str(jms_dir.resolve())
+    test_db_dir = Path(
+        str(data.get("test_db_dir") or (CONFIG_DIR / "test-db"))
+    ).expanduser()
+    normalized["test_db_dir"] = str(test_db_dir.resolve())
     prometheus_base_url = str(data.get("prometheus_base_url") or "").strip()
     if prometheus_base_url:
         normalized["prometheus_base_url"] = normalize_http_base_url(

@@ -61,6 +61,7 @@ class RuntimeTest(unittest.TestCase):
                 encoding="utf-8",
             )
             expected_jms_dir = config_dir / "jms"
+            expected_test_db_dir = config_dir / "test-db"
 
             with patch.object(runtime, "CONFIG_FILE", config_file), patch.object(
                 runtime, "CONFIG_DIR", config_dir
@@ -69,6 +70,8 @@ class RuntimeTest(unittest.TestCase):
 
             self.assertEqual(str(expected_jms_dir.resolve()), loaded["jms_dir"])
             self.assertFalse(expected_jms_dir.exists())
+            self.assertEqual(str(expected_test_db_dir.resolve()), loaded["test_db_dir"])
+            self.assertFalse(expected_test_db_dir.exists())
             self.assertNotIn("prometheus_base_url", loaded)
 
     def test_loading_runtime_normalizes_separate_prometheus_url(self) -> None:
@@ -155,6 +158,8 @@ class RuntimeTest(unittest.TestCase):
         self.assertIn("cryptography", dependency_names)
         self.assertIn("pyyaml", dependency_names)
         self.assertIn("tzdata", dependency_names)
+        self.assertIn("pymysql", dependency_names)
+        self.assertIn("sqlglot", dependency_names)
 
         python_bin = ROOT / ".venv" / "bin" / "python"
         with patch.object(bootstrap, "prompt_yes_no", return_value=True), patch.object(
@@ -170,6 +175,31 @@ class RuntimeTest(unittest.TestCase):
                 "install",
                 "-r",
                 str(requirements),
+            ],
+            check=True,
+        )
+
+    def test_bootstrap_has_cross_platform_testdb_templates(self) -> None:
+        template_dir = ROOT / "common" / "templates" / "bin"
+
+        for name in ("testdb", "testdb.cmd", "testdb.ps1"):
+            with self.subTest(name=name):
+                self.assertTrue((template_dir / name).is_file())
+
+    def test_bootstrap_initializes_profile_in_selected_test_db_directory(self) -> None:
+        python_bin = ROOT / ".venv" / "bin" / "python"
+        test_db_dir = Path("/tmp/agent-toolkit-test-db")
+        initializer = ROOT / "skills" / "verify-test-db" / "scripts" / "init_config.py"
+
+        with patch.object(bootstrap.subprocess, "run") as run:
+            bootstrap.initialize_test_db_profile(ROOT, python_bin, test_db_dir)
+
+        run.assert_called_once_with(
+            [
+                str(python_bin),
+                str(initializer),
+                "--base-dir",
+                str(test_db_dir),
             ],
             check=True,
         )
