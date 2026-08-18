@@ -110,6 +110,11 @@ def is_windows() -> bool:
 
 def _apply_windows_acl(path: Path) -> None:
     environment = os.environ.copy()
+    # A pwsh parent can export PowerShell 7 module paths that Windows PowerShell
+    # cannot load. Let powershell.exe rebuild its own default PSModulePath.
+    for key in tuple(environment):
+        if key.casefold() == "psmodulepath":
+            environment.pop(key)
     environment[WINDOWS_PRIVATE_PATH_ENV] = str(path)
     try:
         result = subprocess.run(

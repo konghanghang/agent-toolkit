@@ -92,7 +92,12 @@ class PrivateFilesTest(unittest.TestCase):
             path.write_text("{}\n", encoding="utf-8")
             completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
 
-            with patch.object(private_files, "is_windows", return_value=True), patch.object(
+            with patch.dict(
+                private_files.os.environ,
+                {"PSModulePath": "C:\\Program Files\\PowerShell\\7\\Modules"},
+            ), patch.object(
+                private_files, "is_windows", return_value=True
+            ), patch.object(
                 private_files.subprocess,
                 "run",
                 return_value=completed,
@@ -109,6 +114,9 @@ class PrivateFilesTest(unittest.TestCase):
             self.assertEqual(
                 str(path),
                 environment[private_files.WINDOWS_PRIVATE_PATH_ENV],
+            )
+            self.assertFalse(
+                any(key.casefold() == "psmodulepath" for key in environment)
             )
 
     @unittest.skipUnless(os.name == "nt", "requires real Windows ACL support")
