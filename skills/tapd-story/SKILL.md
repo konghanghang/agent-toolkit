@@ -55,6 +55,14 @@ python3 scripts/tapd_story.py detail --id STORY_ID --download-images
 python3 scripts/tapd_story.py plan-context --id STORY_ID --repo . --download-images
 ```
 
+Windows PowerShell 使用工具包中的绝对脚本路径，不依赖当前目录：
+
+```powershell
+$AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
+$PythonBin = (Get-Command python).Source
+& "$PythonBin" "$AgentToolkitRoot\skills\tapd-story\scripts\tapd_story.py" detail --id STORY_ID --download-images
+```
+
 图片下载后，使用当前 Agent 可用的视觉/OCR 能力读取本地文件；在最终输出中保留图片顺序和正文上下文。清晰内容纳入确认需求事实，不确定部分单独标记为待确认。图片失败不得阻塞文字需求分析。
 
 ## 写入命令

@@ -41,6 +41,14 @@ testdb tables-safe --database ai
 testdb describe-safe --database ai --table ai_task
 ```
 
+Windows PowerShell 中优先调用初始化生成的公共 `.cmd` 入口，不直接拼接底层 Python 脚本：
+
+```powershell
+$AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
+& "$AgentToolkitRoot\bin\testdb.cmd" profiles-safe
+& "$AgentToolkitRoot\bin\testdb.cmd" describe-safe --database ai --table ai_task
+```
+
 通常省略 `--profile`，让工具自动定位实例；多个实例同时存在同名库和同名表时，再显式指定 `--profile`。`databases-safe` 没有目标库可用于定位，因此仍要求 profile。
 
 使用精确 `SELECT` 查询，默认最多返回 100 行，最大 500 行：

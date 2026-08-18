@@ -34,6 +34,14 @@ description: '将当前对话中值得长期沉淀的问题排查、解决方案
 IMINLING_REPO="$(python3 "$AGENT_TOOLKIT_ROOT/skills/capture-iminling-draft/scripts/resolve_iminling_repo.py")"
 ```
 
+Windows PowerShell 使用工具包中的绝对脚本路径，并接收脚本输出：
+
+```powershell
+$AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
+$PythonBin = (Get-Command python).Source
+$IminlingRepo = & "$PythonBin" "$AgentToolkitRoot\skills\capture-iminling-draft\scripts\resolve_iminling_repo.py"
+```
+
 脚本按以下顺序解析：
 
 1. 显式 `--repo` 参数

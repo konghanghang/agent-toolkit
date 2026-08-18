@@ -32,6 +32,16 @@ python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_work.py"
 PYTHON_BIN "$AGENT_TOOLKIT_ROOT/skills/prometheus-query/scripts/prometheus_query.py" --help
 ```
 
+Windows PowerShell 不假定 `PYTHON_BIN` 已导出为环境变量；从本机运行时配置读取真实解释器和工具包路径，再用调用运算符执行：
+
+```powershell
+$RuntimeFile = Join-Path $HOME ".local\agent-toolkit\work\runtime.json"
+$Runtime = Get-Content -LiteralPath $RuntimeFile -Raw | ConvertFrom-Json
+$PythonBin = [string]$Runtime.python_bin
+$AgentToolkitRoot = [string]$Runtime.agent_toolkit_root
+& "$PythonBin" "$AgentToolkitRoot\skills\prometheus-query\scripts\prometheus_query.py" --help
+```
+
 ## 查询工作流
 
 ### 1. 明确问题和时间口径

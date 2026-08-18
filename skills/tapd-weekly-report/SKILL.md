@@ -23,6 +23,15 @@ description: 通过 TAPD API 拉取需求，按成员归类并生成工作周报
 python3 scripts/tapd_weekly_report.py --version 2026-0115 --next-version 2026-0122
 ```
 
+Windows PowerShell 使用工具包中的绝对脚本路径，不依赖当前目录：
+
+```powershell
+$AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
+$PythonBin = (Get-Command python).Source
+& "$PythonBin" "$AgentToolkitRoot\skills\tapd-weekly-report\scripts\tapd_weekly_report.py" `
+  --version 2026-0115 --next-version 2026-0122
+```
+
 4. 把生成结果当作草稿，再与上一周同目录下的周报进行对比。
    - 重点对比上一周的 `下周计划`
    - 对照本周的 `本周完成`

@@ -58,6 +58,15 @@ python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage
   --config /path/to/picgo-config.json
 ```
 
+Windows PowerShell 使用工具包中的绝对脚本路径，并用反引号续行：
+
+```powershell
+$AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
+$PythonBin = (Get-Command python).Source
+& "$PythonBin" "$AgentToolkitRoot\skills\upload-to-easyimage\scripts\upload_easyimage.py" `
+  image.png screenshot.webp
+```
+
 ## SVG 规则
 
 EasyImage 可以接受 SVG，但部分 `hide.php` 配置可能返回异常媒体类型，导致浏览器下载而不是直接显示。不要擅自转换；当用户或项目规则要求稳定的网页显示时，使用 `--convert-svg`。需要 `rsvg-convert`，且转换文件写入 `--output-dir` 或 `TMP_DIR/easyimage-upload/`。

@@ -53,6 +53,14 @@ sls search-safe --scope domestic --service data-center --trace-id 6b62e9b764de5d
 sls search-safe --scope overseas --service agentcc --keyword ERROR
 ```
 
+Windows PowerShell 中优先调用初始化生成的公共 `.cmd` 入口，不直接拼接底层 Python 脚本：
+
+```powershell
+$AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
+& "$AgentToolkitRoot\bin\sls.cmd" login
+& "$AgentToolkitRoot\bin\sls.cmd" search-safe --service ai-open-api --size 1
+```
+
 Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只允许内置路由，禁止 `--project`、`--logstore`、`--out`、`--full`，查询窗口最多 3 天、返回最多 100 行；`agg-safe` 还强制使用单条 SELECT 聚合，禁止直接输出或分组原始日志字段，只允许聚合值及有边界的 `regexp_extract(...)` 派生维度。需要完整日志落盘、自选 project/logstore 或非聚合 pSQL 时才使用原始 `query` / `agg`，并保留审批。
 
 底层 Python 脚本仍然保留，方便排查或单独调试。
