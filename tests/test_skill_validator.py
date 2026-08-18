@@ -27,6 +27,25 @@ class SkillValidatorTest(unittest.TestCase):
                     quick_validate.validate_skill(skill_directory),
                 )
 
+    def test_every_scripted_skill_includes_tests(self) -> None:
+        skill_directories = sorted(
+            {
+                path.parent.parent
+                for path in (ROOT / "skills").glob("*/scripts/*.py")
+            }
+        )
+        self.assertTrue(skill_directories)
+        for skill_directory in skill_directories:
+            tests = [
+                *skill_directory.glob("tests/test*.py"),
+                *skill_directory.glob("scripts/tests/test*.py"),
+            ]
+            with self.subTest(skill=skill_directory.name):
+                self.assertTrue(
+                    tests,
+                    f"{skill_directory.relative_to(ROOT)} has scripts but no tests",
+                )
+
     def test_utf8_crlf_frontmatter_is_valid_on_windows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             skill_directory = Path(tmp_dir) / "windows-demo"
