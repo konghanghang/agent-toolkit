@@ -174,7 +174,7 @@ def with_element(driver, selectors, action, attempts=12, delay=0.4):
 
 
 def human_type(driver, element, text):
-    """优先用原生 setter 覆盖输入值，避免 macOS 下 Ctrl+A 失效导致内容拼接。"""
+    """优先用原生 setter 覆盖输入值，避免预填内容和新值拼接。"""
     element.click()
     try:
         value = driver.execute_script(
@@ -194,7 +194,8 @@ def human_type(driver, element, text):
         pass
 
     # JS setter 失败时再回退到键盘输入。
-    element.send_keys(Keys.COMMAND, "a")
+    select_key = Keys.COMMAND if sys.platform == "darwin" else Keys.CONTROL
+    element.send_keys(select_key, "a")
     element.send_keys(Keys.DELETE)
     element.send_keys(text)
 

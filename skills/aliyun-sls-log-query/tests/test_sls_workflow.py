@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 
 TOOLKIT_ROOT = Path(__file__).resolve().parents[3]
@@ -44,6 +44,30 @@ class SlsWorkflowTest(unittest.TestCase):
     def test_login_closes_browser_by_default(self):
         self.assertFalse(self.login.parse_args([]).keep)
         self.assertTrue(self.login.parse_args(["--keep"]).keep)
+
+    def test_human_type_uses_platform_select_all_key_on_fallback(self):
+        for platform, select_key in (
+            ("darwin", self.login.Keys.COMMAND),
+            ("win32", self.login.Keys.CONTROL),
+            ("linux", self.login.Keys.CONTROL),
+        ):
+            with self.subTest(platform=platform):
+                driver = Mock()
+                driver.execute_script.side_effect = RuntimeError("use keyboard fallback")
+                element = Mock()
+
+                with patch.object(self.login.sys, "platform", platform):
+                    self.login.human_type(driver, element, "demo")
+
+                self.assertEqual(
+                    [
+                        call.click(),
+                        call.send_keys(select_key, "a"),
+                        call.send_keys(self.login.Keys.DELETE),
+                        call.send_keys("demo"),
+                    ],
+                    element.mock_calls,
+                )
 
     def test_query_returns_nonzero_for_expired_session(self):
         response = {
