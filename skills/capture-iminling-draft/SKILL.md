@@ -130,6 +130,13 @@ draft: true
 hugo --source "$IMINLING_REPO" --minify --buildDrafts
 ```
 
+Windows PowerShell 复用第 1 步解析出的 `$IminlingRepo`：
+
+```powershell
+hugo --source "$IminlingRepo" --minify --buildDrafts
+if ($LASTEXITCODE -ne 0) { throw "Hugo draft build failed: exit code $LASTEXITCODE" }
+```
+
 同时检查：
 
 - 新文件只存在于目标仓库。
