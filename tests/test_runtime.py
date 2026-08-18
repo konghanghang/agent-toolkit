@@ -187,6 +187,24 @@ class RuntimeTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue((template_dir / name).is_file())
 
+    def test_windows_command_templates_enable_python_utf8(self) -> None:
+        template_dir = ROOT / "common" / "templates" / "bin"
+
+        for name in ("sls", "archery", "jms", "testdb"):
+            with self.subTest(name=f"{name}.cmd"):
+                content = (template_dir / f"{name}.cmd").read_text(encoding="utf-8")
+                self.assertIn("setlocal", content)
+                self.assertIn('set "PYTHONUTF8=1"', content)
+                self.assertIn("exit /b %ERRORLEVEL%", content)
+
+            with self.subTest(name=f"{name}.ps1"):
+                content = (template_dir / f"{name}.ps1").read_text(encoding="utf-8")
+                self.assertIn("$PreviousPythonUtf8 = $env:PYTHONUTF8", content)
+                self.assertIn('$env:PYTHONUTF8 = "1"', content)
+                self.assertIn("finally", content)
+                self.assertIn("Remove-Item Env:PYTHONUTF8", content)
+                self.assertNotIn("exit $PythonExitCode", content)
+
     def test_bootstrap_initializes_profile_in_selected_test_db_directory(self) -> None:
         python_bin = ROOT / ".venv" / "bin" / "python"
         test_db_dir = Path("/tmp/agent-toolkit-test-db")

@@ -33,6 +33,9 @@ class WindowsWorkflowTest(unittest.TestCase):
         self.assertIn("pull_request", self.document["on"])
         self.assertIn("workflow_dispatch", self.document["on"])
 
+    def test_workflow_forces_python_utf8(self) -> None:
+        self.assertEqual("1", self.job["env"]["PYTHONUTF8"])
+
     def test_workflow_runs_repository_and_all_skill_tests(self) -> None:
         repository_script = self.steps["Run repository tests"]["run"]
         self.assertIn("unittest discover -s tests", repository_script)
