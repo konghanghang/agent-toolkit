@@ -95,11 +95,11 @@ git log -1 --format='%H'
 git cat-file -p HEAD  # 检查最近一笔提交是否存在 gpgsig
 ```
 
-如果存在上游分支，再检查最近已被远端接受的身份和所有尚未推送提交：
+如果存在上游分支，再检查最近已被远端接受的身份和所有尚未推送提交。把完整 revision 参数放在单引号内，避免 PowerShell 把 `@{upstream}` 当作哈希表语法；下面的写法同时适用于 Bash、Zsh 和 PowerShell：
 
-```bash
-git log @{upstream} -1 --format='%an <%ae> | %cn <%ce>'
-git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
+```powershell
+git log '@{upstream}' -1 --format='%an <%ae> | %cn <%ce>'
+git log '@{upstream}..HEAD' --format='%h %an <%ae> | %cn <%ce> | %s'
 ```
 
 执行时遵守以下规则：
@@ -206,17 +206,27 @@ git diff --cached --check
 2. 只有一行标题时，可以使用 `git commit -m "<标题>"`。
 3. 包含正文时，直接使用两个 `-m` 参数：第一个传标题，第二个传完整正文。正文必须作为一个命令参数传入，并在参数内部使用真实换行；禁止用字面量 `\n` 拼接多行内容。
 4. 多项正文在第二个 `-m` 参数中连续书写，每项以 `- ` 开头。不要创建临时提交消息文件，不要使用 `git commit -F`。
-5. 使用适合当前 shell 的安全引用方式，确保标题和正文各自只作为一个参数传给 Git；不要让正文中的反引号、美元符号、命令替换或引号被 shell 解释执行。
+5. 使用适合当前 shell 的安全引用方式，确保标题和正文各自只作为一个参数传给 Git；不要让正文中的反引号、美元符号、命令替换或引号被 shell 解释执行。Bash/Zsh 使用反斜杠续行，PowerShell 使用行尾反引号且反引号后不能有空格；禁止混用两种续行符。
 6. 严格执行预检确定的仓库签名惯例：需要签名时在命令中加入 `-S`；需要无签名且 `commit.gpgsign=true` 时加入 `--no-gpg-sign`。禁止为了单次提交修改仓库级或全局签名配置。
 7. 将 `git commit` 作为独立调用执行，不在同一次调用中追加提交后检查命令。
 8. 禁止执行 `git commit --amend`、rebase 或其他历史改写；相关需求脱离本技能单独处理。
 9. 提交失败时保留现场，报告错误，不通过修改全局 Git 配置强行绕过。
 
-多行正文命令示例：
+多行正文命令示例（Bash/Zsh）：
 
 ```bash
 git commit -S \
   -m 'feat(api): 支持本地获取 OpenAPI AccessToken' \
+  -m '- 新增本地 AccessToken 接口，转发 cropId 和认证请求头到 SaaS
+- 保留上游响应状态、响应体及 X-Trace-Id
+- 保持现有业务鉴权行为不变'
+```
+
+PowerShell 中同样直接把包含真实换行的单引号字符串作为第二个 `-m` 参数，不创建临时文件或字面量 `\n`：
+
+```powershell
+git commit -S `
+  -m 'feat(api): 支持本地获取 OpenAPI AccessToken' `
   -m '- 新增本地 AccessToken 接口，转发 cropId 和认证请求头到 SaaS
 - 保留上游响应状态、响应体及 X-Trace-Id
 - 保持现有业务鉴权行为不变'
@@ -232,9 +242,9 @@ git status --short --branch
 
 存在上游分支时，再执行：
 
-```bash
-git rev-list --left-right --count @{upstream}...HEAD
-git log @{upstream}..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
+```powershell
+git rev-list --left-right --count '@{upstream}...HEAD'
+git log '@{upstream}..HEAD' --format='%h %an <%ae> | %cn <%ce> | %s'
 ```
 
 没有上游分支时，先确认目标 `<remote>/<branch>` 是否存在；存在则用它代替 `@{upstream}` 完成分叉和领先提交检查，不存在则明确报告“没有远端身份基线”，并检查准备推送的全部本地提交身份。不要直接执行必然失败的 `@{upstream}` 命令。
