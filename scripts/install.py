@@ -26,10 +26,14 @@ LEGACY_ROOTS = (
     TOOLKIT_ROOT,
 )
 RULE_MANAGED_MARKER = "# Managed by agent-toolkit."
-SYMLINK_STRATEGY = "symlink"
+DIRECTORY_LINK_STRATEGY = "directory-link"
 COPY_STRATEGY = "copy"
 AGENT_REQUIRED_KEYS = ("name", "description", "developer_instructions")
 TOML_KEY_PATTERN = re.compile(r"(?m)^\s*([A-Za-z0-9_-]+)\s*=")
+WINDOWS_JUNCTION_TARGET_ENV = "AGENT_TOOLKIT_JUNCTION_TARGET"
+WINDOWS_JUNCTION_SOURCE_ENV = "AGENT_TOOLKIT_JUNCTION_SOURCE"
+WINDOWS_REPARSE_POINT_ATTRIBUTE = 0x0400
+WINDOWS_INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
 SKILL_INITIALIZERS = {
     "verify-test-db": SKILLS_DIR / "verify-test-db" / "scripts" / "init_config.py",
 }
@@ -152,6 +156,109 @@ def resolve_link_target(target: Path) -> Path:
     return raw.expanduser().resolve(strict=False)
 
 
+class DirectoryLinkError(RuntimeError):
+    pass
+
+
+def is_windows_junction(path: Path) -> bool:
+    if os.name != "nt" or path.is_symlink():
+        return False
+
+    native_check = getattr(path, "is_junction", None)
+    if native_check is not None:
+        try:
+            return bool(native_check())
+        except OSError:
+            return False
+
+    try:
+        import ctypes
+
+        get_attributes = ctypes.windll.kernel32.GetFileAttributesW
+        get_attributes.argtypes = [ctypes.c_wchar_p]
+        get_attributes.restype = ctypes.c_uint32
+        attributes = get_attributes(str(path))
+    except (AttributeError, OSError):
+        return False
+    return (
+        attributes != WINDOWS_INVALID_FILE_ATTRIBUTES
+        and bool(attributes & WINDOWS_REPARSE_POINT_ATTRIBUTE)
+    )
+
+
+def directory_link_kind(path: Path) -> Optional[str]:
+    if path.is_symlink():
+        return "symlink"
+    if is_windows_junction(path):
+        return "junction"
+    return None
+
+
+def resolve_directory_link(path: Path) -> Path:
+    kind = directory_link_kind(path)
+    if kind == "symlink":
+        return resolve_link_target(path)
+    if kind == "junction":
+        return path.resolve(strict=False)
+    raise DirectoryLinkError(f"not a managed directory link: {path}")
+
+
+def remove_directory_link(path: Path) -> None:
+    kind = directory_link_kind(path)
+    if kind == "symlink":
+        path.unlink()
+        return
+    if kind == "junction":
+        path.rmdir()
+        return
+    raise DirectoryLinkError(f"refusing to remove non-link path: {path}")
+
+
+def create_windows_junction(source: Path, target: Path) -> None:
+    environment = os.environ.copy()
+    environment[WINDOWS_JUNCTION_TARGET_ENV] = str(target)
+    environment[WINDOWS_JUNCTION_SOURCE_ENV] = str(source)
+    command = [
+        "powershell.exe",
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        (
+            "New-Item -ItemType Junction "
+            f"-Path $env:{WINDOWS_JUNCTION_TARGET_ENV} "
+            f"-Target $env:{WINDOWS_JUNCTION_SOURCE_ENV} "
+            "-ErrorAction Stop | Out-Null"
+        ),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            env=environment,
+        )
+    except OSError as error:
+        raise DirectoryLinkError(
+            "Windows PowerShell is required to create a directory junction; "
+            f"no files were copied ({error})"
+        ) from error
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"exit code {result.returncode}"
+        raise DirectoryLinkError(
+            "unable to create Windows directory junction; keep the toolkit and target "
+            f"on local NTFS volumes, or inspect PowerShell availability and permissions ({detail})"
+        )
+
+
+def create_directory_link(source: Path, target: Path) -> None:
+    if os.name == "nt":
+        create_windows_junction(source, target)
+        return
+    target.symlink_to(source, target_is_directory=source.is_dir())
+
+
 def is_managed_target(path: Path) -> bool:
     for root in LEGACY_ROOTS:
         try:
@@ -192,7 +299,12 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
 
     if not args.claude_only and not args.rules_only and not args.agents_only:
         specs.extend(
-            InstallSpec(source, CODEX_SKILLS_TARGET / name, "Codex skill", SYMLINK_STRATEGY)
+            InstallSpec(
+                source,
+                CODEX_SKILLS_TARGET / name,
+                "Codex skill",
+                DIRECTORY_LINK_STRATEGY,
+            )
             for name, source in skills.items()
         )
 
@@ -205,7 +317,7 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 CODEX_AGENTS_SOURCE,
                 codex_home / "agents",
                 "Codex agents",
-                SYMLINK_STRATEGY,
+                DIRECTORY_LINK_STRATEGY,
             )
         )
 
@@ -220,22 +332,30 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
 
     if not args.codex_only and not args.rules_only and not args.agents_only:
         specs.extend(
-            InstallSpec(source, CLAUDE_SKILLS_TARGET / name, "Claude Code skill", SYMLINK_STRATEGY)
+            InstallSpec(
+                source,
+                CLAUDE_SKILLS_TARGET / name,
+                "Claude Code skill",
+                DIRECTORY_LINK_STRATEGY,
+            )
             for name, source in skills.items()
         )
 
     return specs
 
 
-def install_symlink(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+def install_directory_link(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     source = spec.source.resolve()
     target = spec.target
 
     if os.path.lexists(target):
-        if not target.is_symlink():
-            return f"CONFLICT {spec.label}: {target} exists and is not a symlink", False
+        if directory_link_kind(target) is None:
+            return f"CONFLICT {spec.label}: {target} exists and is not a directory link", False
 
-        existing = resolve_link_target(target)
+        try:
+            existing = resolve_directory_link(target)
+        except DirectoryLinkError as error:
+            return f"CONFLICT {spec.label}: {error}", False
         if existing == source:
             return f"OK       {spec.label}: {target} -> {source}", True
 
@@ -252,8 +372,14 @@ def install_symlink(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, b
 
     target.parent.mkdir(parents=True, exist_ok=True)
     if os.path.lexists(target):
-        target.unlink()
-    target.symlink_to(source, target_is_directory=source.is_dir())
+        try:
+            remove_directory_link(target)
+        except (DirectoryLinkError, OSError) as error:
+            return f"ERROR    {spec.label}: unable to replace {target} ({error})", False
+    try:
+        create_directory_link(source, target)
+    except (DirectoryLinkError, OSError) as error:
+        return f"ERROR    {spec.label}: {target} -> {source} ({error})", False
     return message, True
 
 
@@ -320,8 +446,8 @@ def install_copy(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
 
 
 def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
-    if spec.strategy == SYMLINK_STRATEGY:
-        return install_symlink(spec, args)
+    if spec.strategy == DIRECTORY_LINK_STRATEGY:
+        return install_directory_link(spec, args)
     if spec.strategy == COPY_STRATEGY:
         return install_copy(spec, args)
     return f"CONFLICT {spec.label}: unknown install strategy {spec.strategy}", False

@@ -62,7 +62,7 @@ class InstallTest(unittest.TestCase):
         self.assertTrue(all(spec.target.parent == codex_home / "rules" for spec in specs))
         self.assertTrue(all(spec.strategy == install.COPY_STRATEGY for spec in specs))
 
-    def test_agents_only_plans_agents_directory_symlink_for_custom_home(self) -> None:
+    def test_agents_only_plans_agents_directory_link_for_custom_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             custom_home = Path(temp_dir)
             args = install.parse_args(["--agents-only", "--codex-home", str(custom_home)])
@@ -75,7 +75,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual("Codex agents", specs[0].label)
         self.assertEqual(install.CODEX_AGENTS_SOURCE, specs[0].source)
         self.assertEqual(codex_home / "agents", specs[0].target)
-        self.assertEqual(install.SYMLINK_STRATEGY, specs[0].strategy)
+        self.assertEqual(install.DIRECTORY_LINK_STRATEGY, specs[0].strategy)
 
     def test_full_install_includes_agents_for_custom_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -199,7 +199,7 @@ class InstallTest(unittest.TestCase):
             message, success = install.install_spec(spec, args)
 
             self.assertFalse(success)
-            self.assertIn("exists and is not a symlink", message)
+            self.assertIn("exists and is not a directory link", message)
             self.assertTrue(agents_target.is_dir())
             self.assertFalse(agents_target.is_symlink())
 
@@ -295,7 +295,7 @@ class InstallTest(unittest.TestCase):
                 install.SKILLS_DIR / "git-commit",
                 target,
                 "Codex skill",
-                install.SYMLINK_STRATEGY,
+                install.DIRECTORY_LINK_STRATEGY,
             )
             args = install.parse_args([])
 
@@ -303,6 +303,93 @@ class InstallTest(unittest.TestCase):
 
             self.assertTrue(success)
             self.assertTrue(target.is_symlink())
+
+    def test_windows_directory_link_uses_junction(self) -> None:
+        source = install.SKILLS_DIR / "git-commit"
+        target = Path("C:/Users/test/.agents/skills/git-commit")
+
+        with mock.patch.object(install.os, "name", "nt"), mock.patch.object(
+            install, "create_windows_junction"
+        ) as create_junction:
+            install.create_directory_link(source, target)
+
+        create_junction.assert_called_once_with(source, target)
+
+    def test_windows_junction_command_uses_environment_paths(self) -> None:
+        source = Path("C:/toolkit path/skills/git-commit")
+        target = Path("C:/Users/test/.agents/skills/git-commit")
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+
+        with mock.patch.object(install.subprocess, "run", return_value=completed) as run:
+            install.create_windows_junction(source, target)
+
+        command = run.call_args.args[0]
+        environment = run.call_args.kwargs["env"]
+        self.assertEqual("powershell.exe", command[0])
+        self.assertIn("New-Item -ItemType Junction", command[-1])
+        self.assertNotIn(str(source), " ".join(command))
+        self.assertNotIn(str(target), " ".join(command))
+        self.assertEqual(str(source), environment[install.WINDOWS_JUNCTION_SOURCE_ENV])
+        self.assertEqual(str(target), environment[install.WINDOWS_JUNCTION_TARGET_ENV])
+
+    def test_windows_junction_failure_is_actionable_and_does_not_copy(self) -> None:
+        completed = mock.Mock(returncode=1, stdout="", stderr="Access denied")
+
+        with mock.patch.object(install.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(
+                install.DirectoryLinkError,
+                "local NTFS volumes",
+            ):
+                install.create_windows_junction(Path("C:/source"), Path("C:/target"))
+
+    def test_install_reports_directory_link_creation_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "skill"
+            spec = install.InstallSpec(
+                install.SKILLS_DIR / "git-commit",
+                target,
+                "Codex skill",
+                install.DIRECTORY_LINK_STRATEGY,
+            )
+            args = install.parse_args([])
+
+            with mock.patch.object(
+                install,
+                "create_directory_link",
+                side_effect=install.DirectoryLinkError("junction failed"),
+            ):
+                message, success = install.install_spec(spec, args)
+
+            self.assertFalse(success)
+            self.assertIn("junction failed", message)
+            self.assertFalse(target.exists())
+
+    def test_existing_windows_junction_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "skill"
+            target.mkdir()
+            source = install.SKILLS_DIR / "git-commit"
+            spec = install.InstallSpec(
+                source,
+                target,
+                "Codex skill",
+                install.DIRECTORY_LINK_STRATEGY,
+            )
+            args = install.parse_args([])
+
+            with mock.patch.object(
+                install,
+                "directory_link_kind",
+                return_value="junction",
+            ), mock.patch.object(
+                install,
+                "resolve_directory_link",
+                return_value=source.resolve(),
+            ):
+                message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("OK", message)
 
     def test_codex_home_is_rejected_for_claude_only(self) -> None:
         with mock.patch("sys.stderr", new=io.StringIO()):

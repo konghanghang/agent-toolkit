@@ -111,13 +111,26 @@ python3 ~/.agent-toolkit/scripts/install.py
 安装脚本会：
 
 1. 扫描 `skills/*/SKILL.md`。
-2. 将 Skill 链接到 `~/.agents/skills/`。
+2. 将 Skill 通过目录链接安装到 `~/.agents/skills/`。
 3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
 4. 默认将 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
-5. 将 Skill 链接到 `~/.claude/skills/`。
+5. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
 6. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
-7. Skill 和 Agent 已有正确软链、Rule 已与源文件一致时跳过。
-8. 旧版受管链接可以显式迁移；未知文件、真实目录或未知软链发生冲突时拒绝覆盖。
+7. Skill 和 Agent 已有正确目录链接、Rule 已与源文件一致时跳过。
+8. 旧版受管链接可以显式迁移；未知文件、真实目录或未知目录链接发生冲突时拒绝覆盖。
+
+目录链接按平台实现：
+
+- macOS/Linux 使用目录软链接。
+- Windows 使用 NTFS directory junction，不要求开启 Developer Mode，也不复制 Skill 或 Agent 内容。
+- Windows junction 创建失败时安装器会停止并保留错误信息；仓库和安装目标应位于本机 NTFS 卷，且需要可用的 Windows PowerShell。安装器不会静默回退成普通目录副本。
+
+Windows PowerShell 示例：
+
+```powershell
+py -3 "$HOME\.agent-toolkit\scripts\install.py" --dry-run
+py -3 "$HOME\.agent-toolkit\scripts\install.py"
+```
 
 从旧的 `~/.shared-skills` 迁移时使用：
 
@@ -204,11 +217,11 @@ Codex Rules：
   --原子复制--> <custom-codex-home>/rules/<name>.rules
 ```
 
-Codex Agents 使用目录软链，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。目标 `agents/` 已经是真实目录或未知软链时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
+Codex Agents 使用目录链接，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。macOS/Linux 使用软链接，Windows 使用 directory junction。目标 `agents/` 已经是真实目录或未知目录链接时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
 
-Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是软链。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录软链不受影响。
+Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是目录链接。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录链接不受影响。
 
-Codex 会为新会话加载 Agents 和 Rules。Agent 源文件通过软链立即更新，Rule 拉取后需要重新安装；两者变更后都应新开会话或重启客户端。
+Codex 会为新会话加载 Agents 和 Rules。Agent 源文件通过目录链接立即更新，Rule 拉取后需要重新安装；两者变更后都应新开会话或重启客户端。
 
 ## work 公共运行时
 
@@ -329,7 +342,7 @@ git config --global iminling.repoPath /absolute/path/to/iminling-pages
 git -C ~/.agent-toolkit pull
 ```
 
-Skill 和 Agent 软链会立即读取仓库内更新。Rules 是受管副本，拉取后需要重新运行：
+Skill 和 Agent 目录链接会立即读取仓库内更新。Rules 是受管副本，拉取后需要重新运行：
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py --rules-only
@@ -369,8 +382,8 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --version 2.10.2
 
 - 所有 Skill 均能通过格式校验。
 - `scripts/install.py --dry-run` 无未知冲突。
-- Codex 与 Claude Code 的 Skill 软链目标正确。
-- 默认和自定义 Codex Home 的 Agent 目录软链目标正确。
+- Codex 与 Claude Code 的 Skill 目录链接目标正确。
+- 默认和自定义 Codex Home 的 Agent 目录链接目标正确。
 - Codex Rules 是与源文件一致的真实文件，且 `execpolicy check` 正常。
 - 除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
 - 没有凭证和机器相关运行时文件进入 Git。
