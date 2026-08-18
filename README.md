@@ -440,14 +440,23 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --dry-run
 python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py
 ```
 
-脚本会使用官方 npm CLI 在临时目录生成 Codex 版本，只提取主 `ui-ux-pro-max`
-Skill，完成结构校验和搜索 smoke test 后原子替换共享目录。旧版本保存在 Git 忽略的
-`.local/backups/`，版本、来源和内容摘要记录在 `external-skills.lock.json`。
+脚本会使用官方 npm CLI 在临时目录生成当前 `.agents/skills/` 版本，并兼容旧版
+`.codex/skills/` 输出；只提取主 `ui-ux-pro-max` Skill。更新前会运行可独立执行的
+上游单元测试、数据校验和搜索 smoke test，再把详细检查表迁入 `references/` 做渐进
+披露，最后原子替换共享目录。只适用于上游源码仓库、依赖未打包维护脚本的测试会被
+明确列为 source-only，不会伪装成已通过。旧版本保存在 Git 忽略的 `.local/backups/`，
+版本、来源、本地转换和内容摘要记录在 `external-skills.lock.json`。
 
 如需安装指定版本：
 
 ```bash
 python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --version 2.10.2
+```
+
+全新检出或 CI 可严格按锁文件还原版本、本地转换和内容摘要，且不重写锁文件：
+
+```bash
+python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --from-lock
 ```
 
 提交前至少检查：

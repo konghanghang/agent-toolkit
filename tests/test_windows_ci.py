@@ -19,6 +19,7 @@ class WindowsWorkflowTest(unittest.TestCase):
             Loader=yaml.BaseLoader,
         )
         cls.job = cls.document["jobs"]["windows"]
+        cls.step_names = [step["name"] for step in cls.job["steps"]]
         cls.steps = {
             step["name"]: step
             for step in cls.job["steps"]
@@ -46,6 +47,32 @@ class WindowsWorkflowTest(unittest.TestCase):
         self.assertIn("Get-ChildItem -Path skills -Directory", script)
         self.assertIn("python scripts/quick_validate.py $skillDirectory.FullName", script)
         self.assertIn("$LASTEXITCODE", script)
+
+    def test_workflow_materializes_locked_external_skill_before_consumers(self) -> None:
+        script = self.steps["Materialize locked external Skills"]["run"]
+        self.assertIn(
+            "python scripts/update_ui_ux_pro_max.py --from-lock",
+            script,
+        )
+        self.assertNotIn("--keep-backups", script)
+        self.assertNotRegex(script, r"--version\s+\d")
+
+        setup_node = self.steps["Set up Node.js"]
+        self.assertEqual("actions/setup-node@v4", setup_node["uses"])
+        self.assertEqual("22", setup_node["with"]["node-version"])
+        materialize_index = self.step_names.index("Materialize locked external Skills")
+        self.assertLess(
+            self.step_names.index("Set up Node.js"),
+            materialize_index,
+        )
+        for consumer in (
+            "Validate all Skills",
+            "Run repository tests",
+            "Run all Skill tests",
+            "Run direct Skill CLI smoke tests",
+        ):
+            with self.subTest(consumer=consumer):
+                self.assertLess(materialize_index, self.step_names.index(consumer))
 
     def test_workflow_smoke_tests_every_direct_skill_cli(self) -> None:
         script = self.steps["Run direct Skill CLI smoke tests"]["run"]

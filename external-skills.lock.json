@@ -4,10 +4,11 @@
     "ui-ux-pro-max": {
       "source": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
       "package": "ui-ux-pro-max-cli",
-      "version": "2.10.2",
+      "version": "2.15.0",
       "install_scope": "main-skill-only",
-      "content_sha256": "b2f7d1348bf2674dfbe5ff9f747a88900035fbbbbcd9b44546343d06a5b3152e",
-      "updated_at": "2026-07-13T01:47:38+00:00"
+      "local_transform": "progressive-disclosure-v1",
+      "content_sha256": "114c3e2c12fd292de4d57314273e91b2ba597d03c0d6072f684e65d424d9d631",
+      "updated_at": "2026-08-18T06:52:04+00:00"
     }
   }
 }

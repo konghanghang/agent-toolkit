@@ -25,8 +25,16 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+
+      - name: Materialize locked external Skills
+        run: python scripts/update_ui_ux_pro_max.py --from-lock
 
       - name: Validate all Skills
         shell: pwsh
@@ -86,6 +94,7 @@ jobs:
             "skills\tapd-weekly-report\scripts\tapd_weekly_report.py"
             "skills\ui-ux-pro-max\scripts\design_system.py"
             "skills\ui-ux-pro-max\scripts\search.py"
+            "skills\ui-ux-pro-max\scripts\validate_data.py"
             "skills\upload-to-easyimage\scripts\upload_easyimage.py"
             "skills\verify-test-db\scripts\init_config.py"
             "skills\verify-test-db\scripts\test_db.py"
