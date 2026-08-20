@@ -1,4 +1,4 @@
 interface:
   display_name: "本地浏览器验收"
-  short_description: "使用本机前端与 Playwright 验证页面交互和状态"
-  default_prompt: "使用 $local-browser-verify 打开本地页面，按真实用户路径验证交互并收集证据。"
+  short_description: "使用 Playwright MCP 通用验收页面布局、交互和异步状态"
+  default_prompt: "使用 $local-browser-verify 检查浏览器前置条件，打开目标页面并按真实用户路径完成可复核验收。"

@@ -116,7 +116,8 @@ powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'
 - Google Chrome：SLS 和 Archery 自动登录。
 - `ripgrep`（`rg`）：`tapd-story` 的仓库检索，以及 `online-issue-triage` 的本地代码定位。
 - `curl`（Windows 为 `curl.exe`）：`upload-to-easyimage` 的实际上传请求。
-- Node.js（含 `npm` / `npx`）：首次安装 PicGo Core 与 `web-uploader` 插件，以及维护 `ui-ux-pro-max` 外部 Skill；已有 PicGo 配置的日常上传不需要启动 Node.js 或 PicGo。
+- Node.js（含 `npm` / `npx`）：运行 `local-browser-verify` 所需的 Playwright MCP、首次安装 PicGo Core 与 `web-uploader` 插件，以及维护 `ui-ux-pro-max` 外部 Skill；已有 PicGo 配置的日常上传不需要启动 Node.js 或 PicGo。
+- Playwright MCP：`local-browser-verify` 的浏览器驱动；Skill 只在运行时检查，缺失时先提示并等待用户授权，不随工具箱安装器自动安装。
 - PicGo Core 与 `web-uploader` 插件：仅在首次生成或重建 EasyImage 上传配置时需要；上传脚本日常只读取已生成的配置文件。
 - Hugo：`capture-iminling-draft` 的草稿构建验证。
 - `rsvg-convert`（librsvg）：`upload-to-easyimage --convert-svg`；不转换 SVG 时不需要。

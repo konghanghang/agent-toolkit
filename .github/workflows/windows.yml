@@ -91,6 +91,7 @@ jobs:
             "skills\archery-prod-query\scripts\archery_query.py"
             "skills\capture-iminling-draft\scripts\resolve_iminling_repo.py"
             "skills\jumpserver-k8s-log-query\scripts\jms_ops.py"
+            "skills\local-browser-verify\scripts\browser_verify.py"
             "skills\prometheus-query\scripts\prometheus_query.py"
             "skills\tapd-story\scripts\tapd_story.py"
             "skills\tapd-weekly-report\scripts\tapd_weekly_report.py"

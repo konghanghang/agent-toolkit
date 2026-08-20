@@ -14,6 +14,7 @@ WRAPPER_EXAMPLES = {
     "verify-test-db": "testdb.cmd",
 }
 DIRECT_SCRIPT_EXAMPLES = {
+    "local-browser-verify": "browser_verify.py",
     "prometheus-query": "prometheus_query.py",
     "tapd-story": "tapd_story.py",
     "tapd-weekly-report": "tapd_weekly_report.py",
