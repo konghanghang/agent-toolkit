@@ -33,6 +33,8 @@ agent-toolkit/
 ├── codex/
 │   ├── agents/
 │   │   └── evidence_explorer.toml
+│   ├── config/
+│   │   └── playwright-mcp.toml.template
 │   └── rules/
 │       ├── work-readonly.rules
 │       ├── git-commit.rules
@@ -47,7 +49,7 @@ agent-toolkit/
 目录职责：
 
 - `skills/`：Codex、Claude Code 共用的 Skills，每个目录必须包含 `SKILL.md`。
-- `codex/`：Codex 专属配置，保存可版本控制的 custom Agents 和全局 Rules。
+- `codex/`：Codex 专属配置，保存可版本控制的 custom Agents、MCP 配置模板和全局 Rules。
 - `claude/`：Claude Code 专属配置占位；没有真实配置前保持为空。
 - `common/`：work 公共运行时、入口脚本和命令模板，不作为 Skill 安装。
 - `scripts/`：工具箱自身的安装和维护脚本。
@@ -109,7 +111,7 @@ py -3.11 -c "import venv"
 powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'
 ```
 
-`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，不创建公共虚拟环境，也不安装 Python 包。需要使用 work 公共入口或带脚本的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
+`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，以及 Codex MCP 配置的安全合并；它不创建公共虚拟环境，也不安装 Python 包。需要使用 work 公共入口或带脚本的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
 
 以下外部程序只在对应能力中需要，不是基础安装的硬依赖：
 
@@ -117,7 +119,7 @@ powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'
 - `ripgrep`（`rg`）：`tapd-story` 的仓库检索，以及 `online-issue-triage` 的本地代码定位。
 - `curl`（Windows 为 `curl.exe`）：`upload-to-easyimage` 的实际上传请求。
 - Node.js（含 `npm` / `npx`）：运行 `local-browser-verify` 所需的 Playwright MCP、首次安装 PicGo Core 与 `web-uploader` 插件，以及维护 `ui-ux-pro-max` 外部 Skill；已有 PicGo 配置的日常上传不需要启动 Node.js 或 PicGo。
-- Playwright MCP：`local-browser-verify` 的浏览器驱动；Skill 只在运行时检查，缺失时先提示并等待用户授权，不随工具箱安装器自动安装。
+- Playwright MCP：`local-browser-verify` 的浏览器驱动；Codex 安装会写入标准 MCP 配置，首次启动时 `npx` 可能联网下载 npm 包。其他 Agent 仍由 Skill 在运行时检查，缺失时先提示并等待用户授权。
 - PicGo Core 与 `web-uploader` 插件：仅在首次生成或重建 EasyImage 上传配置时需要；上传脚本日常只读取已生成的配置文件。
 - Hugo：`capture-iminling-draft` 的草稿构建验证。
 - `rsvg-convert`（librsvg）：`upload-to-easyimage --convert-svg`；不转换 SVG 时不需要。
@@ -140,7 +142,7 @@ git clone git@github.com:konghanghang/agent-toolkit.git "$HOME\.agent-toolkit"
 python3 ~/.agent-toolkit/scripts/install.py --dry-run
 ```
 
-### 安装 Codex、Claude Code、Codex Agents 和 Rules
+### 安装 Codex、Claude Code、Codex Agents、Rules 和 MCP 配置
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py
@@ -152,10 +154,11 @@ python3 ~/.agent-toolkit/scripts/install.py
 2. 将 Skill 通过目录链接安装到 `~/.agents/skills/`。
 3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
 4. 默认将 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
-5. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
-6. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
-7. Skill 和 Agent 已有正确目录链接、Rule 已与源文件一致时跳过。
-8. 旧版受管链接可以显式迁移；未知文件、真实目录或未知目录链接发生冲突时拒绝覆盖。
+5. 把标准 Playwright MCP 审批、禁用工具和缓存目录安全合并到 `~/.codex/config.toml`，保留其他本机配置。
+6. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
+7. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
+8. Skill、Agent、Rule 和 Playwright 配置已经一致时跳过。
+9. 旧版受管链接可以显式迁移；未知文件、真实目录链接或 Playwright 配置冲突时拒绝覆盖。
 
 目录链接按平台实现：
 
@@ -203,11 +206,12 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 
 ```text
 --dry-run          只显示计划，不修改文件
---codex-only       只安装 Codex Skills、Agents 和 Rules
+--codex-only       只安装 Codex Skills、Agents、Rules 和受管配置
 --claude-only      只安装 Claude Code Skills
 --rules-only       只安装 Codex Rules
 --agents-only      只安装 Codex Agents
---codex-home PATH  将 Agents 和 Rules 安装到指定的现有 Codex Home
+--config-only      只安装受管的 Codex Playwright MCP 配置
+--codex-home PATH  将 Agents、Rules 和受管配置安装到指定的现有 Codex Home
 --skill NAME       只处理指定 Skill，可重复使用
 --replace-managed  替换指向旧工具箱或旧目录结构的受管链接
 ```
@@ -217,7 +221,7 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 安装脚本无参数运行时始终使用默认的 `~/.codex`，不会扫描磁盘、解析 Shell alias
 或读取 `CODEX_HOME` 来猜测其他 Codex Home。
 
-存在额外 Codex Home 时，由用户或对应环境的初始化脚本明确指定目录，并分别安装 Agents 和 Rules：
+存在额外 Codex Home 时，由用户或对应环境的初始化脚本明确指定目录，并分别安装 Agents、Rules 和受管配置：
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py \
@@ -231,11 +235,20 @@ python3 ~/.agent-toolkit/scripts/install.py \
   --dry-run
 
 python3 ~/.agent-toolkit/scripts/install.py \
+  --config-only \
+  --codex-home ~/data/work/.codex \
+  --dry-run
+
+python3 ~/.agent-toolkit/scripts/install.py \
   --agents-only \
   --codex-home ~/data/work/.codex
 
 python3 ~/.agent-toolkit/scripts/install.py \
   --rules-only \
+  --codex-home ~/data/work/.codex
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --config-only \
   --codex-home ~/data/work/.codex
 ```
 
@@ -278,11 +291,21 @@ Codex Rules：
   --原子复制--> <custom-codex-home>/rules/<name>.rules
 ```
 
+Codex Playwright MCP 配置：
+
+```text
+~/.agent-toolkit/codex/config/playwright-mcp.toml.template
+  --安全合并--> ~/.codex/config.toml
+  --安全合并--> <custom-codex-home>/config.toml
+```
+
+安装器只管理 `[mcp_servers.playwright]` 下的 `default_tools_approval_mode`、`disabled_tools`，以及 `[mcp_servers.playwright.env]` 下的 `npm_config_cache`。Playwright 尚未配置时会写入完整标准配置；已经配置时保留原有 transport、其他 MCP、模型和权限设置。受管字段存在不同值时停止并报告冲突，不静默覆盖本机选择。新建 `config.toml` 使用 `0600` 权限，已有文件保留原权限。
+
 Codex Agents 使用目录链接，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。macOS/Linux 使用软链接，Windows 使用 directory junction。目标 `agents/` 已经是真实目录或未知目录链接时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
 
 Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是目录链接。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录链接不受影响。
 
-Codex 会为新会话加载 Agents 和 Rules。Agent 源文件通过目录链接立即更新，Rule 拉取后需要重新安装；两者变更后都应新开会话或重启客户端。
+Codex 会为新会话加载 Agents、Rules 和 MCP 配置。Agent 源文件通过目录链接立即更新，Rule 或 Playwright 配置变更后需要重新安装；完成后应新开会话或重启客户端。
 
 ## work 公共运行时
 

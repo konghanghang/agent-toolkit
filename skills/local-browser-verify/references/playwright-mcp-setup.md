@@ -46,6 +46,18 @@ codex mcp add playwright -- npx -y @playwright/mcp@latest \
   --user-data-dir "$HOME/.local/share/playwright-profile"
 ```
 
+使用 `agent-toolkit` 安装 Codex 配置时，安装器会同时合并以下审批和安全边界；手工注册时也应在对应的 `[mcp_servers.playwright]` 下补齐：
+
+```toml
+default_tools_approval_mode = "approve"
+disabled_tools = ["browser_run_code_unsafe"]
+
+[mcp_servers.playwright.env]
+npm_config_cache = "/absolute/path/to/.local/share/playwright-mcp/npm-cache"
+```
+
+`approve` 只减少 Playwright MCP 的逐次工具审批，不代表授权页面业务写入。`browser_run_code_unsafe` 等价于在 Playwright Server 进程中执行任意代码，标准配置直接禁用。缓存路径必须替换为当前用户 Home 下的绝对路径；工具箱安装器会自动解析。
+
 配置后再次运行 `codex mcp list`，新开 Codex 会话或重启客户端，并在 TUI 中用 `/mcp` 确认 Playwright 已启用。
 
 ## 其他 Agent
@@ -66,4 +78,4 @@ Claude Code、OpenCode、Kimi、Grok 或其他宿主按同一边界处理：
 - 用户拒绝安装时，说明无法完成浏览器验收并返回 `BLOCKED`；不要把代码审查、HTTP 探活或截图冒充浏览器验收。
 - MCP 已可用时，不再要求某个特定 Agent、配置文件或安装方式。
 
-参考来源：Playwright MCP 的上游项目为 [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)；Codex 的配置示例见 [OpenAI Codex MCP 文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。
+参考来源：Playwright MCP 的上游项目为 [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)；Codex 的配置示例见 [OpenAI Codex MCP 文档](https://developers.openai.com/codex/mcp)。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -87,6 +88,162 @@ class InstallTest(unittest.TestCase):
         agent_specs = [spec for spec in specs if spec.label == "Codex agents"]
         self.assertEqual(1, len(agent_specs))
         self.assertEqual(custom_home / "agents", agent_specs[0].target)
+
+    def test_full_install_includes_playwright_config_for_custom_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(["--codex-home", str(custom_home)])
+
+            specs = install.plan_installs(args, custom_home)
+
+        config_specs = [
+            spec for spec in specs if spec.label == "Codex Playwright MCP config"
+        ]
+        self.assertEqual(1, len(config_specs))
+        self.assertEqual(custom_home / "config.toml", config_specs[0].target)
+        self.assertEqual(install.TOML_MERGE_STRATEGY, config_specs[0].strategy)
+
+    def test_config_only_plans_only_playwright_config_for_custom_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(
+                ["--config-only", "--codex-home", str(custom_home)]
+            )
+
+            specs = install.plan_installs(args, custom_home)
+
+        self.assertEqual(1, len(specs))
+        self.assertEqual("Codex Playwright MCP config", specs[0].label)
+        self.assertEqual(custom_home / "config.toml", specs[0].target)
+
+    def test_playwright_config_install_creates_expanded_private_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(
+                ["--config-only", "--codex-home", str(custom_home)]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("CREATE", message)
+            content = spec.target.read_text(encoding="utf-8")
+            profile_path = Path.home() / ".local" / "share" / "playwright-profile"
+            npm_cache_path = (
+                Path.home() / ".local" / "share" / "playwright-mcp" / "npm-cache"
+            )
+            self.assertIn(
+                f'"--user-data-dir", {json.dumps(str(profile_path))}',
+                content,
+            )
+            self.assertIn('default_tools_approval_mode = "approve"', content)
+            self.assertIn(
+                'disabled_tools = ["browser_run_code_unsafe"]',
+                content,
+            )
+            self.assertIn(
+                f"npm_config_cache = {json.dumps(str(npm_cache_path))}",
+                content,
+            )
+            self.assertEqual(0o600, spec.target.stat().st_mode & 0o777)
+
+    def test_playwright_config_install_preserves_existing_config_and_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            config_path = custom_home / "config.toml"
+            npm_cache_path = (
+                Path.home() / ".local" / "share" / "playwright-mcp" / "npm-cache"
+            )
+            config_path.write_text(
+                "\n".join(
+                    [
+                        'model = "gpt-5.5"',
+                        "",
+                        "[mcp_servers.other]",
+                        'url = "https://example.invalid/mcp"',
+                        "",
+                        "[mcp_servers.playwright]",
+                        'command = "npx"',
+                        'args = ["-y", "@playwright/mcp@latest"]',
+                        "",
+                        "[mcp_servers.playwright.env]",
+                        f"npm_config_cache = {json.dumps(str(npm_cache_path))}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            args = install.parse_args(
+                ["--config-only", "--codex-home", str(custom_home)]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+
+            first_message, first_success = install.install_spec(spec, args)
+            first_content = config_path.read_text(encoding="utf-8")
+            second_message, second_success = install.install_spec(spec, args)
+
+            self.assertTrue(first_success)
+            self.assertIn("UPDATE", first_message)
+            self.assertIn('model = "gpt-5.5"', first_content)
+            self.assertIn("[mcp_servers.other]", first_content)
+            self.assertIn('args = ["-y", "@playwright/mcp@latest"]', first_content)
+            self.assertIn('default_tools_approval_mode = "approve"', first_content)
+            self.assertIn(
+                'disabled_tools = ["browser_run_code_unsafe"]', first_content
+            )
+            self.assertTrue(second_success)
+            self.assertIn("already contains managed settings", second_message)
+            self.assertEqual(first_content, config_path.read_text(encoding="utf-8"))
+
+    def test_playwright_config_install_rejects_unmanaged_approval_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            config_path = custom_home / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[mcp_servers.playwright]",
+                        'command = "npx"',
+                        'default_tools_approval_mode = "prompt"',
+                        "",
+                        "[mcp_servers.playwright.env]",
+                        'npm_config_cache = "/tmp/npm-cache"',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            original = config_path.read_text(encoding="utf-8")
+            args = install.parse_args(
+                ["--config-only", "--codex-home", str(custom_home)]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertFalse(success)
+            self.assertIn("unmanaged value for default_tools_approval_mode", message)
+            self.assertEqual(original, config_path.read_text(encoding="utf-8"))
+
+    def test_playwright_config_dry_run_does_not_create_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            custom_home = Path(temp_dir)
+            args = install.parse_args(
+                [
+                    "--config-only",
+                    "--codex-home",
+                    str(custom_home),
+                    "--dry-run",
+                ]
+            )
+            spec = install.plan_installs(args, custom_home)[0]
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success)
+            self.assertIn("CREATE", message)
+            self.assertFalse(spec.target.exists())
 
     def test_rules_install_preserves_local_default_rules(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -413,6 +570,11 @@ class InstallTest(unittest.TestCase):
         with mock.patch("sys.stderr", new=io.StringIO()):
             with self.assertRaises(SystemExit):
                 install.parse_args(["--agents-only", "--skill", "git-commit"])
+
+    def test_skill_is_rejected_for_config_only(self) -> None:
+        with mock.patch("sys.stderr", new=io.StringIO()):
+            with self.assertRaises(SystemExit):
+                install.parse_args(["--config-only", "--skill", "git-commit"])
 
     def test_verify_test_db_install_selects_private_config_initializer(self) -> None:
         args = install.parse_args(["--skill", "verify-test-db", "--dry-run"])

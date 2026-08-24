@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -18,6 +19,9 @@ TOOLKIT_ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = TOOLKIT_ROOT / "skills"
 CODEX_AGENTS_SOURCE = TOOLKIT_ROOT / "codex" / "agents"
 CODEX_RULES_SOURCE = TOOLKIT_ROOT / "codex" / "rules"
+CODEX_PLAYWRIGHT_CONFIG_SOURCE = (
+    TOOLKIT_ROOT / "codex" / "config" / "playwright-mcp.toml.template"
+)
 CODEX_SKILLS_TARGET = Path.home() / ".agents" / "skills"
 CLAUDE_SKILLS_TARGET = Path.home() / ".claude" / "skills"
 DEFAULT_CODEX_HOME = Path.home() / ".codex"
@@ -28,8 +32,18 @@ LEGACY_ROOTS = (
 RULE_MANAGED_MARKER = "# Managed by agent-toolkit."
 DIRECTORY_LINK_STRATEGY = "directory-link"
 COPY_STRATEGY = "copy"
+TOML_MERGE_STRATEGY = "toml-merge"
 AGENT_REQUIRED_KEYS = ("name", "description", "developer_instructions")
 TOML_KEY_PATTERN = re.compile(r"(?m)^\s*([A-Za-z0-9_-]+)\s*=")
+TOML_TABLE_PATTERN = re.compile(r"^\s*\[([^\[\]]+)]\s*(?:#.*)?$")
+TOML_ANY_TABLE_PATTERN = re.compile(r"^\s*\[\[?[^\[\]]+]]?\s*(?:#.*)?$")
+PLAYWRIGHT_MANAGED_KEYS = {
+    "mcp_servers.playwright": (
+        "default_tools_approval_mode",
+        "disabled_tools",
+    ),
+    "mcp_servers.playwright.env": ("npm_config_cache",),
+}
 WINDOWS_JUNCTION_TARGET_ENV = "AGENT_TOOLKIT_JUNCTION_TARGET"
 WINDOWS_JUNCTION_SOURCE_ENV = "AGENT_TOOLKIT_JUNCTION_SOURCE"
 WINDOWS_REPARSE_POINT_ATTRIBUTE = 0x0400
@@ -60,6 +74,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     mode.add_argument("--claude-only", action="store_true", help="Install only Claude Code skills")
     mode.add_argument("--rules-only", action="store_true", help="Install only Codex rules")
     mode.add_argument("--agents-only", action="store_true", help="Install only Codex agents")
+    mode.add_argument(
+        "--config-only",
+        action="store_true",
+        help="Install only managed Codex config",
+    )
     parser.add_argument(
         "--codex-home",
         help="Install Codex agents and rules into this existing Codex home instead of ~/.codex",
@@ -75,8 +94,10 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     if args.claude_only and args.codex_home:
         parser.error("--codex-home cannot be used with --claude-only")
-    if (args.rules_only or args.agents_only) and args.skill:
-        parser.error("--skill cannot be used with --rules-only or --agents-only")
+    if (args.rules_only or args.agents_only or args.config_only) and args.skill:
+        parser.error(
+            "--skill cannot be used with --rules-only, --agents-only, or --config-only"
+        )
 
     return args
 
@@ -102,7 +123,7 @@ def selected_skills(names: list[str]) -> dict[str, Path]:
 
 
 def selected_skill_initializers(args: argparse.Namespace) -> list[Path]:
-    if args.rules_only or args.agents_only:
+    if args.rules_only or args.agents_only or args.config_only:
         return []
     selected = selected_skills(args.skill)
     initializers: list[Path] = []
@@ -270,15 +291,23 @@ def is_managed_target(path: Path) -> bool:
 
 
 def installs_codex_rules(args: argparse.Namespace) -> bool:
-    return not args.claude_only and not args.agents_only
+    return not args.claude_only and not args.agents_only and not args.config_only
 
 
 def installs_codex_agents(args: argparse.Namespace) -> bool:
-    return not args.claude_only and not args.rules_only
+    return not args.claude_only and not args.rules_only and not args.config_only
+
+
+def installs_codex_playwright_config(args: argparse.Namespace) -> bool:
+    return not args.claude_only and not args.rules_only and not args.agents_only
 
 
 def installs_codex_configuration(args: argparse.Namespace) -> bool:
-    return installs_codex_rules(args) or installs_codex_agents(args)
+    return (
+        installs_codex_rules(args)
+        or installs_codex_agents(args)
+        or installs_codex_playwright_config(args)
+    )
 
 
 def resolve_codex_home(args: argparse.Namespace) -> tuple[Path, str]:
@@ -294,10 +323,19 @@ def resolve_codex_home(args: argparse.Namespace) -> tuple[Path, str]:
 
 
 def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -> list[InstallSpec]:
-    skills = {} if args.rules_only or args.agents_only else selected_skills(args.skill)
+    skills = (
+        {}
+        if args.rules_only or args.agents_only or args.config_only
+        else selected_skills(args.skill)
+    )
     specs: list[InstallSpec] = []
 
-    if not args.claude_only and not args.rules_only and not args.agents_only:
+    if (
+        not args.claude_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.config_only
+    ):
         specs.extend(
             InstallSpec(
                 source,
@@ -330,7 +368,29 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 for rule in sorted(CODEX_RULES_SOURCE.glob("*.rules"))
             )
 
-    if not args.codex_only and not args.rules_only and not args.agents_only:
+    if installs_codex_playwright_config(args):
+        if codex_home is None:
+            codex_home, _ = resolve_codex_home(args)
+        if not CODEX_PLAYWRIGHT_CONFIG_SOURCE.is_file():
+            raise SystemExit(
+                "Codex Playwright config template does not exist: "
+                f"{CODEX_PLAYWRIGHT_CONFIG_SOURCE}"
+            )
+        specs.append(
+            InstallSpec(
+                CODEX_PLAYWRIGHT_CONFIG_SOURCE,
+                codex_home / "config.toml",
+                "Codex Playwright MCP config",
+                TOML_MERGE_STRATEGY,
+            )
+        )
+
+    if (
+        not args.codex_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.config_only
+    ):
         specs.extend(
             InstallSpec(
                 source,
@@ -410,6 +470,184 @@ def atomic_copy(source: Path, target: Path) -> None:
             temporary_path.unlink()
 
 
+class TomlMergeError(RuntimeError):
+    pass
+
+
+def render_playwright_config_template(source: Path) -> str:
+    try:
+        template = source.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise TomlMergeError(f"unable to read template {source}: {error}") from error
+
+    profile_path = Path.home() / ".local" / "share" / "playwright-profile"
+    npm_cache_path = Path.home() / ".local" / "share" / "playwright-mcp" / "npm-cache"
+    rendered = template.replace(
+        "{{PLAYWRIGHT_PROFILE_PATH}}",
+        json.dumps(str(profile_path), ensure_ascii=False),
+    ).replace(
+        "{{PLAYWRIGHT_NPM_CACHE_PATH}}",
+        json.dumps(str(npm_cache_path), ensure_ascii=False),
+    )
+    if "{{" in rendered or "}}" in rendered:
+        raise TomlMergeError(f"unresolved placeholder in template {source}")
+    return rendered
+
+
+def find_toml_table_span(lines: list[str], table_name: str) -> Optional[tuple[int, int]]:
+    headers = []
+    for index, line in enumerate(lines):
+        match = TOML_TABLE_PATTERN.match(line)
+        if match and match.group(1).strip() == table_name:
+            headers.append(index)
+
+    if len(headers) > 1:
+        raise TomlMergeError(f"duplicate TOML table [{table_name}]")
+    if not headers:
+        return None
+
+    start = headers[0] + 1
+    end = len(lines)
+    for index in range(start, len(lines)):
+        if TOML_ANY_TABLE_PATTERN.match(lines[index]):
+            end = index
+            break
+    return start, end
+
+
+def find_toml_key_line(
+    lines: list[str],
+    table_name: str,
+    key: str,
+) -> Optional[int]:
+    span = find_toml_table_span(lines, table_name)
+    if span is None:
+        return None
+    start, end = span
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    matches = [index for index in range(start, end) if pattern.match(lines[index])]
+    if len(matches) > 1:
+        raise TomlMergeError(f"duplicate key {key} in [{table_name}]")
+    return matches[0] if matches else None
+
+
+def desired_toml_key_lines(fragment: str) -> dict[str, dict[str, str]]:
+    lines = fragment.splitlines()
+    desired: dict[str, dict[str, str]] = {}
+    for table_name, keys in PLAYWRIGHT_MANAGED_KEYS.items():
+        if find_toml_table_span(lines, table_name) is None:
+            raise TomlMergeError(f"template is missing [{table_name}]")
+        desired[table_name] = {}
+        for key in keys:
+            index = find_toml_key_line(lines, table_name, key)
+            if index is None:
+                raise TomlMergeError(f"template is missing {key} in [{table_name}]")
+            desired[table_name][key] = lines[index]
+    return desired
+
+
+def insert_toml_table(lines: list[str], table_name: str, key_lines: list[str]) -> None:
+    if lines and lines[-1].strip():
+        lines.append("")
+    lines.append(f"[{table_name}]")
+    lines.extend(key_lines)
+
+
+def merge_playwright_config(existing: str, fragment: str) -> str:
+    lines = existing.splitlines()
+    fragment_lines = fragment.splitlines()
+    desired = desired_toml_key_lines(fragment)
+    server_table = "mcp_servers.playwright"
+    env_table = "mcp_servers.playwright.env"
+
+    server_span = find_toml_table_span(lines, server_table)
+    env_span = find_toml_table_span(lines, env_table)
+    if server_span is None:
+        if env_span is not None:
+            raise TomlMergeError(f"[{env_table}] exists without [{server_table}]")
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend(fragment_lines)
+        return "\n".join(lines) + "\n"
+
+    for table_name in PLAYWRIGHT_MANAGED_KEYS:
+        span = find_toml_table_span(lines, table_name)
+        if span is None:
+            insert_toml_table(lines, table_name, list(desired[table_name].values()))
+            continue
+
+        missing_lines = []
+        for key, desired_line in desired[table_name].items():
+            existing_index = find_toml_key_line(lines, table_name, key)
+            if existing_index is None:
+                missing_lines.append(desired_line)
+                continue
+            existing_value = lines[existing_index].split("=", 1)[1].strip()
+            desired_value = desired_line.split("=", 1)[1].strip()
+            if existing_value != desired_value:
+                raise TomlMergeError(
+                    f"unmanaged value for {key} in [{table_name}]: {existing_value}"
+                )
+
+        if missing_lines:
+            start, end = find_toml_table_span(lines, table_name) or (0, 0)
+            insert_at = end
+            while insert_at > start and not lines[insert_at - 1].strip():
+                insert_at -= 1
+            lines[insert_at:insert_at] = missing_lines
+
+    return "\n".join(lines) + "\n"
+
+
+def atomic_write_text(target: Path, content: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+        mode = target.stat().st_mode & 0o777 if target.exists() else 0o600
+        os.chmod(temporary_path, mode)
+        os.replace(temporary_path, target)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+def install_toml_merge(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    source = spec.source.resolve()
+    target = spec.target
+    if os.path.lexists(target) and (target.is_symlink() or not target.is_file()):
+        return f"CONFLICT {spec.label}: {target} is not a regular file", False
+
+    try:
+        fragment = render_playwright_config_template(source)
+        existing = target.read_text(encoding="utf-8") if target.exists() else ""
+        merged = merge_playwright_config(existing, fragment)
+    except (OSError, UnicodeError, TomlMergeError) as error:
+        return f"CONFLICT {spec.label}: {target} ({error})", False
+
+    if merged == existing:
+        return f"OK       {spec.label}: {target} already contains managed settings", True
+
+    action = "UPDATE " if target.exists() else "CREATE "
+    message = f"{action} {spec.label}: {source} -> {target}"
+    if args.dry_run:
+        return message, True
+
+    try:
+        atomic_write_text(target, merged)
+    except OSError as error:
+        return f"ERROR    {spec.label}: unable to update {target} ({error})", False
+    return message, True
+
+
 def install_copy(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     source = spec.source.resolve()
     target = spec.target
@@ -450,6 +688,8 @@ def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
         return install_directory_link(spec, args)
     if spec.strategy == COPY_STRATEGY:
         return install_copy(spec, args)
+    if spec.strategy == TOML_MERGE_STRATEGY:
+        return install_toml_merge(spec, args)
     return f"CONFLICT {spec.label}: unknown install strategy {spec.strategy}", False
 
 
@@ -463,6 +703,8 @@ def main() -> int:
             print(f"Agents target: {codex_home / 'agents'}")
         if installs_codex_rules(args):
             print(f"Rules target: {codex_home / 'rules'}")
+        if installs_codex_playwright_config(args):
+            print(f"Config target: {codex_home / 'config.toml'}")
         print()
 
     specs = plan_installs(args, codex_home)
