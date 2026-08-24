@@ -141,6 +141,10 @@ class PrivateFilesTest(unittest.TestCase):
             command = run.call_args.args[0]
             environment = run.call_args.kwargs["env"]
             self.assertEqual("powershell.exe", command[0])
+            self.assertIn(
+                "SetSecurityDescriptorSddlForm($expected, $accessSections)",
+                command[-1],
+            )
             self.assertIn("Set-Acl -LiteralPath $target", command[-1])
             self.assertIn("GetSecurityDescriptorSddlForm", command[-1])
             self.assertNotIn(str(source), command[-1])
@@ -156,6 +160,20 @@ class PrivateFilesTest(unittest.TestCase):
             self.assertFalse(
                 any(key.casefold() == "psmodulepath" for key in environment)
             )
+
+    @unittest.skipUnless(os.name == "nt", "requires real Windows ACL support")
+    def test_real_windows_acl_is_copied_between_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            source = directory / "existing.toml"
+            target = directory / "replacement.toml"
+            source.write_text("existing\n", encoding="utf-8")
+            target.write_text("replacement\n", encoding="utf-8")
+            private_files.secure_private_file(source)
+
+            private_files.copy_windows_acl(source, target)
+
+            self.assertTrue(target.is_file())
 
     @unittest.skipUnless(os.name == "nt", "requires real Windows ACL support")
     def test_real_windows_acl_is_applied_to_directory_and_file(self) -> None:

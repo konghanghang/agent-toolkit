@@ -109,10 +109,12 @@ if ([string]::IsNullOrWhiteSpace($source) -or [string]::IsNullOrWhiteSpace($targ
 }
 
 $sourceAcl = Get-Acl -LiteralPath $source
-Set-Acl -LiteralPath $target -AclObject $sourceAcl
-
 $accessSections = [System.Security.AccessControl.AccessControlSections]::Access
 $expected = $sourceAcl.GetSecurityDescriptorSddlForm($accessSections)
+$targetAcl = Get-Acl -LiteralPath $target
+$targetAcl.SetSecurityDescriptorSddlForm($expected, $accessSections)
+Set-Acl -LiteralPath $target -AclObject $targetAcl
+
 $actual = (Get-Acl -LiteralPath $target).GetSecurityDescriptorSddlForm($accessSections)
 if ($actual -ne $expected) {
     throw "target ACL does not match source ACL"

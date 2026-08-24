@@ -243,7 +243,7 @@ class InstallTest(unittest.TestCase):
             first_content = config_path.read_text(encoding="utf-8")
             second_message, second_success = install.install_spec(spec, args)
 
-            self.assertTrue(first_success)
+            self.assertTrue(first_success, first_message)
             self.assertIn("UPDATE", first_message)
             self.assertIn('model = "gpt-5.5"', first_content)
             self.assertIn("[mcp_servers.other]", first_content)
