@@ -9,6 +9,8 @@ from typing import Any, Callable
 
 
 WINDOWS_PRIVATE_PATH_ENV = "AGENT_TOOLKIT_PRIVATE_PATH"
+WINDOWS_ACL_SOURCE_ENV = "AGENT_TOOLKIT_ACL_SOURCE"
+WINDOWS_ACL_TARGET_ENV = "AGENT_TOOLKIT_ACL_TARGET"
 WINDOWS_ACL_SCRIPT = r"""
 $ErrorActionPreference = "Stop"
 $path = [Environment]::GetEnvironmentVariable("AGENT_TOOLKIT_PRIVATE_PATH", "Process")
@@ -98,6 +100,24 @@ foreach ($trustedSid in $trustedSids) {
     }
 }
 """
+WINDOWS_COPY_ACL_SCRIPT = r"""
+$ErrorActionPreference = "Stop"
+$source = [Environment]::GetEnvironmentVariable("AGENT_TOOLKIT_ACL_SOURCE", "Process")
+$target = [Environment]::GetEnvironmentVariable("AGENT_TOOLKIT_ACL_TARGET", "Process")
+if ([string]::IsNullOrWhiteSpace($source) -or [string]::IsNullOrWhiteSpace($target)) {
+    throw "ACL source or target is empty"
+}
+
+$sourceAcl = Get-Acl -LiteralPath $source
+Set-Acl -LiteralPath $target -AclObject $sourceAcl
+
+$accessSections = [System.Security.AccessControl.AccessControlSections]::Access
+$expected = $sourceAcl.GetSecurityDescriptorSddlForm($accessSections)
+$actual = (Get-Acl -LiteralPath $target).GetSecurityDescriptorSddlForm($accessSections)
+if ($actual -ne $expected) {
+    throw "target ACL does not match source ACL"
+}
+"""
 
 
 class PrivatePathError(OSError):
@@ -175,6 +195,46 @@ def secure_private_file(path: str | Path) -> Path:
         raise
     except OSError as exc:
         raise PrivatePathError(f"无法保护私有文件: {protected} ({exc})") from exc
+
+
+def copy_windows_acl(source: str | Path, target: str | Path) -> Path:
+    acl_source = Path(source)
+    acl_target = Path(target)
+    if acl_source.is_symlink() or not acl_source.is_file():
+        raise PrivatePathError(f"ACL 来源不存在或不是普通文件: {acl_source}")
+    if acl_target.is_symlink() or not acl_target.is_file():
+        raise PrivatePathError(f"ACL 目标不存在或不是普通文件: {acl_target}")
+
+    environment = os.environ.copy()
+    for key in tuple(environment):
+        if key.casefold() == "psmodulepath":
+            environment.pop(key)
+    environment[WINDOWS_ACL_SOURCE_ENV] = str(acl_source)
+    environment[WINDOWS_ACL_TARGET_ENV] = str(acl_target)
+    try:
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                WINDOWS_COPY_ACL_SCRIPT,
+            ],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            env=environment,
+            check=False,
+        )
+    except OSError as exc:
+        raise PrivatePathError(f"无法调用 Windows ACL 工具保护 {acl_target}: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "unknown error").strip()
+        raise PrivatePathError(
+            f"无法保留 Windows ACL: {acl_source} -> {acl_target} ({detail})"
+        )
+    return acl_target
 
 
 def atomic_write_private_bytes(path: str | Path, content: bytes) -> Path:

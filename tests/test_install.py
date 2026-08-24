@@ -146,7 +146,67 @@ class InstallTest(unittest.TestCase):
                 f"npm_config_cache = {json.dumps(str(npm_cache_path))}",
                 content,
             )
-            self.assertEqual(0o600, spec.target.stat().st_mode & 0o777)
+            if os.name != "nt":
+                self.assertEqual(0o600, spec.target.stat().st_mode & 0o777)
+
+    def test_atomic_write_secures_new_windows_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "config.toml"
+
+            with mock.patch.object(
+                install, "is_windows", return_value=True
+            ), mock.patch.object(
+                install, "secure_private_file"
+            ) as secure_private_file, mock.patch.object(
+                install, "copy_windows_acl"
+            ) as copy_windows_acl:
+                install.atomic_write_text(target, "model = \"gpt-5.5\"\n")
+
+            secure_private_file.assert_called_once()
+            secured_path = secure_private_file.call_args.args[0]
+            self.assertEqual(target.parent, secured_path.parent)
+            self.assertTrue(secured_path.name.startswith(f".{target.name}."))
+            copy_windows_acl.assert_not_called()
+            self.assertEqual('model = "gpt-5.5"\n', target.read_text(encoding="utf-8"))
+
+    def test_atomic_write_preserves_existing_windows_acl(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "config.toml"
+            target.write_text('model = "gpt-5.2"\n', encoding="utf-8")
+
+            with mock.patch.object(
+                install, "is_windows", return_value=True
+            ), mock.patch.object(
+                install, "secure_private_file"
+            ) as secure_private_file, mock.patch.object(
+                install, "copy_windows_acl"
+            ) as copy_windows_acl:
+                install.atomic_write_text(target, 'model = "gpt-5.5"\n')
+
+            copy_windows_acl.assert_called_once()
+            source, replacement = copy_windows_acl.call_args.args
+            self.assertEqual(target, source)
+            self.assertEqual(target.parent, replacement.parent)
+            self.assertTrue(replacement.name.startswith(f".{target.name}."))
+            secure_private_file.assert_not_called()
+            self.assertEqual('model = "gpt-5.5"\n', target.read_text(encoding="utf-8"))
+
+    def test_atomic_write_acl_failure_preserves_existing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "config.toml"
+            original = 'model = "gpt-5.2"\n'
+            target.write_text(original, encoding="utf-8")
+
+            with mock.patch.object(
+                install, "is_windows", return_value=True
+            ), mock.patch.object(
+                install, "copy_windows_acl", side_effect=OSError("ACL denied")
+            ):
+                with self.assertRaisesRegex(OSError, "ACL denied"):
+                    install.atomic_write_text(target, 'model = "gpt-5.5"\n')
+
+            self.assertEqual(original, target.read_text(encoding="utf-8"))
+            self.assertEqual([], list(target.parent.glob(f".{target.name}.*")))
 
     def test_playwright_config_install_preserves_existing_config_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

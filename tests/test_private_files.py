@@ -119,6 +119,44 @@ class PrivateFilesTest(unittest.TestCase):
                 any(key.casefold() == "psmodulepath" for key in environment)
             )
 
+    def test_copy_windows_acl_uses_environment_paths_and_verifies_dacl(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            source = directory / "existing.toml"
+            target = directory / "replacement.toml"
+            source.write_text("existing\n", encoding="utf-8")
+            target.write_text("replacement\n", encoding="utf-8")
+            completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+            with patch.dict(
+                private_files.os.environ,
+                {"PSModulePath": "C:\\Program Files\\PowerShell\\7\\Modules"},
+            ), patch.object(
+                private_files.subprocess,
+                "run",
+                return_value=completed,
+            ) as run:
+                private_files.copy_windows_acl(source, target)
+
+            command = run.call_args.args[0]
+            environment = run.call_args.kwargs["env"]
+            self.assertEqual("powershell.exe", command[0])
+            self.assertIn("Set-Acl -LiteralPath $target", command[-1])
+            self.assertIn("GetSecurityDescriptorSddlForm", command[-1])
+            self.assertNotIn(str(source), command[-1])
+            self.assertNotIn(str(target), command[-1])
+            self.assertEqual(
+                str(source),
+                environment[private_files.WINDOWS_ACL_SOURCE_ENV],
+            )
+            self.assertEqual(
+                str(target),
+                environment[private_files.WINDOWS_ACL_TARGET_ENV],
+            )
+            self.assertFalse(
+                any(key.casefold() == "psmodulepath" for key in environment)
+            )
+
     @unittest.skipUnless(os.name == "nt", "requires real Windows ACL support")
     def test_real_windows_acl_is_applied_to_directory_and_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
