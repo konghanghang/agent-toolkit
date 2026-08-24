@@ -123,11 +123,23 @@ foreach ($rule in $sourceExplicitRules) {
 }
 Set-Acl -LiteralPath $target -AclObject $targetAcl
 
-$accessSections = [System.Security.AccessControl.AccessControlSections]::Access
-$expected = $sourceAcl.GetSecurityDescriptorSddlForm($accessSections)
-$actual = (Get-Acl -LiteralPath $target).GetSecurityDescriptorSddlForm($accessSections)
-if ($actual -ne $expected) {
-    throw "target DACL does not match source DACL: expected=$expected actual=$actual"
+function Get-AccessRuleFingerprint($acl) {
+    $rules = @(
+        $acl.GetAccessRules($true, $true, $sidType) | ForEach-Object {
+            "{0}|{1}|{2}|{3}|{4}|{5}" -f $_.IdentityReference.Value, [int]$_.AccessControlType, [int64]$_.FileSystemRights, [int]$_.InheritanceFlags, [int]$_.PropagationFlags, $_.IsInherited
+        } | Sort-Object
+    )
+    return $rules -join "`n"
+}
+
+$actualAcl = Get-Acl -LiteralPath $target
+if ($actualAcl.AreAccessRulesProtected -ne $sourceAcl.AreAccessRulesProtected) {
+    throw "target DACL protection does not match source DACL"
+}
+$expectedRules = Get-AccessRuleFingerprint $sourceAcl
+$actualRules = Get-AccessRuleFingerprint $actualAcl
+if ($actualRules -ne $expectedRules) {
+    throw "target ACEs do not match source ACEs: expected=$expectedRules actual=$actualRules"
 }
 """
 

@@ -49,12 +49,18 @@ def run_windows_acl_script(path: Path, script: str) -> subprocess.CompletedProce
     )
 
 
-def windows_dacl_sddl(path: Path) -> str:
+def windows_acl_fingerprint(path: Path) -> str:
     script = r"""
 $ErrorActionPreference = "Stop"
 $path = [Environment]::GetEnvironmentVariable("AGENT_TOOLKIT_PRIVATE_PATH", "Process")
-$sections = [System.Security.AccessControl.AccessControlSections]::Access
-(Get-Acl -LiteralPath $path).GetSecurityDescriptorSddlForm($sections)
+$sidType = [System.Security.Principal.SecurityIdentifier]
+$acl = Get-Acl -LiteralPath $path
+$rules = @(
+    $acl.GetAccessRules($true, $true, $sidType) | ForEach-Object {
+        "{0}|{1}|{2}|{3}|{4}|{5}" -f $_.IdentityReference.Value, [int]$_.AccessControlType, [int64]$_.FileSystemRights, [int]$_.InheritanceFlags, [int]$_.PropagationFlags, $_.IsInherited
+    } | Sort-Object
+)
+"protected=$($acl.AreAccessRulesProtected)`n$($rules -join "`n")"
 """
     return run_windows_acl_script(path, script).stdout.strip()
 
@@ -196,7 +202,10 @@ class PrivateFilesTest(unittest.TestCase):
             self.assertIn("GetAccessRules($true, $false, $sidType)", command[-1])
             self.assertIn("RemoveAccessRuleSpecific($rule)", command[-1])
             self.assertIn("$targetAcl.AddAccessRule($rule)", command[-1])
-            self.assertIn("expected=$expected actual=$actual", command[-1])
+            self.assertIn("$actualAcl.AreAccessRulesProtected", command[-1])
+            self.assertIn("Get-AccessRuleFingerprint", command[-1])
+            self.assertIn("$_.IsInherited", command[-1])
+            self.assertNotIn("GetSecurityDescriptorSddlForm", command[-1])
             self.assertNotIn(str(source), command[-1])
             self.assertNotIn(str(target), command[-1])
             self.assertEqual(
@@ -240,18 +249,18 @@ class PrivateFilesTest(unittest.TestCase):
                         private_files.secure_private_file(source)
                     elif acl_kind == "mixed":
                         add_windows_explicit_read_rule(source)
-                    expected_dacl = windows_dacl_sddl(source)
+                    expected_acl = windows_acl_fingerprint(source)
 
                     private_files.copy_windows_acl(source, target)
 
-                    self.assertEqual(expected_dacl, windows_dacl_sddl(target))
+                    self.assertEqual(expected_acl, windows_acl_fingerprint(target))
                     os.replace(target, source)
 
                     self.assertEqual(
                         "replacement\n", source.read_text(encoding="utf-8")
                     )
                     self.assertFalse(target.exists())
-                    self.assertEqual(expected_dacl, windows_dacl_sddl(source))
+                    self.assertEqual(expected_acl, windows_acl_fingerprint(source))
 
     @unittest.skipUnless(os.name == "nt", "requires real Windows ACL support")
     def test_real_windows_acl_is_applied_to_directory_and_file(self) -> None:
