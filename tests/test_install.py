@@ -158,15 +158,15 @@ class InstallTest(unittest.TestCase):
             ), mock.patch.object(
                 install, "secure_private_file"
             ) as secure_private_file, mock.patch.object(
-                install, "replace_windows_file_preserving_acl"
-            ) as replace_windows_file:
+                install, "copy_windows_acl"
+            ) as copy_windows_acl:
                 install.atomic_write_text(target, "model = \"gpt-5.5\"\n")
 
             secure_private_file.assert_called_once()
             secured_path = secure_private_file.call_args.args[0]
             self.assertEqual(target.parent, secured_path.parent)
             self.assertTrue(secured_path.name.startswith(f".{target.name}."))
-            replace_windows_file.assert_not_called()
+            copy_windows_acl.assert_not_called()
             self.assertEqual('model = "gpt-5.5"\n', target.read_text(encoding="utf-8"))
 
     def test_atomic_write_preserves_existing_windows_acl(self) -> None:
@@ -174,23 +174,18 @@ class InstallTest(unittest.TestCase):
             target = Path(temp_dir) / "config.toml"
             target.write_text('model = "gpt-5.2"\n', encoding="utf-8")
 
-            def replace_file(replaced: Path, replacement: Path) -> None:
-                os.replace(replacement, replaced)
-
             with mock.patch.object(
                 install, "is_windows", return_value=True
             ), mock.patch.object(
                 install, "secure_private_file"
             ) as secure_private_file, mock.patch.object(
-                install,
-                "replace_windows_file_preserving_acl",
-                side_effect=replace_file,
-            ) as replace_windows_file:
+                install, "copy_windows_acl"
+            ) as copy_windows_acl:
                 install.atomic_write_text(target, 'model = "gpt-5.5"\n')
 
-            replace_windows_file.assert_called_once()
-            replaced, replacement = replace_windows_file.call_args.args
-            self.assertEqual(target, replaced)
+            copy_windows_acl.assert_called_once()
+            source, replacement = copy_windows_acl.call_args.args
+            self.assertEqual(target, source)
             self.assertEqual(target.parent, replacement.parent)
             self.assertTrue(replacement.name.startswith(f".{target.name}."))
             secure_private_file.assert_not_called()
@@ -205,9 +200,7 @@ class InstallTest(unittest.TestCase):
             with mock.patch.object(
                 install, "is_windows", return_value=True
             ), mock.patch.object(
-                install,
-                "replace_windows_file_preserving_acl",
-                side_effect=OSError("ACL denied"),
+                install, "copy_windows_acl", side_effect=OSError("ACL denied")
             ):
                 with self.assertRaisesRegex(OSError, "ACL denied"):
                     install.atomic_write_text(target, 'model = "gpt-5.5"\n')

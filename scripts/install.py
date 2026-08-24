@@ -21,8 +21,8 @@ if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
 from private_files import (
+    copy_windows_acl,
     is_windows,
-    replace_windows_file_preserving_acl,
     secure_private_file,
 )
 
@@ -625,15 +625,13 @@ def atomic_write_text(target: Path, content: str) -> None:
             temporary.write(content)
         if is_windows():
             if target.exists():
-                replace_windows_file_preserving_acl(target, temporary_path)
-                temporary_path = None
+                copy_windows_acl(target, temporary_path)
             else:
                 secure_private_file(temporary_path)
-                os.replace(temporary_path, target)
         else:
             mode = target.stat().st_mode & 0o777 if target.exists() else 0o600
             os.chmod(temporary_path, mode)
-            os.replace(temporary_path, target)
+        os.replace(temporary_path, target)
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
