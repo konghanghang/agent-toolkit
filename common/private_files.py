@@ -9,8 +9,6 @@ from typing import Any, Callable
 
 
 WINDOWS_PRIVATE_PATH_ENV = "AGENT_TOOLKIT_PRIVATE_PATH"
-WINDOWS_ACL_SOURCE_ENV = "AGENT_TOOLKIT_ACL_SOURCE"
-WINDOWS_ACL_TARGET_ENV = "AGENT_TOOLKIT_ACL_TARGET"
 WINDOWS_ACL_SCRIPT = r"""
 $ErrorActionPreference = "Stop"
 $path = [Environment]::GetEnvironmentVariable("AGENT_TOOLKIT_PRIVATE_PATH", "Process")
@@ -100,26 +98,6 @@ foreach ($trustedSid in $trustedSids) {
     }
 }
 """
-WINDOWS_COPY_ACL_SCRIPT = r"""
-$ErrorActionPreference = "Stop"
-$source = [Environment]::GetEnvironmentVariable("AGENT_TOOLKIT_ACL_SOURCE", "Process")
-$target = [Environment]::GetEnvironmentVariable("AGENT_TOOLKIT_ACL_TARGET", "Process")
-if ([string]::IsNullOrWhiteSpace($source) -or [string]::IsNullOrWhiteSpace($target)) {
-    throw "ACL source or target is empty"
-}
-
-$sourceAcl = Get-Acl -LiteralPath $source
-$accessSections = [System.Security.AccessControl.AccessControlSections]::Access
-$expected = $sourceAcl.GetSecurityDescriptorSddlForm($accessSections)
-$targetAcl = Get-Acl -LiteralPath $target
-$targetAcl.SetSecurityDescriptorSddlForm($expected, $accessSections)
-Set-Acl -LiteralPath $target -AclObject $targetAcl
-
-$actual = (Get-Acl -LiteralPath $target).GetSecurityDescriptorSddlForm($accessSections)
-if ($actual -ne $expected) {
-    throw "target ACL does not match source ACL"
-}
-"""
 
 
 class PrivatePathError(OSError):
@@ -199,44 +177,83 @@ def secure_private_file(path: str | Path) -> Path:
         raise PrivatePathError(f"无法保护私有文件: {protected} ({exc})") from exc
 
 
-def copy_windows_acl(source: str | Path, target: str | Path) -> Path:
-    acl_source = Path(source)
-    acl_target = Path(target)
-    if acl_source.is_symlink() or not acl_source.is_file():
-        raise PrivatePathError(f"ACL 来源不存在或不是普通文件: {acl_source}")
-    if acl_target.is_symlink() or not acl_target.is_file():
-        raise PrivatePathError(f"ACL 目标不存在或不是普通文件: {acl_target}")
+def _replace_file_w(replaced: Path, replacement: Path, backup: Path) -> None:
+    import ctypes
+    from ctypes import wintypes
 
-    environment = os.environ.copy()
-    for key in tuple(environment):
-        if key.casefold() == "psmodulepath":
-            environment.pop(key)
-    environment[WINDOWS_ACL_SOURCE_ENV] = str(acl_source)
-    environment[WINDOWS_ACL_TARGET_ENV] = str(acl_target)
+    kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+    replace_file = kernel32.ReplaceFileW
+    replace_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.LPVOID,
+    )
+    replace_file.restype = wintypes.BOOL
+    if replace_file(str(replaced), str(replacement), str(backup), 0, None, None):
+        return
+    raise ctypes.WinError(ctypes.get_last_error())
+
+
+def replace_windows_file_preserving_acl(
+    replaced: str | Path,
+    replacement: str | Path,
+) -> Path:
+    replaced_path = Path(replaced)
+    replacement_path = Path(replacement)
+    if not is_windows():
+        raise PrivatePathError("保留 Windows ACL 的文件替换只能在 Windows 上运行")
+    if replaced_path.is_symlink() or not replaced_path.is_file():
+        raise PrivatePathError(f"被替换路径不存在或不是普通文件: {replaced_path}")
+    if replacement_path.is_symlink() or not replacement_path.is_file():
+        raise PrivatePathError(f"替换路径不存在或不是普通文件: {replacement_path}")
+
+    with tempfile.NamedTemporaryFile(
+        dir=replaced_path.parent,
+        prefix=f".{replaced_path.name}.",
+        suffix=".bak",
+        delete=False,
+    ) as backup_file:
+        backup_path = Path(backup_file.name)
+    backup_path.unlink()
+
     try:
-        result = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                WINDOWS_COPY_ACL_SCRIPT,
-            ],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            env=environment,
-            check=False,
-        )
+        _replace_file_w(replaced_path, replacement_path, backup_path)
     except OSError as exc:
-        raise PrivatePathError(f"无法调用 Windows ACL 工具保护 {acl_target}: {exc}") from exc
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "unknown error").strip()
-        raise PrivatePathError(
-            f"无法保留 Windows ACL: {acl_source} -> {acl_target} ({detail})"
+        recovery_error = None
+        if backup_path.exists():
+            try:
+                os.replace(backup_path, replaced_path)
+            except OSError as restore_exc:
+                recovery_error = restore_exc
+        recovery_detail = (
+            f"; 旧文件恢复失败: {recovery_error}" if recovery_error else ""
         )
-    return acl_target
+        raise PrivatePathError(
+            f"无法在保留 Windows ACL 的情况下替换文件: "
+            f"{replaced_path} <- {replacement_path} ({exc}{recovery_detail})"
+        ) from exc
+
+    try:
+        backup_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        recovery_error = None
+        try:
+            os.replace(backup_path, replaced_path)
+        except OSError as restore_exc:
+            recovery_error = restore_exc
+        recovery_detail = (
+            f"; 旧文件恢复失败: {recovery_error}" if recovery_error else ""
+        )
+        raise PrivatePathError(
+            f"Windows 文件替换后无法删除临时备份: {backup_path} "
+            f"({exc}{recovery_detail})"
+        ) from exc
+    return replaced_path
 
 
 def atomic_write_private_bytes(path: str | Path, content: bytes) -> Path:
