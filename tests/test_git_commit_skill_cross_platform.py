@@ -19,6 +19,15 @@ def fenced_blocks(content: str, language: str) -> list[str]:
     )
 
 
+def powershell_upstream_commands(content: str) -> list[str]:
+    return [
+        line.strip()
+        for block in fenced_blocks(content, "powershell")
+        for line in block.splitlines()
+        if line.lstrip().startswith("git ") and "@{upstream}" in line
+    ]
+
+
 class GitCommitSkillCrossPlatformTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -52,6 +61,9 @@ class GitCommitSkillCrossPlatformTest(unittest.TestCase):
             ),
         )
 
+    def test_powershell_execution_includes_indented_upstream_commands(self) -> None:
+        self.assertEqual(6, len(powershell_upstream_commands(self.content)))
+
     def test_multiline_commit_has_shell_specific_continuations(self) -> None:
         bash_blocks = [
             block
@@ -84,12 +96,7 @@ class GitCommitSkillCrossPlatformTest(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "需要 Windows PowerShell")
     def test_documented_commands_execute_in_windows_powershell(self) -> None:
         powershell_blocks = fenced_blocks(self.content, "powershell")
-        upstream_commands = "\n".join(
-            line
-            for block in powershell_blocks
-            for line in block.splitlines()
-            if line.startswith("git ") and "@{upstream}" in line
-        )
+        upstream_commands = "\n".join(powershell_upstream_commands(self.content))
         commit_block = next(
             block for block in powershell_blocks if "git commit -S" in block
         )
