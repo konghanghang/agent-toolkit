@@ -111,7 +111,7 @@ class WindowsWorkflowTest(unittest.TestCase):
         script = self.steps["Verify Windows command wrappers"]["run"]
         self.assertIn("install_command_templates", script)
         self.assertIn("runtime.json", script)
-        for command in ("sls", "archery", "jms", "testdb"):
+        for command in ("sls", "archery", "jms", "testdb", "gitlab"):
             for suffix in ("cmd", "ps1"):
                 with self.subTest(command=command, suffix=suffix):
                     self.assertIn(f'"bin\\{command}.{suffix}"', script)

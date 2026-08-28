@@ -29,7 +29,8 @@ agent-toolkit/
 │   ├── tapd-story/
 │   ├── tapd-weekly-report/
 │   ├── verify-test-db/
-│   └── local-browser-verify/
+│   ├── local-browser-verify/
+│   └── gitlab-run-pipeline/
 ├── codex/
 │   ├── agents/
 │   │   └── evidence_explorer.toml
@@ -38,7 +39,8 @@ agent-toolkit/
 │   └── rules/
 │       ├── work-readonly.rules
 │       ├── git-commit.rules
-│       └── github-readonly.rules
+│       ├── github-readonly.rules
+│       └── gitlab-pipeline.rules
 ├── claude/
 ├── common/
 └── scripts/
@@ -344,6 +346,7 @@ Windows PowerShell：
 - `ARCHERY_DIR`
 - `JMS_DIR`
 - `TEST_DB_DIR`
+- `GITLAB_DIR`
 - `PYTHON_BIN`
 - `AGENT_TOOLKIT_ROOT`
 
@@ -353,9 +356,12 @@ Windows PowerShell：
 - `archery`
 - `jms`
 - `testdb`
+- `gitlab`
 - Windows 对应的 `.cmd` 与 `.ps1` 入口
 
 `~/.local/agent-toolkit/work/runtime.json`、凭证和 Session 都是本机状态，不提交到本仓库。
+
+GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`，仓库内不写死服务地址。安装器和 bootstrap 会在文件不存在时创建仅含 `base_url`、`private_token` 两个空 value 的私有模板，已有文件绝不覆盖。填写后可用 `gitlab whoami` 验证，并用 `gitlab trigger` 触发和跟踪 Pipeline、`gitlab result` 查询最终结果。
 
 ## 当前 Skills
 
@@ -375,6 +381,7 @@ Windows PowerShell：
   - [测试库配置](skills/verify-test-db/references/configuration.md)
 - `local-browser-verify`
   - [线索信息管理待初审夹具](skills/local-browser-verify/references/clue-unsubmitted-fixture.md)
+- `gitlab-run-pipeline`
 
 ## 当前 Codex Agents
 
@@ -385,6 +392,7 @@ Windows PowerShell：
 - `work-readonly.rules`：允许 work 的登录、受限 SLS 查询、Archery 元数据查询、固定测试命名空间日志查询，以及测试库元数据、受限查询、脱敏验证和只生成计划的写入准备；生产 SQL、测试库实际写入、任意 SLS 查询和通用 JMS 命令仍需审批。
 - `git-commit.rules`：自动允许从 `origin` 获取更新、通过 `git switch -c` 新建分支，以及受控的 `git add`、新提交和普通主分支推送。
 - `github-readonly.rules`：自动允许 `gh pr view/checks`、`gh run list/view`、`gh issue view` 和 `gh repo view`。
+- `gitlab-pipeline.rules`：自动允许 `gitlab whoami/search/resolve/inspect/result/trigger` 六个子命令；Rule 只取消 Codex 权限弹窗，`trigger` 仍由 CLI 强制校验 `plan_id`、用户确认、计划漂移和生产环境授权。
 
 Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGENTS.md` 或用户指令中的操作边界。
 

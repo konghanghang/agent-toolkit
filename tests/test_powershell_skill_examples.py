@@ -12,6 +12,7 @@ WRAPPER_EXAMPLES = {
     "archery-prod-query": "archery.cmd",
     "jumpserver-k8s-log-query": "jms.cmd",
     "verify-test-db": "testdb.cmd",
+    "gitlab-run-pipeline": "gitlab.cmd",
 }
 DIRECT_SCRIPT_EXAMPLES = {
     "local-browser-verify": "browser_verify.py",

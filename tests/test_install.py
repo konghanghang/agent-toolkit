@@ -646,6 +646,16 @@ class InstallTest(unittest.TestCase):
             initializers,
         )
 
+    def test_gitlab_install_selects_private_credentials_initializer(self) -> None:
+        args = install.parse_args(["--skill", "gitlab-run-pipeline", "--dry-run"])
+
+        initializers = install.selected_skill_initializers(args)
+
+        self.assertEqual(
+            [install.SKILLS_DIR / "gitlab-run-pipeline" / "scripts" / "init_config.py"],
+            initializers,
+        )
+
     def test_rules_and_agents_only_skip_skill_initializers(self) -> None:
         for argv in (["--rules-only"], ["--agents-only"]):
             with self.subTest(argv=argv):

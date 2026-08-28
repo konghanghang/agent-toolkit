@@ -1,0 +1,44 @@
+# Managed by agent-toolkit.
+# Allow exactly the six current gitlab-run-pipeline entrypoints outside the
+# sandbox. These rules only remove the Codex permission prompt; the CLI still
+# enforces project/ref resolution, trigger-plan confirmation, and production
+# authorization. Future GitLab subcommands remain outside these rules.
+
+prefix_rule(
+    pattern = [
+        ["gitlab", "/Users/konghang/.agent-toolkit/bin/gitlab"],
+        ["whoami", "search", "resolve", "inspect", "result"],
+    ],
+    decision = "allow",
+    justification = "允许 GitLab 身份验证、项目解析、触发计划检查和 Pipeline 结果查询",
+    match = [
+        "gitlab whoami",
+        "gitlab search --query call-task",
+        "/Users/konghang/.agent-toolkit/bin/gitlab resolve",
+        "gitlab inspect --project atomic/call-task --ref test --env test --module server",
+        "gitlab result --project atomic/call-task --pipeline-id 183785 --wait",
+    ],
+    not_match = [
+        "gitlab trigger --project atomic/call-task --ref test --env test --module server --plan-id sha256:example --confirm",
+        "gitlab cancel --project atomic/call-task --pipeline-id 183785",
+        "gitlab retry --project atomic/call-task --pipeline-id 183785",
+    ],
+)
+
+prefix_rule(
+    pattern = [
+        ["gitlab", "/Users/konghang/.agent-toolkit/bin/gitlab"],
+        "trigger",
+    ],
+    decision = "allow",
+    justification = "允许执行已通过计划绑定、用户确认和生产环境校验的 GitLab Pipeline 触发命令",
+    match = [
+        "gitlab trigger --project atomic/call-task --ref test --env test --module server --plan-id sha256:example --confirm",
+        "/Users/konghang/.agent-toolkit/bin/gitlab trigger --project atomic/call-task --ref test --env test --module server --plan-id sha256:example --confirm",
+    ],
+    not_match = [
+        "gitlab inspect --project atomic/call-task --ref test --env test --module server",
+        "gitlab result --project atomic/call-task --pipeline-id 183785",
+        "gitlab cancel --project atomic/call-task --pipeline-id 183785",
+    ],
+)

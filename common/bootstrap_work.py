@@ -97,13 +97,15 @@ def install_command_templates(toolkit_root: Path) -> None:
             "archery.cmd",
             "jms.cmd",
             "testdb.cmd",
+            "gitlab.cmd",
             "sls.ps1",
             "archery.ps1",
             "jms.ps1",
             "testdb.ps1",
+            "gitlab.ps1",
         ]
     else:
-        names = ["sls", "archery", "jms", "testdb"]
+        names = ["sls", "archery", "jms", "testdb", "gitlab"]
 
     for name in names:
         src = template_dir / name
@@ -125,6 +127,20 @@ def initialize_test_db_profile(
         raise SystemExit(f"[!] 找不到测试库配置初始化器: {initializer}")
     subprocess.run(
         [str(python_bin), str(initializer), "--base-dir", str(test_db_dir)],
+        check=True,
+    )
+
+
+def initialize_gitlab_credentials(
+    toolkit_root: Path,
+    python_bin: Path,
+    gitlab_dir: Path,
+) -> None:
+    initializer = toolkit_root / "skills" / "gitlab-run-pipeline" / "scripts" / "init_config.py"
+    if not initializer.is_file():
+        raise SystemExit(f"[!] 找不到 GitLab 凭证初始化器: {initializer}")
+    subprocess.run(
+        [str(python_bin), str(initializer), "--base-dir", str(gitlab_dir)],
         check=True,
     )
 
@@ -166,6 +182,8 @@ def main() -> int:
     jms_dir = prompt_path("JumpServer 凭证与 session 目录 JMS_DIR", jms_dir_default)
     test_db_dir_default = existing.get("test_db_dir") or str(CONFIG_DIR / "test-db")
     test_db_dir = prompt_path("测试库配置与快照目录 TEST_DB_DIR", test_db_dir_default)
+    gitlab_dir_default = existing.get("gitlab_dir") or str(CONFIG_DIR / "gitlab")
+    gitlab_dir = prompt_path("GitLab 凭证目录 GITLAB_DIR", gitlab_dir_default)
     python_default = existing.get("python_bin") or str(platform_default_python(toolkit_root))
     python_bin = prompt_path("统一 Python 解释器 PYTHON_BIN", python_default)
 
@@ -177,6 +195,7 @@ def main() -> int:
     archery_dir.mkdir(parents=True, exist_ok=True)
     jms_dir.mkdir(parents=True, exist_ok=True)
     test_db_dir.mkdir(parents=True, exist_ok=True)
+    gitlab_dir.mkdir(parents=True, exist_ok=True)
 
     ensure_venv(python_bin, sys.executable or "python3")
     install_dependencies(python_bin, toolkit_root / REQUIREMENTS_FILE_NAME)
@@ -194,19 +213,22 @@ def main() -> int:
         "archery_dir": str(archery_dir.resolve()),
         "jms_dir": str(jms_dir.resolve()),
         "test_db_dir": str(test_db_dir.resolve()),
+        "gitlab_dir": str(gitlab_dir.resolve()),
     }
     CONFIG_FILE.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
     initialize_test_db_profile(toolkit_root, python_bin, test_db_dir)
+    initialize_gitlab_credentials(toolkit_root, python_bin, gitlab_dir)
 
     print("\n[+] work 运行时配置已写入:")
     print(f"    {CONFIG_FILE}")
     print("[+] Prometheus 地址已写入本机运行时配置")
     print("[+] 建议确认 PATH 已包含:")
     print(f"    {toolkit_root / 'bin'}")
-    print("[+] 需要补充的凭证文件:")
+    print("[+] 需要补充真实值的凭证文件:")
     print(f"    {sls_dir / 'aliyun-credentials.json'}")
     print(f"    {archery_dir / 'archery-credentials.json'}")
     print(f"    {jms_dir / 'jms-credentials.json'}")
+    print(f"    {gitlab_dir / 'gitlab-credentials.json'}")
     print("[+] 测试库 profile 模板（请替换地址和账号，并设置密码环境变量）:")
     print(f"    {test_db_dir / 'profiles.json'}")
     print("[+] session 文件会自动写到:")
@@ -218,6 +240,7 @@ def main() -> int:
     print("    archery list-instances")
     print("    jms logs --service data-center")
     print("    testdb profiles-safe")
+    print("    gitlab whoami")
     print("[+] 跨平台基础入口始终可用:")
     print("    PYTHON_BIN + AGENT_TOOLKIT_ROOT/skills/.../scripts/*.py")
     return 0

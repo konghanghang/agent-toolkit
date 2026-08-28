@@ -62,6 +62,7 @@ class RuntimeTest(unittest.TestCase):
             )
             expected_jms_dir = config_dir / "jms"
             expected_test_db_dir = config_dir / "test-db"
+            expected_gitlab_dir = config_dir / "gitlab"
 
             with patch.object(runtime, "CONFIG_FILE", config_file), patch.object(
                 runtime, "CONFIG_DIR", config_dir
@@ -72,6 +73,8 @@ class RuntimeTest(unittest.TestCase):
             self.assertFalse(expected_jms_dir.exists())
             self.assertEqual(str(expected_test_db_dir.resolve()), loaded["test_db_dir"])
             self.assertFalse(expected_test_db_dir.exists())
+            self.assertEqual(str(expected_gitlab_dir.resolve()), loaded["gitlab_dir"])
+            self.assertFalse(expected_gitlab_dir.exists())
             self.assertNotIn("prometheus_base_url", loaded)
 
     def test_loading_runtime_normalizes_separate_prometheus_url(self) -> None:
@@ -180,17 +183,19 @@ class RuntimeTest(unittest.TestCase):
             check=True,
         )
 
-    def test_bootstrap_has_cross_platform_testdb_templates(self) -> None:
+    def test_bootstrap_has_cross_platform_command_templates(self) -> None:
         template_dir = ROOT / "common" / "templates" / "bin"
 
-        for name in ("testdb", "testdb.cmd", "testdb.ps1"):
-            with self.subTest(name=name):
-                self.assertTrue((template_dir / name).is_file())
+        for command in ("sls", "archery", "jms", "testdb", "gitlab"):
+            for suffix in ("", ".cmd", ".ps1"):
+                name = f"{command}{suffix}"
+                with self.subTest(name=name):
+                    self.assertTrue((template_dir / name).is_file())
 
     def test_windows_command_templates_enable_python_utf8(self) -> None:
         template_dir = ROOT / "common" / "templates" / "bin"
 
-        for name in ("sls", "archery", "jms", "testdb"):
+        for name in ("sls", "archery", "jms", "testdb", "gitlab"):
             with self.subTest(name=f"{name}.cmd"):
                 content = (template_dir / f"{name}.cmd").read_text(encoding="utf-8")
                 self.assertIn("setlocal", content)
@@ -219,6 +224,24 @@ class RuntimeTest(unittest.TestCase):
                 str(initializer),
                 "--base-dir",
                 str(test_db_dir),
+            ],
+            check=True,
+        )
+
+    def test_bootstrap_initializes_credentials_in_selected_gitlab_directory(self) -> None:
+        python_bin = ROOT / ".venv" / "bin" / "python"
+        gitlab_dir = Path("/tmp/agent-toolkit-gitlab")
+        initializer = ROOT / "skills" / "gitlab-run-pipeline" / "scripts" / "init_config.py"
+
+        with patch.object(bootstrap.subprocess, "run") as run:
+            bootstrap.initialize_gitlab_credentials(ROOT, python_bin, gitlab_dir)
+
+        run.assert_called_once_with(
+            [
+                str(python_bin),
+                str(initializer),
+                "--base-dir",
+                str(gitlab_dir),
             ],
             check=True,
         )

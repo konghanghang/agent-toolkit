@@ -60,6 +60,7 @@ WINDOWS_JUNCTION_SOURCE_ENV = "AGENT_TOOLKIT_JUNCTION_SOURCE"
 WINDOWS_REPARSE_POINT_ATTRIBUTE = 0x0400
 WINDOWS_INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
 SKILL_INITIALIZERS = {
+    "gitlab-run-pipeline": SKILLS_DIR / "gitlab-run-pipeline" / "scripts" / "init_config.py",
     "verify-test-db": SKILLS_DIR / "verify-test-db" / "scripts" / "init_config.py",
 }
 

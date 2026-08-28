@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitLab Pipeline 触发与结果"
+  short_description: "触发 GitLab Pipeline 并跟踪或查询最终执行结果"
+  default_prompt: "使用 $gitlab-run-pipeline 核对项目与触发计划，确认后运行 Pipeline 并汇报最终结果。"

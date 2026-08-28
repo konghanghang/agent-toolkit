@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+AGENT_TOOLKIT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export AGENT_TOOLKIT_ROOT
+export SKILLS_ROOT="$AGENT_TOOLKIT_ROOT"
+exec python3 "$AGENT_TOOLKIT_ROOT/common/entrypoints/gitlab_cli.py" "$@"

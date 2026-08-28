@@ -90,6 +90,8 @@ jobs:
             "skills\archery-prod-query\scripts\archery_login.py"
             "skills\archery-prod-query\scripts\archery_query.py"
             "skills\capture-iminling-draft\scripts\resolve_iminling_repo.py"
+            "skills\gitlab-run-pipeline\scripts\gitlab_pipeline.py"
+            "skills\gitlab-run-pipeline\scripts\init_config.py"
             "skills\jumpserver-k8s-log-query\scripts\jms_ops.py"
             "skills\local-browser-verify\scripts\browser_verify.py"
             "skills\prometheus-query\scripts\prometheus_query.py"
@@ -203,8 +205,9 @@ jobs:
           $archeryDir = Join-Path $runtimeDir "archery"
           $jmsDir = Join-Path $runtimeDir "jms"
           $testDbDir = Join-Path $runtimeDir "test-db"
+          $gitlabDir = Join-Path $runtimeDir "gitlab"
 
-          foreach ($directory in @($runtimeDir, $slsDir, $archeryDir, $jmsDir, $testDbDir)) {
+          foreach ($directory in @($runtimeDir, $slsDir, $archeryDir, $jmsDir, $testDbDir, $gitlabDir)) {
             New-Item -ItemType Directory -Force -Path $directory | Out-Null
           }
 
@@ -219,6 +222,7 @@ jobs:
             archery_dir = $archeryDir
             jms_dir = $jmsDir
             test_db_dir = $testDbDir
+            gitlab_dir = $gitlabDir
           }
           $runtimeJson = $runtime | ConvertTo-Json
           $runtimePath = Join-Path $runtimeDir "runtime.json"
@@ -247,3 +251,5 @@ jobs:
           Invoke-Wrapper (Join-Path $repoRoot "bin\jms.ps1")
           Invoke-Wrapper (Join-Path $repoRoot "bin\testdb.cmd")
           Invoke-Wrapper (Join-Path $repoRoot "bin\testdb.ps1")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\gitlab.cmd")
+          Invoke-Wrapper (Join-Path $repoRoot "bin\gitlab.ps1")
