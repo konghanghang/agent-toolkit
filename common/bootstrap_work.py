@@ -48,13 +48,15 @@ def prompt_yes_no(label: str, default: bool = True) -> bool:
     return raw in {"y", "yes"}
 
 
-def prompt_url(label: str, default: str | None = None) -> str:
+def prompt_url(label: str, default: str | None = None, required: bool = True) -> str:
     while True:
         suffix = f" [{default}]" if default else ""
         raw = input(f"{label}{suffix}: ").strip() or (default or "")
         if not raw:
-            print("  [!] 不能为空")
-            continue
+            if required:
+                print("  [!] 不能为空")
+                continue
+            return ""
         try:
             return normalize_http_base_url(raw, label)
         except RuntimeConfigError as exc:
@@ -171,8 +173,9 @@ def main() -> int:
     tmp_dir_default = existing.get("tmp_dir") or tempfile.gettempdir()
     tmp_dir = prompt_path("临时目录 TMP_DIR", tmp_dir_default)
     prometheus_base_url = prompt_url(
-        "Prometheus 地址 PROMETHEUS_BASE_URL",
+        "Prometheus 地址 PROMETHEUS_BASE_URL（不使用可留空）",
         existing.get("prometheus_base_url"),
+        required=False,
     )
     sls_dir_default = existing.get("sls_dir") or str(CONFIG_DIR / "sls")
     sls_dir = prompt_path("SLS 凭证与 session 目录 SLS_DIR", sls_dir_default)
@@ -221,7 +224,10 @@ def main() -> int:
 
     print("\n[+] work 运行时配置已写入:")
     print(f"    {CONFIG_FILE}")
-    print("[+] Prometheus 地址已写入本机运行时配置")
+    if prometheus_base_url:
+        print("[+] Prometheus 地址已写入本机运行时配置")
+    else:
+        print("[i] 未配置 Prometheus 地址；其他工具不受影响")
     print("[+] 建议确认 PATH 已包含:")
     print(f"    {toolkit_root / 'bin'}")
     print("[+] 需要补充真实值的凭证文件:")

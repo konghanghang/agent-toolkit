@@ -94,6 +94,24 @@ class PrometheusQueryTest(unittest.TestCase):
         )
         self.assertEqual("success", result["status"])
 
+    def test_api_get_rejects_victoriametrics_partial_response(self) -> None:
+        payload = {
+            "status": "success",
+            "isPartial": True,
+            "data": {"resultType": "vector", "result": []},
+        }
+        with patch.object(
+            query.urllib_request,
+            "urlopen",
+            return_value=FakeResponse(payload),
+        ):
+            with self.assertRaisesRegex(query.QueryError, "部分响应"):
+                query.api_get(
+                    "https://monitor.example/prometheus",
+                    "/api/v1/query",
+                    [("query", "vector(1)")],
+                )
+
     def test_metrics_filters_and_truncates(self) -> None:
         payload = {
             "status": "success",
@@ -110,6 +128,32 @@ class PrometheusQueryTest(unittest.TestCase):
         self.assertEqual(["rocketmq_group_diff"], result["metrics"])
         self.assertTrue(result["truncated"])
 
+    def test_metrics_bounds_server_scan_and_time_window(self) -> None:
+        payload = {
+            "status": "success",
+            "data": ["metric_a", "metric_b", "metric_c", "metric_d"],
+        }
+        with patch.object(query, "api_get", return_value=payload) as api_get, patch.object(
+            query.time,
+            "time",
+            return_value=3600,
+        ):
+            result = query.query_metrics(
+                "https://monitor.example/prometheus",
+                [],
+                2,
+                minutes=30,
+                scan_limit=3,
+            )
+
+        params = dict(api_get.call_args.args[2])
+        self.assertEqual("1800", params["start"])
+        self.assertEqual("3600", params["end"])
+        self.assertEqual("4", params["limit"])
+        self.assertEqual("1", params["deny_partial_response"])
+        self.assertTrue(result["scan_truncated"])
+        self.assertTrue(result["truncated"])
+
     def test_series_requires_exact_metric_name(self) -> None:
         with self.assertRaisesRegex(query.QueryError, "精确指标名"):
             query.query_series(
@@ -119,6 +163,85 @@ class PrometheusQueryTest(unittest.TestCase):
                 [],
                 10,
             )
+
+    def test_series_sends_exact_labels_and_scan_limit_to_server(self) -> None:
+        payload = {"status": "success", "data": []}
+        with patch.object(query, "api_get", return_value=payload) as api_get:
+            result = query.query_series(
+                "https://monitor.example/prometheus",
+                "rocketmq_group_diff",
+                60,
+                [],
+                10,
+                labels=['group=example"group', "topic=example-topic"],
+                scan_limit=25,
+            )
+
+        params = dict(api_get.call_args.args[2])
+        self.assertEqual(
+            'rocketmq_group_diff{group="example\\"group",topic="example-topic"}',
+            params["match[]"],
+        )
+        self.assertEqual("26", params["limit"])
+        self.assertEqual(
+            {"group": 'example"group', "topic": "example-topic"},
+            result["exact_labels"],
+        )
+
+    def test_series_rejects_duplicate_or_invalid_labels(self) -> None:
+        with self.assertRaisesRegex(query.QueryError, "label 重复"):
+            query.build_series_selector("metric", ["group=a", "group=b"])
+        with self.assertRaisesRegex(query.QueryError, "name=value"):
+            query.build_series_selector("metric", ["group"])
+
+    def test_expensive_promql_requires_explicit_override(self) -> None:
+        with self.assertRaisesRegex(query.QueryError, "内部回看窗口 4d"):
+            query.validate_query("sum_over_time(metric[4d])")
+        with self.assertRaisesRegex(query.QueryError, "内部评估点"):
+            query.validate_query("max_over_time(metric[1h:1s])")
+        self.assertEqual(
+            "sum_over_time(metric[4d])",
+            query.validate_query("sum_over_time(metric[4d])", allow_expensive=True),
+        )
+
+    def test_cost_check_ignores_brackets_inside_label_strings(self) -> None:
+        expression = 'metric{pattern=~"[0-9]+"}[5m]'
+        self.assertEqual(expression, query.validate_query(expression))
+
+    def test_instant_uses_request_time_and_preserves_response_metadata(self) -> None:
+        payload = {
+            "status": "success",
+            "warnings": ["warning"],
+            "infos": ["info"],
+            "isPartial": False,
+            "stats": {"seriesFetched": "1"},
+            "data": {
+                "resultType": "vector",
+                "result": [{"metric": {}, "value": [100, "1"]}],
+            },
+        }
+        with patch.object(query, "api_get", return_value=payload) as api_get, patch.object(
+            query.time,
+            "time",
+            return_value=100,
+        ) as current_time:
+            result = query.query_instant(
+                "https://monitor.example/prometheus",
+                "vector(1)",
+                None,
+                query.validate_timezone("UTC"),
+                10,
+            )
+
+        params = dict(api_get.call_args.args[2])
+        self.assertEqual("100", params["time"])
+        self.assertEqual("11", params["limit"])
+        self.assertEqual("1970-01-01T00:01:40+00:00", result["evaluation_time"])
+        self.assertEqual(["warning"], result["warnings"])
+        self.assertEqual(["info"], result["infos"])
+        self.assertFalse(result["is_partial"])
+        self.assertEqual({"seriesFetched": "1"}, result["query_stats"])
+        current_time.assert_called_once_with()
 
     def test_range_summary_reports_peak_time_and_bounded_trend(self) -> None:
         payload = {
@@ -163,6 +286,23 @@ class PrometheusQueryTest(unittest.TestCase):
     def test_non_finite_timestamp_is_rejected(self) -> None:
         with self.assertRaisesRegex(query.QueryError, "有限数值"):
             query.parse_timestamp("NaN")
+
+    def test_out_of_range_timestamp_and_invalid_timezone_are_rejected(self) -> None:
+        with self.assertRaisesRegex(query.QueryError, "超出支持范围"):
+            query.parse_timestamp("1e308")
+        with self.assertRaisesRegex(query.QueryError, "未知时区"):
+            query.validate_timezone("/etc/passwd")
+
+    def test_unix_examples_use_the_project_interpreter(self) -> None:
+        paths = [
+            SKILL_DIR / "SKILL.md",
+            SKILL_DIR / "references" / "rocketmq-triage.md",
+        ]
+        for path in paths:
+            with self.subTest(path=path.name):
+                content = path.read_text(encoding="utf-8")
+                self.assertNotRegex(content, r"(?m)^PYTHON_BIN ")
+                self.assertIn('$AGENT_TOOLKIT_ROOT/.venv/bin/python', content)
 
 
 if __name__ == "__main__":

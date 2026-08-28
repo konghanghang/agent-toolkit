@@ -152,6 +152,15 @@ class RuntimeTest(unittest.TestCase):
 
         self.assertEqual("https://monitor.example/prometheus", configured)
 
+    def test_bootstrap_allows_optional_prometheus_url_to_be_empty(self) -> None:
+        with patch("builtins.input", return_value=""):
+            configured = bootstrap.prompt_url(
+                "Prometheus 地址",
+                required=False,
+            )
+
+        self.assertEqual("", configured)
+
     def test_bootstrap_installs_project_requirements(self) -> None:
         requirements = ROOT / "requirements.txt"
         dependency_names = {

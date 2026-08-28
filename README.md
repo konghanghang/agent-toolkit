@@ -341,7 +341,7 @@ Windows PowerShell：
 
 - `WORK_ROOT`
 - `TMP_DIR`
-- `PROMETHEUS_BASE_URL`
+- `PROMETHEUS_BASE_URL`（可选；仅使用 `prometheus-query` 时需要）
 - `SLS_DIR`
 - `ARCHERY_DIR`
 - `JMS_DIR`

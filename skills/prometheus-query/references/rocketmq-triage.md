@@ -16,8 +16,9 @@
 下面的指标名来自既有排查经验，可能随 exporter 版本或采集配置变化。先执行：
 
 ```bash
-PYTHON_BIN "$AGENT_TOOLKIT_ROOT/skills/prometheus-query/scripts/prometheus_query.py" \
-  metrics --contains rocketmq --limit 200
+"$AGENT_TOOLKIT_ROOT/.venv/bin/python" \
+  "$AGENT_TOOLKIT_ROOT/skills/prometheus-query/scripts/prometheus_query.py" \
+  metrics --contains rocketmq --minutes 60 --scan-limit 1000 --limit 200
 ```
 
 再对准备使用的每个指标执行 `series`，确认 `group`、`topic`、`broker`、`instance` 等 label。不要根据历史命名规则直接拼生产查询。
@@ -119,13 +120,13 @@ max(rocketmq_group_diff{group="<group>"})
 
 ## 历史案例
 
-以下是 2026-08-04 一次 `common-hangup_public` 告警的历史快照，只用于展示推理方法，不代表当前配置或水位。
+以下是一次已匿名化的历史告警，只用于展示推理方法，不代表当前配置、水位或业务规模。
 
 已观察到：
 
-1. 即时 `group_diff` 只有 85 条，看起来已经恢复；
-2. 覆盖事件的 range 显示堆积峰值约 672,634 条，延迟峰值约 356 秒；
-3. 一个峰值时刻附近，生产约 6,774 条/s，消费约 1,228 条/s；
+1. 即时 `group_diff` 已回落，看起来已经恢复；
+2. 覆盖事件的 range 显示此前存在明显堆积和延迟峰值；
+3. 峰值附近，生产速率显著高于成功消费速率；
 4. 生产下降后，消费继续消化存量，恢复时间与告警延迟量级一致。
 
 该案例能够支持“生产突发超过当时消费能力，形成真实堆积”，也说明即时低水位不能否定历史告警。它不能单独证明任何环境当前仍有相同 queue 数，也不能证明所有 RocketMQ 消费者的线程上限都由 queue 数决定。
