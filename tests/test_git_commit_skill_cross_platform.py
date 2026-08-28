@@ -32,13 +32,25 @@ class GitCommitSkillCrossPlatformTest(unittest.TestCase):
         upstream_lines = [
             line for line in command_blocks.splitlines() if "@{upstream}" in line
         ]
-        self.assertEqual(4, len(upstream_lines))
+        self.assertEqual(6, len(upstream_lines))
         for line in upstream_lines:
             with self.subTest(line=line):
                 self.assertRegex(
                     line,
                     r"'@\{upstream\}(?:\.\.\.?HEAD)?'",
                 )
+
+    def test_divergence_is_checked_before_commit_and_push(self) -> None:
+        command_blocks = "\n".join(
+            fenced_blocks(self.content, "bash")
+            + fenced_blocks(self.content, "powershell")
+        )
+        self.assertEqual(
+            2,
+            command_blocks.count(
+                "git rev-list --left-right --count '@{upstream}...HEAD'"
+            ),
+        )
 
     def test_multiline_commit_has_shell_specific_continuations(self) -> None:
         bash_blocks = [
@@ -92,18 +104,24 @@ __UPSTREAM_COMMANDS__
 
 $ExpectedRevisions = @(
     '@{upstream}',
+    '@{upstream}...HEAD',
+    '@{upstream}',
     '@{upstream}..HEAD',
     '@{upstream}...HEAD',
     '@{upstream}..HEAD'
 )
-$ActualRevisions = @(
-    $script:Calls[0][1],
-    $script:Calls[1][1],
-    $script:Calls[2][3],
-    $script:Calls[3][1]
-)
-if ($script:Calls.Count -ne 4) {
-    throw "Expected 4 upstream calls, got $($script:Calls.Count)"
+$ActualRevisions = @()
+foreach ($Call in $script:Calls) {
+    $RevisionArgs = @(
+        $Call | Where-Object { ([string]$_).StartsWith('@{upstream}') }
+    )
+    if ($RevisionArgs.Count -ne 1) {
+        throw "Expected one upstream revision argument, got $($RevisionArgs.Count)"
+    }
+    $ActualRevisions += [string]$RevisionArgs[0]
+}
+if ($script:Calls.Count -ne $ExpectedRevisions.Count) {
+    throw "Expected $($ExpectedRevisions.Count) upstream calls, got $($script:Calls.Count)"
 }
 for ($Index = 0; $Index -lt $ExpectedRevisions.Count; $Index++) {
     if ($ActualRevisions[$Index] -ne $ExpectedRevisions[$Index]) {

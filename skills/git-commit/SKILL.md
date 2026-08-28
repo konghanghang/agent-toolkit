@@ -27,12 +27,13 @@ description: 安全地检查、暂存、提交和按明确授权推送 Git 变�
 - 当前任务已经读过完整变更，并完成与风险相称的验证。
 - 验证后文件内容没有变化；仅执行 `git add` 不算内容变化。
 - 项目规则和提交边界已经明确；Git 身份、远端和签名惯例已有仍有效的证据，或能在第 1 步的同一次只读预检中确认。
+- 当前分支没有 upstream，或已在本轮 fetch 对应 upstream 并确认远端没有领先；不得把未刷新的本地 tracking ref 当作最新远端状态。
 - 没有来源不明的 staged 内容，也不处于 merge、rebase、cherry-pick、revert 或 bisect 流程。
 - 不涉及身份修改、历史改写或其他高风险操作。
 
 快速路径固定为五步：
 
-1. 在一次只读检查中确认状态、变更摘要、提交范围、Git 操作状态，以及尚缺的身份、远端和签名证据；复用仍有效的规则和测试结果。
+1. 确认 upstream freshness：没有 upstream 时直接进入一次只读预检；存在 upstream 时先独立 fetch 对应 remote，再在一次只读检查中确认 ahead/behind、状态、变更摘要、提交范围、Git 操作状态，以及尚缺的身份、远端和签名证据；复用仍有效的规则和测试结果。
 2. 独立执行一次显式 `git add <files>`。
 3. 在一次只读检查中执行 staged 文件列表和 `git diff --cached --check`；提交边界没有变化时不重复全文阅读 diff。
 4. 独立执行一次 `git commit`。
@@ -63,6 +64,32 @@ description: 安全地检查、暂存、提交和按明确授权推送 Git 变�
 6. 发现与当前任务无关但不冲突的改动时，不回滚、不暂存；发现直接冲突或来源不明的异常改动时，停止并询问用户。
 
 一旦确认异常 Git 操作状态、来源不明的 staged 内容或其他明确阻塞条件，立即停止；不要继续做身份检查、测试或提交信息生成。
+
+## 刷新并判断远端基线
+
+准备创建提交时，先确认当前分支是否配置 upstream。`@{upstream}` 在 Bash、Zsh 和 PowerShell 中都必须作为一个完整的引号参数传递：
+
+```powershell
+git branch --show-current
+git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'
+```
+
+第二条命令返回非零通常表示当前分支没有 upstream，不等于检查失败。按以下分支处理：
+
+1. 没有 upstream：本地 commit 不依赖远端基线，正常进入提交检查，不要求用户为了提交而设置 upstream，也不扫描或猜测其他 remote。
+2. 存在 upstream：解析其真实 remote，先把 fetch 作为独立调用执行。下面以 `origin` 为例，实际执行时使用 upstream 对应的 remote：
+
+   ```powershell
+   git fetch origin
+   git rev-list --left-right --count '@{upstream}...HEAD'
+   ```
+
+   `rev-list` 的左值是 upstream 独有提交数，也就是本地落后数；右值是本地独有提交数，也就是领先数。
+3. fetch 成功且落后数为 `0`：可以继续提交，无论本地领先数是否为 `0`。
+4. 落后数大于 `0`：在普通提交前停止并展示落后/领先数量及远端新增提交。不得自动 stash、pull、merge、rebase、amend 或强推；由用户明确选择先同步，或先提交再单独授权 rebase。
+5. fetch 失败：不得声称当前分支未落后。停止并报告远端 freshness 未验证；只有用户明确接受陈旧基线风险时，才继续本地提交，并在最终结果中保留该限制。
+
+commit 前的 fetch 结果不能复用于 push 前检查，因为远端可能在两者之间继续变化。
 
 ## 预检 Git 身份与邮箱隐私
 
@@ -112,7 +139,7 @@ git log '@{upstream}..HEAD' --format='%h %an <%ae> | %cn <%ce> | %s'
 6. 最近一笔提交不包含 `gpgsig` 时，本次提交保持无签名；如果 `commit.gpgsign=true`，显式使用 `git commit --no-gpg-sign`，但不要修改仓库级或全局签名配置。
 7. `commit.gpgsign` 只表示 Git 的默认行为，`user.signingkey` 只表示本机具备签名能力；两者都不能单独用于推断仓库签名惯例。
 8. 仓库没有任何提交历史时，优先遵循用户明确要求和项目规则；仍无法判断时先询问用户。
-9. 没有上游分支时，先判断当前分支是否存在对应的 `origin/<branch>`；都不存在时只报告本地身份，不猜测远端身份惯例。
+9. 没有 upstream 时，commit 预检只报告本地身份，不猜测 `origin/<branch>` 或其他远端身份惯例；只有进入明确授权的 push 工作流后，才检查用户确认的真实 push 目标。
 
 ## 排除不应提交的内容
 
@@ -240,14 +267,22 @@ git commit -S `
 git status --short --branch
 ```
 
-存在上游分支时，再执行：
+确认工作区状态符合预期后，解析用户授权的真实 push remote 和 branch，并在每次 push 前重新 fetch；即使本轮 commit 前已经 fetch 过也不能复用。下面以主分支为例，功能分支使用已经确认的真实目标：
+
+```bash
+git fetch origin master
+```
+
+push 目标就是 upstream 时，再执行：
 
 ```powershell
 git rev-list --left-right --count '@{upstream}...HEAD'
 git log '@{upstream}..HEAD' --format='%h %an <%ae> | %cn <%ce> | %s'
 ```
 
-没有上游分支时，先确认目标 `<remote>/<branch>` 是否存在；存在则用它代替 `@{upstream}` 完成分叉和领先提交检查，不存在则明确报告“没有远端身份基线”，并检查准备推送的全部本地提交身份。不要直接执行必然失败的 `@{upstream}` 命令。
+push 目标不是 upstream，或当前分支没有 upstream 时，先确认目标 `<remote>/<branch>` 是否存在；存在则 fetch 后用该 remote-tracking ref 代替 `@{upstream}` 完成分叉和领先提交检查，不存在则明确报告“这是远端新分支，没有远端身份基线”，并检查准备推送的全部本地提交身份。不要直接执行必然失败的 `@{upstream}` 命令，也不要因为没有 upstream 就猜测 push 目标。
+
+fetch 失败时停止 push，不得用旧 tracking ref 继续。fetch 后 upstream 或目标 remote-tracking ref 的独有提交数大于 `0` 时同样停止：报告落后或分叉状态，等待用户明确选择同步方式，不自动 rebase、merge 或强推。
 
 确认：
 
@@ -270,6 +305,12 @@ git push origin main
 如果推送返回 `GH007` 或其他身份错误，停止并报告；不要关闭 GitHub 邮箱隐私保护，也不要在本技能内 amend、rebase、重签或改写历史。
 
 如果本机未配置 `gpg.ssh.allowedSignersFile`，`git log --show-signature` 或 `%G?` 可能无法在本地验证 SSH 签名。不要因此直接断言提交未签名；可以用 `git cat-file -p <commit>` 检查是否存在 `gpgsig` 字段，并明确区分“存在签名”和“本地已验证签名”。
+
+## 显式 rebase 的签名边界
+
+只有用户明确授权 rebase 时，才把它作为普通提交工作流之外的独立任务执行。开始前记录待重写提交、Tree/差异和实际 `gpgsig` 状态；仓库或待重写提交采用签名惯例时，rebase 必须显式使用 `--gpg-sign`，不要先做无签名 rebase 再默认 amend。
+
+rebase 后重新检查内容差异、Author/Committer、提交消息和每个被重写提交的 `gpgsig`。签名缺失时停止并报告；只有用户另外明确授权重签或 amend，才能再次改写提交。rebase 后的内容发生变化时，按影响范围重跑验证；只有提交对象和签名变化、Tree 未变化时才复用已有测试结果。
 
 ## 提交后检查
 
