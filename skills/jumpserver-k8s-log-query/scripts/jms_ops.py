@@ -43,6 +43,7 @@ DEFAULT_NAMESPACE = "test"
 DEFAULT_LOG_ROOT = "/data/logs/{namespace}"
 DEFAULT_SYSTEM_USER = "root"
 WEBSOCKET_PROTOCOL = "JMS-KOKO"
+KNOWN_SSH_PORTS = {22, 2222}
 ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 ANSI_OTHER_RE = re.compile(r"\x1b[()][A-Z0-9]|\x1b[@-_]")
@@ -653,9 +654,27 @@ def websocket_target(
     host = str(endpoint.get("host") or base.hostname or "")
     if not host:
         raise JmsError("JumpServer Web Terminal 端点没有主机地址")
-    endpoint_port = endpoint.get("https_port" if secure else "http_port")
+    endpoint_port_name = "https_port" if secure else "http_port"
+    raw_endpoint_port = endpoint.get(endpoint_port_name)
+    try:
+        endpoint_port = int(raw_endpoint_port or 0)
+    except (TypeError, ValueError) as exc:
+        raise JmsError(
+            f"JumpServer Web Terminal 端点返回了无效的 {endpoint_port_name}: "
+            f"{raw_endpoint_port!r}"
+        ) from exc
     default_port = 443 if secure else 80
-    port = int(endpoint_port or base.port or default_port)
+    fallback_port = base.port or default_port
+    if endpoint_port in KNOWN_SSH_PORTS:
+        endpoint_port = 0
+    port = endpoint_port or fallback_port
+    if port in KNOWN_SSH_PORTS:
+        raise JmsError(
+            f"JumpServer Web Terminal 解析到了 SSH 端口 {port}，"
+            "请检查 base_url 与 HTTP/HTTPS 终端端点"
+        )
+    if not 1 <= port <= 65535:
+        raise JmsError(f"JumpServer Web Terminal 端口超出有效范围: {port}")
     query_path = path if path.startswith("/") else "/" + path
     return host, port, secure, query_path
 
@@ -724,6 +743,9 @@ class WebSocketClient:
             ).encode("ascii")
             raw.sendall(request)
             response = self._read_http_headers()
+        except JmsError:
+            self.close()
+            raise
         except (OSError, ssl.SSLError) as exc:
             self.close()
             raise JmsError(f"连接 JumpServer Web Terminal 失败: {exc}") from exc
@@ -754,6 +776,11 @@ class WebSocketClient:
             if not chunk:
                 raise JmsError("JumpServer WebSocket 在握手完成前断开")
             self.buffer.extend(chunk)
+            if len(self.buffer) >= 4 and self.buffer[:4] == b"SSH-":
+                raise JmsError(
+                    "JumpServer WebSocket 连接到了 SSH 端口；"
+                    "应使用 HTTP/HTTPS Web Terminal 端口"
+                )
             if len(self.buffer) > 65536:
                 raise JmsError("JumpServer WebSocket 握手响应过大")
         head, rest = bytes(self.buffer).split(b"\r\n\r\n", 1)

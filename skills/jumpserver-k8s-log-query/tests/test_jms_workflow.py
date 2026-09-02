@@ -517,6 +517,58 @@ class JmsWorkflowTest(unittest.TestCase):
         self.assertTrue(sock.closed)
         self.assertEqual(0x8, decode_client_frame(sock.sent[-1])[0])
 
+    def test_websocket_target_uses_web_ports_and_ignores_ssh_ports(self):
+        self.assertEqual(
+            ("koko", 80, False, "/ws"),
+            self.ops.websocket_target(
+                {"base_url": "http://jms"},
+                {"host": "koko", "http_port": 0, "ssh_port": 2222},
+                "ws",
+            ),
+        )
+        self.assertEqual(
+            ("koko", 443, True, "/ws"),
+            self.ops.websocket_target(
+                {"base_url": "https://jms"},
+                {"host": "koko", "https_port": 443, "ssh_port": 2222},
+                "/ws",
+            ),
+        )
+        for ssh_port in (22, 2222, "22", "2222"):
+            with self.subTest(ssh_port=ssh_port):
+                self.assertEqual(
+                    8080,
+                    self.ops.websocket_target(
+                        {"base_url": "http://jms:8080"},
+                        {"host": "koko", "http_port": ssh_port},
+                        "/ws",
+                    )[1],
+                )
+        with self.assertRaisesRegex(self.ops.JmsError, "SSH 端口 2222"):
+            self.ops.websocket_target(
+                {"base_url": "http://jms:2222"},
+                {"host": "koko", "http_port": 0},
+                "/ws",
+            )
+        with self.assertRaisesRegex(self.ops.JmsError, "无效的 http_port"):
+            self.ops.websocket_target(
+                {"base_url": "http://jms"},
+                {"host": "koko", "http_port": "invalid"},
+                "/ws",
+            )
+
+    def test_websocket_handshake_identifies_ssh_banner(self):
+        sock = FakeSocket(b"SSH-2.0-Go\r\n")
+        with patch.object(
+            self.ops.socket, "create_connection", return_value=sock
+        ), patch.object(self.ops.os, "urandom", return_value=b"0123456789abcdef"):
+            ws = self.ops.WebSocketClient(
+                "jms", 2222, "/ws", "http://jms", {"jms_sessionid": "x"}
+            )
+            with self.assertRaisesRegex(self.ops.JmsError, "连接到了 SSH 端口"):
+                ws.connect()
+        self.assertTrue(sock.closed)
+
     def test_websocket_handshake_rejects_redirect_accept_and_protocol(self):
         cases = [
             (b"HTTP/1.1 302 Found\r\nLocation: /core/auth/login/\r\n\r\n", "302"),
