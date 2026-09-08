@@ -15,6 +15,8 @@ description: '安全查询和受控修改一个或多个测试环境 MySQL 实�
 
 如果缺少 profile、网络、账号或权限，报告准确缺口并停止。不得读取 DataGrip、Navicat 或其他 SQL 客户端的密码来绕过配置。
 
+某个产品的库表落在哪套实例，由调用方的业务技能提供。不要把 work 或其他产品的表清单写进本技能。
+
 ## 安全边界
 
 - 把 `allowed_databases` 作为读取范围，把 `writable_databases` 作为写入范围；两者都支持单独的 `["*"]`。
