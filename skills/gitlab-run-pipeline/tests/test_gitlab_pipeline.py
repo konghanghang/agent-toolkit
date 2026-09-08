@@ -660,6 +660,43 @@ class GitLabPipelineTest(unittest.TestCase):
                 pipeline.cmd_trigger(args)
         request.assert_not_called()
 
+    def test_fixed_commit_checks_before_and_after_creation(self) -> None:
+        inspected = inspected_payload()
+        plan = pipeline.build_trigger_plan(
+            inspected, environment="test", module="all",
+            variables=pipeline.build_pipeline_variables(environment="test", module="all"),
+        )
+        for expected, actual in (("different", "abc123"), ("abc123", "new-sha"), ("abc123", None), ("abc123", "abc123")):
+            with self.subTest(expected=expected, actual=actual):
+                args = pipeline.build_parser().parse_args([
+                    "trigger", "--project", "group/project", "--ref", "test",
+                    "--env", "test", "--module", "all", "--plan-id", plan["plan_id"],
+                    "--confirm", "--expected-sha", expected,
+                ])
+                created = {**pipeline_payload("created"), "sha": actual}
+                with patch.object(pipeline, "load_credentials", return_value={}), patch.object(
+                    pipeline, "_resolved_project", return_value=("group/project", None)
+                ), patch.object(pipeline, "inspect_project", return_value=inspected), patch.object(
+                    pipeline, "api_request", return_value=created
+                ) as request, patch.object(pipeline, "monitor_pipeline", return_value={"outcome": "success"}) as monitor:
+                    if expected != "abc123":
+                        with self.assertRaisesRegex(pipeline.PipelineError, "尚未创建"):
+                            pipeline.cmd_trigger(args)
+                        request.assert_not_called()
+                        monitor.assert_not_called()
+                        continue
+                    result = pipeline.cmd_trigger(args)
+                    request.assert_called_once()
+                    self.assertEqual(created["id"], result["triggered"]["pipeline"]["id"])
+                    if actual != expected:
+                        self.assertEqual("commit_mismatch", result["result"]["outcome"])
+                        self.assertEqual(2, pipeline.result_exit_code(result))
+                        self.assertFalse(result["monitoring"])
+                        monitor.assert_not_called()
+                    else:
+                        self.assertEqual(0, pipeline.result_exit_code(result))
+                        monitor.assert_called_once()
+
     def test_result_aggregates_failed_allowed_and_manual_jobs(self) -> None:
         jobs = [
             pipeline.summarize_job(job_payload("success", job_id=1, name="build")),
@@ -678,6 +715,50 @@ class GitLabPipelineTest(unittest.TestCase):
         self.assertEqual("deploy", result["failed_jobs"][0]["name"])
         self.assertEqual("optional", result["allowed_failures"][0]["name"])
         self.assertEqual("approve", result["manual_jobs"][0]["name"])
+
+    def test_build_stage_can_complete_while_deploy_is_running_or_failed(self) -> None:
+        for deploy_status in ("running", "failed"):
+            with self.subTest(deploy_status=deploy_status):
+                jobs = [
+                    {**job_payload("success", job_id=1, name="publish-api"), "stage": "build_artifacts"},
+                    job_payload(deploy_status, job_id=2, name="deploy"),
+                ]
+                result = pipeline.build_pipeline_result(pipeline_payload(deploy_status), jobs)
+                self.assertTrue(result["stage_summary"]["build_artifacts"]["all_success"])
+                self.assertFalse(result["stage_summary"]["deploy"]["all_success"])
+                self.assertEqual("in_progress" if deploy_status == "running" else "failed", result["outcome"])
+
+    def test_build_stage_requires_every_job_to_succeed(self) -> None:
+        for status in ("running", "pending", "manual", "failed", "canceled", "skipped", "unknown"):
+            with self.subTest(status=status):
+                jobs = [
+                    {**job_payload("success", job_id=1, name="publish-api"), "stage": "build_artifacts"},
+                    {**job_payload(status, job_id=2, name="publish-client", allow_failure=True), "stage": "build_artifacts"},
+                ]
+                result = pipeline.build_pipeline_result(pipeline_payload("running"), jobs)
+                stage = result["stage_summary"]["build_artifacts"]
+                self.assertEqual(2, stage["total"])
+                self.assertEqual({"success": 1, status: 1}, stage["counts"])
+                self.assertFalse(stage["all_success"])
+
+    def test_all_build_jobs_success_does_not_wait_for_other_stages(self) -> None:
+        jobs = [
+            {**job_payload("success", job_id=1, name="publish-api"), "stage": "build_artifacts"},
+            {**job_payload("success", job_id=2, name="publish-client"), "stage": "build_artifacts"},
+            job_payload("manual", job_id=3, name="deploy"),
+        ]
+        result = pipeline.build_pipeline_result(pipeline_payload("manual"), jobs)
+        self.assertEqual("requires_action", result["outcome"])
+        self.assertTrue(result["stage_summary"]["build_artifacts"]["all_success"])
+        self.assertEqual({"success": 2}, result["stage_summary"]["build_artifacts"]["counts"])
+
+    def test_missing_or_truncated_stage_cannot_release_dependents(self) -> None:
+        empty = pipeline.build_pipeline_result(pipeline_payload("success"), [])
+        self.assertNotIn("build_artifacts", empty["stage_summary"])
+        jobs = [{**job_payload("success", job_id=1, name="publish-api"), "stage": "build_artifacts"}]
+        truncated = pipeline.build_pipeline_result(pipeline_payload("running"), jobs, jobs_truncated=True)
+        self.assertTrue(truncated["job_summary"]["truncated"])
+        self.assertFalse(truncated["stage_summary"]["build_artifacts"]["all_success"])
 
     def test_optional_manual_job_does_not_stop_running_pipeline(self) -> None:
         jobs = [
@@ -702,6 +783,48 @@ class GitLabPipelineTest(unittest.TestCase):
         self.assertEqual(101, len(jobs))
         self.assertFalse(truncated)
         self.assertEqual("2", request.call_args.kwargs["query"][1][1])
+
+    def test_result_includes_bridges_and_waits_for_downstream_success(self) -> None:
+        ordinary = {**job_payload("success", job_id=1, name="publish-api"), "stage": "build_artifacts"}
+        for bridge_status, downstream_status in (
+            ("running", "running"), ("failed", "failed"), ("success", "running"),
+            ("success", None), ("success", "success"),
+        ):
+            with self.subTest(bridge=bridge_status, downstream=downstream_status):
+                bridge = {
+                    **job_payload(bridge_status, job_id=2, name="publish-child"),
+                    "stage": "build_artifacts",
+                    "downstream_pipeline": pipeline_payload(downstream_status) if downstream_status else None,
+                }
+                with patch.object(pipeline, "api_request", side_effect=[
+                    pipeline_payload("running"), [ordinary], [bridge],
+                ]) as request:
+                    result = pipeline.get_pipeline_result({}, "group/project", 88, parameters={"available": True})
+                self.assertTrue(request.call_args_list[2].args[2].endswith("/bridges"))
+                stage = result["stage_summary"]["build_artifacts"]
+                self.assertEqual(2, stage["total"])
+                self.assertEqual(downstream_status == "success", stage["all_success"])
+
+    def test_bridge_truncation_blocks_stage_success(self) -> None:
+        bridge = {
+            **job_payload("success", job_id=2, name="publish-child"),
+            "downstream_pipeline": pipeline_payload("success"),
+        }
+        with patch.object(pipeline, "JOBS_PER_PAGE", 1), patch.object(pipeline, "MAX_JOB_PAGES", 2), patch.object(
+            pipeline, "api_request", side_effect=[pipeline_payload("running"), [], [bridge], [bridge]]
+        ) as request:
+            result = pipeline.get_pipeline_result({}, "group/project", 88, parameters={"available": True})
+        self.assertEqual("2", dict(request.call_args.kwargs["query"])["page"])
+        self.assertTrue(result["job_summary"]["truncated"])
+        self.assertFalse(result["stage_summary"]["deploy"]["all_success"])
+
+    def test_bridge_query_failure_does_not_release_stage(self) -> None:
+        for response in (pipeline.PipelineRequestError("unavailable", status_code=403), [None]):
+            with self.subTest(response=response), patch.object(pipeline, "api_request", side_effect=[
+                pipeline_payload("running"), [job_payload("success", job_id=1, name="publish")], response,
+            ]):
+                with self.assertRaises(pipeline.PipelineError):
+                    pipeline.get_pipeline_result({}, "group/project", 88, parameters={"available": True})
 
     def test_pipeline_parameters_expose_only_environment_and_module(self) -> None:
         payload = [

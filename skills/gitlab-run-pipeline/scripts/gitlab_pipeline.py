@@ -573,7 +573,7 @@ def validate_trigger_plan(
         errors = lint.get("errors") or ["unknown CI lint error"]
         raise PipelineError(f"GitLab CI 配置校验失败: {'; '.join(str(item) for item in errors)}")
     if not confirm:
-        raise PipelineError("触发 pipeline 需要 --confirm；先 inspect 并把计划给用户确认")
+        raise PipelineError("触发 pipeline 需要 --confirm；先 inspect，并确认本次触发范围已有用户授权")
 
 
 def resolve_trigger_inputs(
@@ -648,7 +648,7 @@ def build_trigger_plan(
 def validate_plan_id(expected: str, provided: str) -> None:
     if provided != expected:
         raise PipelineError(
-            "触发计划已变化或 --plan-id 不匹配。请重新运行 inspect，展示最新项目、commit 和参数后再次确认"
+            "触发计划已变化或 --plan-id 不匹配，尚未创建流水线。请重新运行 inspect 核对授权范围；最新提交模式可在原授权内更新计划，固定提交或范围变化时停止确认"
         )
 
 
@@ -703,6 +703,8 @@ def fetch_pipeline_jobs(
     credentials: dict[str, str],
     project: str,
     pipeline_id: int,
+    *,
+    bridges: bool = False,
 ) -> tuple[list[dict[str, Any]], bool]:
     jobs: list[dict[str, Any]] = []
     truncated = False
@@ -710,7 +712,7 @@ def fetch_pipeline_jobs(
         payload = api_request(
             credentials,
             "GET",
-            f"{project_api_path(project)}/pipelines/{pipeline_id}/jobs",
+            f"{project_api_path(project)}/pipelines/{pipeline_id}/{'bridges' if bridges else 'jobs'}",
             query=[
                 ("per_page", str(JOBS_PER_PAGE)),
                 ("page", str(page)),
@@ -719,7 +721,17 @@ def fetch_pipeline_jobs(
         )
         if not isinstance(payload, list):
             raise PipelineError("GitLab jobs 返回格式无效")
-        jobs.extend(summarize_job(item) for item in payload if isinstance(item, dict))
+        for item in payload:
+            if not isinstance(item, dict):
+                raise PipelineError("GitLab jobs 返回了无效任务，无法确认阶段完整性")
+            job = summarize_job(item)
+            if bridges:
+                job["kind"] = "bridge"
+                downstream = item.get("downstream_pipeline")
+                job["downstream_pipeline"] = (
+                    summarize_pipeline(downstream) if isinstance(downstream, dict) else None
+                )
+            jobs.append(job)
         if len(payload) < JOBS_PER_PAGE:
             break
         if page == MAX_JOB_PAGES:
@@ -766,6 +778,31 @@ def fetch_pipeline_parameters(
     }
 
 
+def summarize_stages(
+    jobs: Sequence[dict[str, Any]], *, jobs_truncated: bool = False
+) -> dict[str, Any]:
+    """按阶段汇总实际任务；不把缺失、跳过或允许失败当成产物发布成功。"""
+    stages: dict[str, list[dict[str, Any]]] = {}
+    for job in jobs:
+        stage = str(job.get("stage") or "unknown")
+        stages.setdefault(stage, []).append(job)
+    return {
+        stage: {
+            "total": len(stage_jobs),
+            "counts": dict(sorted(Counter(str(job.get("status") or "unknown") for job in stage_jobs).items())),
+            "all_success": not jobs_truncated and all(
+                job.get("status") == "success"
+                and (
+                    job.get("kind") != "bridge"
+                    or (job.get("downstream_pipeline") or {}).get("status") == "success"
+                )
+                for job in stage_jobs
+            ),
+        }
+        for stage, stage_jobs in sorted(stages.items())
+    }
+
+
 def build_pipeline_result(
     pipeline: dict[str, Any],
     jobs: Sequence[dict[str, Any]],
@@ -803,6 +840,7 @@ def build_pipeline_result(
             "counts": dict(sorted(counts.items())),
             "truncated": jobs_truncated,
         },
+        "stage_summary": summarize_stages(jobs, jobs_truncated=jobs_truncated),
         "active_jobs": active_jobs,
         "failed_jobs": failed_jobs,
         "allowed_failures": allowed_failures,
@@ -825,6 +863,9 @@ def get_pipeline_result(
     if not isinstance(payload, dict):
         raise PipelineError("GitLab pipeline 状态格式无效")
     jobs, truncated = fetch_pipeline_jobs(credentials, project, pipeline_id)
+    bridges, bridges_truncated = fetch_pipeline_jobs(
+        credentials, project, pipeline_id, bridges=True
+    )
     resolved_parameters = parameters or fetch_pipeline_parameters(
         credentials,
         project,
@@ -832,8 +873,8 @@ def get_pipeline_result(
     )
     return build_pipeline_result(
         summarize_pipeline(payload),
-        jobs,
-        jobs_truncated=truncated,
+        jobs + bridges,
+        jobs_truncated=truncated or bridges_truncated,
         parameters=resolved_parameters,
     )
 
@@ -1064,6 +1105,8 @@ def cmd_trigger(args: argparse.Namespace) -> dict[str, Any]:
     credentials = load_credentials()
     project, _git_info = _resolved_project(args, credentials)
     inspected = inspect_project(credentials, project, args.ref)
+    if args.expected_sha and inspected["commit"]["id"] != args.expected_sha:
+        raise PipelineError("固定提交与当前 ref SHA 不一致，尚未创建流水线")
     environment, module, variables = resolve_trigger_inputs(inspected, args)
     trigger_plan = build_trigger_plan(
         inspected,
@@ -1097,6 +1140,17 @@ def cmd_trigger(args: argparse.Namespace) -> dict[str, Any]:
         "trigger_plan": trigger_plan,
         "pipeline": summarize_pipeline(created),
     }
+    if args.expected_sha and created.get("sha") != args.expected_sha:
+        return {
+            "triggered": triggered,
+            "monitoring": False,
+            "result": {
+                "outcome": "commit_mismatch",
+                "expected_sha": args.expected_sha,
+                "actual_sha": created.get("sha"),
+                "reason": "流水线已创建，但实际 SHA 未匹配固定提交；停止下游放行，不自动重建或取消，按已返回 ID 查询结果",
+            },
+        }
     if args.no_wait:
         return {"triggered": triggered, "monitoring": False}
     result = monitor_pipeline(
@@ -1217,8 +1271,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     trigger.add_argument("--module", help="SUB_MODULE，例如 all")
     trigger.add_argument("--var", action="append", default=[], help="非敏感额外 KEY=VALUE，可重复")
-    trigger.add_argument("--confirm", action="store_true", help="用户确认后再触发")
-    trigger.add_argument("--plan-id", required=True, help="inspect 返回且已由用户确认的计划 ID")
+    trigger.add_argument("--confirm", action="store_true", help="本次触发范围已有用户授权")
+    trigger.add_argument("--expected-sha", help="固定提交的完整 SHA；创建前后核对，不提供原子锁定 ref 的保证")
+    trigger.add_argument("--plan-id", required=True, help="即将触发前 inspect 返回、且在用户授权范围内的计划 ID")
     trigger.add_argument("--allow-prod", action="store_true", help="允许 prod/production/grayscale")
     trigger.add_argument("--no-wait", action="store_true", help="只触发，不等待最终结果")
     add_monitor_arguments(trigger)
@@ -1253,6 +1308,8 @@ def result_exit_code(result: dict[str, Any]) -> int:
     if not isinstance(candidate, dict):
         return 0
     outcome = candidate.get("outcome")
+    if outcome == "commit_mismatch":
+        return 2
     if outcome == "failed":
         return 1
     if outcome in {"timeout", "requires_action"}:
