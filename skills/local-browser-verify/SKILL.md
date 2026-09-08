@@ -63,7 +63,7 @@ python3 "$SKILL_DIR/scripts/browser_verify.py" finish \
   --remove-baseline
 ```
 
-脚本只报告差异。只清理 `created_artifacts` 中确认由本轮产生的文件；`modified_artifacts`、验收前已有内容和普通工作区改动一律保留。
+`finish` 报告基线之后新增、修改及消失的产物路径，不判断文件由谁创建。关浏览器、核对并清理本轮产物由 Agent 执行；保留 `modified_artifacts`、验收前已有文件和无关改动。
 
 ## 浏览器工作流
 
@@ -91,7 +91,22 @@ python3 "$SKILL_DIR/scripts/browser_verify.py" finish \
    核对本轮操作相关的控制台错误和失败请求，区分页面原有噪声与本次行为产生的问题。响应式改动至少检查受影响的宽屏和窄屏；主题相关改动同时检查浅色和深色。
 
 7. **整理证据并收尾**
-   先记录可复核的 DOM、状态值、请求结果或控件属性，再补截图。必须落盘时将截图、HAR 和 trace 写入 `TMP_DIR` 或系统临时目录，不写项目目录。执行 `finish`，清理本轮新增调试产物和临时 baseline，复查 Git 状态，保留用户原有及无关改动。
+   先记录可复核的 DOM、状态值、请求结果或控件属性，再补截图。必须落盘时将截图、HAR 和 trace 写入 `TMP_DIR` 或系统临时目录，不写项目目录。无论 `PASS`、`FAIL`、`MANUAL` 还是 `BLOCKED`，都按下面「收尾」做完再结束。
+
+## 收尾（必须）
+
+验收结束必须主动关掉 MCP 浏览器，并清理确认属于本轮的临时产物。不要把窗口留着占 profile 锁，也不要只跑 `finish` 就收工。
+
+1. **关浏览器**
+   调用当前宿主的 Playwright MCP 关闭浏览器（如 `browser_close`）。还有标签就先关标签再关浏览器。关的是 MCP 拉起的实例，不要去杀用户自己的 Chrome，也不要清 `~/.local/share/playwright-profile`。
+
+2. **对产物**
+   跑 `browser_verify.py finish ... --remove-baseline`。将 `created_artifacts` 与本轮工具调用记录的输出路径核对，只删除确认由本轮创建的文件；清单也可能包含其他并行测试新增的 `test-results` 或 `playwright-report` 内容，归属不明的保留并说明。目录仅在确认为空后删除，不递归删除整个新增目录。写到 `TMP_DIR` 或系统临时目录的文件按同样的归属规则清理；用户明确要求保留的交付证据保留。
+
+3. **复查**
+   再看一次 Git 状态。只允许留下用户原有改动和无关文件；本轮调试产物不得留在仓库里。
+
+中途卡住同样收尾。
 
 ## 边界
 
@@ -102,6 +117,7 @@ python3 "$SKILL_DIR/scripts/browser_verify.py" finish \
 - 填写密码到提交完成前不截图、不录制包含输入值的证据；扫码、验证码、MFA 和 SSO 优先由用户在 MCP 浏览器窗口自行完成。
 - 不把截图、视觉印象或“听到了”作为唯一自动化证据。
 - Playwright MCP 窗口不是用户本机已有窗口。需要用户自己的页面生效时，明确提醒刷新、重登或清筛选。
+- 验收结束必须关闭 MCP 浏览器，并按「收尾」的归属规则清理临时产物；保留项说明原因。
 
 ## 结论口径
 
