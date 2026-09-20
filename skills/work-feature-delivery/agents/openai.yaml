@@ -1,0 +1,4 @@
+interface:
+  display_name: "work 功能交付"
+  short_description: "衔接需求开发、提测与发布阶段，按授权推进并保留验证和审查证据"
+  default_prompt: "使用 $work-feature-delivery 从当前状态继续本次需求或 Fix，仅推进已授权阶段，并报告对应版本的验证与交付结果。"

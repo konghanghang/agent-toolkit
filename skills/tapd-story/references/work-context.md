@@ -4,6 +4,8 @@
 
 ## 交付流程
 
+需要开发或继续交付时，由 [work-feature-delivery](../../work-feature-delivery/SKILL.md) 衔接已授权阶段；只看需求、澄清或记录术语时不进入完整交付流程。
+
 本机权威流程为 `~/data/work/docs/reference/feature-fix-delivery-workflow.md`。先读取目标仓库适用的协作规则，再按任务阶段读取流程；文件不存在时采用目标项目现有规则，不猜测 release 或交付约定。
 
 - 影响分析按第 1 节确认仓库、模块、服务和验证点，以代码、配置或用户明确说明为依据。

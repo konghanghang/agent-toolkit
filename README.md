@@ -27,6 +27,7 @@ agent-toolkit/
 │   ├── online-issue-triage/
 │   ├── prometheus-query/
 │   ├── tapd-story/
+│   ├── work-feature-delivery/
 │   ├── grilling/
 │   ├── domain-modeling/
 │   ├── tapd-weekly-report/
@@ -378,6 +379,7 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 - `online-issue-triage`
 - `prometheus-query`
 - `tapd-story`
+- [work-feature-delivery](skills/work-feature-delivery/SKILL.md)：衔接 work 已授权交付阶段，按需记录验证、审查和交付证据
 - `grilling`
 - `domain-modeling`
 - `tapd-weekly-report`
