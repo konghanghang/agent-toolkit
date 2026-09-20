@@ -380,6 +380,7 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 - `prometheus-query`
 - `tapd-story`
 - [work-feature-delivery](skills/work-feature-delivery/SKILL.md)：衔接 work 已授权交付阶段，按需记录验证、审查和交付证据
+  - [work 交付规则](skills/work-feature-delivery/references/delivery-workflow.md)：分支、提测和上线流程的统一维护位置
 - `grilling`
 - `domain-modeling`
 - `tapd-weekly-report`
