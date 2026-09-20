@@ -1,6 +1,6 @@
 ---
 name: tapd-story
-description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容与图片、结合代码仓库整理实施上下文、生成结构化 HTML 需求草稿，以及在用户明确要求时创建或更新单条需求、父需求和子任务。
+description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容、图片和附件、结合代码仓库整理实施上下文、生成结构化 HTML 需求草稿，以及在用户明确要求时创建或更新单条需求、父需求和子任务。
 ---
 
 # TAPD 需求管理
@@ -11,6 +11,7 @@ description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容
 - “查看、分析、给方案、整理草稿”均为只读或本地生成操作，不得写入 TAPD。
 - 只有用户明确要求“创建、同步、更新 TAPD”时，才执行 `create` 或 `update`。
 - 图片中清晰可辨的内容属于需求事实；识别不清、内容截断或存在歧义的部分必须标记为待确认，不得猜测。
+- TAPD 正文是需求事实。附件是客户原始材料，产品通常已整理进正文；正文足够时不要打开附件。正文缺失、含糊、明确要求参照附件、已有证据表明内容冲突，或用户要求读取附件时再按需获取。冲突和不确定内容标为待确认。
 
 ## 环境变量
 
@@ -22,15 +23,15 @@ description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容
 
 - 主 Agent 只负责识别用户意图、控制 TAPD 写入授权、启动后续任务和汇总最终结果。
 - 当前环境支持 subagent 时，默认使用全新或最小上下文的 TAPD Worker 执行需求读取、图片识别和草稿整理；主 Agent 不要先读取 TAPD 再决定是否委派。
-- TAPD Worker 将完整结果写入临时目录，只返回结果文件路径、简短摘要和待确认项，避免把原始 HTML、图片识别过程和大段中间结果带回主上下文。
+- TAPD Worker 将完整结果写入临时目录，只返回结果文件路径、简短摘要和待确认项，避免把原始 HTML、图片识别过程、附件正文和大段中间结果带回主上下文。
 - 需要探索代码时，启动独立的只读 Code Explorer；按 `references/agent-orchestration.md` 判断与 TAPD 读取并行还是串行，并按 `references/read-and-plan.md` 从足以回答当前问题的最小范围开始逐步扩大。
 - 需要创建或更新时，使用独立的 TAPD Writer 读取已确认规格；只有主 Agent 已确认用户明确授权后，才能执行真实写入。
 - 当前环境不支持 subagent 时，由主 Agent 按相同边界直接执行。
 
 ## 模式选择
 
-1. 查看需求：运行 `detail`，优先读取标题、原始描述、图片和补充字段。
-2. 形成实施计划：运行 `plan-context`，再结合仓库和当前 `AGENTS.md` 编写最终方案。
+1. 查看需求：运行 `detail`，优先读取标题、原始描述、图片、附件清单和补充字段。
+2. 形成实施计划：运行 `plan-context`，结合需求事实、代码证据和目标仓库规则分析影响范围。外部行为、状态语义、兼容性或多仓范围尚有歧义时使用 `grilling`；有必要记录稳定术语或架构决策时使用 `domain-modeling`。只要求方案时，交付方案后结束；用户已要求实施且范围明确时，按目标项目流程继续已授权工作，不重复确认。work 工作区的衔接见 [references/work-context.md](references/work-context.md)。
 3. 整理需求草稿：默认面向产品、开发和测试共同阅读；按业务复杂度生成简洁 JSON 规格，并运行 `validate-spec`，不要调用写接口。
 4. 创建需求：用户明确授权后，先确认处理人；未指定时主动询问，只有用户明确要求不指定处理人时才允许留空。确认后运行 `create --dry-run`，核对后再运行 `create`。
 5. 更新需求：用户明确授权后，先运行 `update --dry-run`，核对后再运行 `update`。
@@ -43,11 +44,19 @@ description: 读取和管理 TAPD 需求。用于按需求 ID 获取原始内容
 python3 scripts/tapd_story.py detail --id STORY_ID
 ```
 
-下载需求图片供视觉识别：
+读取正文、下载图片并列出附件清单：
 
 ```bash
 python3 scripts/tapd_story.py detail --id STORY_ID --download-images
 ```
+
+正文缺失、含糊、明确要求参照附件，或用户要求读取附件时，按清单中的 ID 下载（可重复指定）：
+
+```bash
+python3 scripts/tapd_story.py detail --id STORY_ID --attachment-id ATTACHMENT_ID
+```
+
+确需全部附件时使用 `--download-attachments`，不能与 `--attachment-id` 混用。默认不下载附件。
 
 生成仓库实施上下文：
 
@@ -63,7 +72,7 @@ $PythonBin = (Get-Command python).Source
 & "$PythonBin" "$AgentToolkitRoot\skills\tapd-story\scripts\tapd_story.py" detail --id STORY_ID --download-images
 ```
 
-图片下载后，使用当前 Agent 可用的视觉/OCR 能力读取本地文件；在最终输出中保留图片顺序和正文上下文。清晰内容纳入确认需求事实，不确定部分单独标记为待确认。图片失败不得阻塞文字需求分析。
+图片下载后，使用当前 Agent 可用的视觉/OCR 能力读取本地文件；在最终输出中保留图片顺序和正文上下文。清晰内容纳入确认需求事实，不确定部分单独标记为待确认。图片或附件失败不得阻塞文字需求分析。不要把附件全文复制进需求正文或最终答复。
 
 ## 写入命令
 
@@ -118,15 +127,18 @@ python3 scripts/tapd_story.py update --spec "<SPEC_FILE>"
 - 严格区分需求草稿与实施计划：用户只要求需求草稿时，直接写清要改变的业务行为和预期结果，不自动展开成技术方案。
 - 需求草稿默认面向产品、开发和测试共同阅读；除非影响外部行为或用户明确要求，否则不写类名、方法名、注解、配置项、框架处理和异常实现等内部细节。
 - 接口类需求保留必要的外部契约，如接口地址、调用方式、必填参数和响应行为；内部调用链和实现方式放到实施计划或代码上下文中。
-- 明确分开：确认需求事实、图片中的不确定内容、代码证据、推断路径、待确认项。
+- 明确分开：确认需求事实、图片中的不确定内容、仅在正文不足时从附件确认的事实、代码证据、推断路径、待确认项。
 - 创建或更新后返回需求 ID、链接、owner 是否设置和执行模式。
 - 父需求成功而子任务失败时，明确输出部分成功、失败项和未执行项，不宣称已回滚。
 
 ## 按需读取
 
 - Subagent 职责、交接文件和上下文隔离：`references/agent-orchestration.md`
-- 读取、图片和实施上下文：`references/read-and-plan.md`
+- 读取、图片、附件和实施上下文：`references/read-and-plan.md`
 - 创建、更新和授权边界：`references/create-and-update.md`
 - JSON 规格：`references/spec-schema.md`
 - HTML 描述规范：`references/html-description.md`
-- TAPD API、认证和图片接口：`references/tapd-api.md`
+- TAPD API、认证、图片和附件接口：`references/tapd-api.md`
+- 编码前澄清边界：`grilling`
+- 稳定术语和必要架构决策：`domain-modeling`
+- work 工作区交付衔接与知识目录：`references/work-context.md`

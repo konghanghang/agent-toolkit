@@ -39,7 +39,37 @@ GET /files/get_image
 
 返回 `Attachment.download_url`，有效时间通常为 300 秒。下载后必须检查图片签名，不能只相信扩展名或响应头。
 
+## 附件接口
+
+需求独立附件通过下面的接口分页列出：
+
+```text
+GET /attachments
+```
+
+参数：
+
+- `workspace_id`
+- `entry_id`：需求 ID，优先使用 TAPD 返回的完整 ID
+- `limit`
+- `page`
+
+下载地址通过下面的接口换取，有效时间通常较短：
+
+```text
+GET /attachments/down
+```
+
+参数：
+
+- `workspace_id`
+- `id`：附件 ID
+
+返回 `Attachment.download_url`。下载后保存到交接目录的 `attachments/`，输出只保留本地路径和文件名，不得打印带签名的下载 URL。附件列表或单文件失败不得阻塞需求正文读取。
+
 官方文档：
 
 - `open.tapd.cn/document/api-doc/API文档/api_reference/story/get_stories`
 - `open.tapd.cn/document/api-doc/API文档/api_reference/attachment/get_image`
+- `open.tapd.cn/document/api-doc/API文档/api_reference/attachment/get_attachments`
+- `open.tapd.cn/document/api-doc/API文档/api_reference/attachment/down_attachment`

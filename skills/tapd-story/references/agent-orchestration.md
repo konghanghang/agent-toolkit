@@ -3,7 +3,7 @@
 ## 职责边界
 
 - 主 Agent：判断用户目标、确认写入授权、选择目标仓库、启动 Worker、汇总最终结果。
-- TAPD Worker：读取需求、清理 HTML、下载图片、完成视觉识别和生成草稿；生成草稿时遵守 `html-description.md`，按需求复杂度保持简洁，不固定章节数量或强制单列验收标准。
+- TAPD Worker：读取需求、清理 HTML、下载图片、按需下载附件、完成视觉识别和生成草稿；生成草稿时遵守 `html-description.md`，按需求复杂度保持简洁，不固定章节数量或强制单列验收标准。
 - Code Explorer：只读探索代码，从能够回答当前核心问题的最小范围开始，按需确认会改变结论的实现事实。
 - TAPD Writer：读取已确认规格，执行校验和 dry-run，并在明确授权后执行创建或更新。
 
@@ -13,7 +13,7 @@ TAPD 读取和代码探索不固定为串行流程：
 
 - 两类事实可以独立获取时并行执行，最终由主 Agent 汇合需求事实和代码事实。
 - 用户已提供明确代码入口时，Code Explorer 可以先读取目标代码，不必等待完整需求上下文。
-- 代码探索必须依赖需求字段、图片或验收口径时，先完成 TAPD Worker，再启动 Code Explorer。
+- 代码探索必须依赖需求字段、图片、附件或验收口径时，先完成 TAPD Worker，再启动 Code Explorer。
 - 并行只用于缩短必要事实的获取时间，不得借此扩大探索范围。
 
 ## 交接目录
@@ -24,6 +24,7 @@ TAPD 读取和代码探索不固定为串行流程：
 <TAPD_TEMP>/
 ├── detail.json
 ├── images/
+├── attachments/
 ├── requirement-context.json
 ├── requirement-context.md
 ├── draft-spec.json
@@ -44,6 +45,8 @@ python3 scripts/tapd_story.py detail \
   --image-dir "<TAPD_TEMP>/images" \
   --output "<TAPD_TEMP>/detail.json"
 ```
+
+默认只列附件清单。需要附件补足正文或用户要求读取时，增加可重复的 `--attachment-id ID` 和 `--attachment-dir "<TAPD_TEMP>/attachments"`；确需全部时才使用 `--download-attachments`。
 
 完成图片识别后生成 `requirement-context.json` 和 `requirement-context.md`。结构化结果至少包含：
 
@@ -70,15 +73,27 @@ python3 scripts/tapd_story.py detail \
       "index": 1,
       "local_path": "<TAPD_TEMP>/images/001.png"
     }
+  ],
+  "attachments": [
+    {
+      "index": 1,
+      "id": "ATTACHMENT_ID",
+      "filename": "客户原始需求.docx",
+      "download_status": "not_downloaded",
+      "read_status": "not_read"
+    }
   ]
 }
 ```
+
+附件交接分别记录下载和读取状态。下载后补 `local_path`，只有实际读取并提取事实后才标记已读取；失败或未读取时保留原因。
 
 TAPD Worker、Code Explorer 或 TAPD Writer 返回主 Agent 时只报告：
 
 - 操作是否完成。
 - 需求 ID 和原始标题。
 - 图片数量和识别状态。
+- 附件数量、下载状态，以及是否因正文不足而读取了附件。
 - 确认事实与待确认项数量。
 - 结果文件路径。
 - 涉及写操作时，报告 dry-run 或真实执行状态。

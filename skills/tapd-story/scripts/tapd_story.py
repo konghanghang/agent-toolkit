@@ -8,10 +8,11 @@ import json
 import os
 import sys
 import tempfile
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-from tapd_api import DEFAULT_BASE_URL, DEFAULT_FIELDS, TapdClient, TapdError, story_link
+from tapd_api import DEFAULT_BASE_URL, DEFAULT_FIELDS, TapdClient, TapdError, story_link, _redact_url_query
 from tapd_content import build_story_view, validate_description_html
 from tapd_repo_scan import scan_context
 
@@ -29,6 +30,17 @@ def _add_read_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", help="可选输出文件")
     parser.add_argument("--download-images", action="store_true", help="通过 TAPD 图片接口下载正文图片")
     parser.add_argument("--image-dir", help="图片保存目录；默认使用系统临时目录")
+    attachment_mode = parser.add_mutually_exclusive_group()
+    attachment_mode.add_argument(
+        "--download-attachments",
+        action="store_true",
+        help="下载全部需求附件；默认只列出清单",
+    )
+    attachment_mode.add_argument(
+        "--attachment-id", action="append", default=[],
+        help="只下载指定附件 ID；可重复指定，与全量下载互斥",
+    )
+    parser.add_argument("--attachment-dir", help="附件保存目录；默认使用系统临时目录")
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,10 +99,20 @@ def _write_output(content: str, output: Optional[str]) -> None:
     print(path)
 
 
+def _handover_dir(story_id: str) -> Path:
+    return Path(tempfile.gettempdir()) / f"tapd-story-{story_id}"
+
+
 def _image_dir(args: argparse.Namespace, story_id: str) -> Path:
     if args.image_dir:
         return Path(args.image_dir).expanduser().resolve()
-    return Path(tempfile.gettempdir()) / f"tapd-story-{story_id}" / "images"
+    return _handover_dir(story_id) / "images"
+
+
+def _attachment_dir(args: argparse.Namespace, story_id: str) -> Path:
+    if args.attachment_dir:
+        return Path(args.attachment_dir).expanduser().resolve()
+    return _handover_dir(story_id) / "attachments"
 
 
 def _download_images(client: TapdClient, story_view: Dict[str, Any], output_dir: Path) -> None:
@@ -106,6 +128,112 @@ def _download_images(client: TapdClient, story_view: Dict[str, Any], output_dir:
             )
         except TapdError as exc:
             image["download_error"] = str(exc)
+
+
+def _list_attachments(client: TapdClient, story_view: Dict[str, Any], entry_id: str) -> None:
+    try:
+        records = client.list_story_attachments(story_view["workspace_id"], entry_id)
+    except TapdError as exc:
+        story_view["attachments"] = []
+        story_view["attachment_error"] = _redact_url_query(str(exc))
+        return
+    except (OSError, HTTPException, ValueError) as exc:
+        story_view["attachments"] = []
+        story_view["attachment_error"] = f"附件列表获取失败（{type(exc).__name__}）。"
+        return
+
+    attachments = []
+    for index, record in enumerate(records, start=1):
+        filename = str(record.get("filename") or record.get("name") or f"attachment-{index}")
+        attachments.append(
+            {
+                "index": index,
+                "id": str(record.get("id") or "").strip(),
+                "filename": filename,
+                "size": record.get("size") or record.get("file_size") or "",
+                "owner": record.get("owner") or "",
+                "created": record.get("created") or "",
+            }
+        )
+    story_view["attachments"] = attachments
+
+
+def _download_attachments(
+    client: TapdClient, story_view: Dict[str, Any], output_dir: Path,
+    selected_ids: Optional[set[str]] = None,
+) -> None:
+    for attachment in story_view.get("attachments") or []:
+        attachment_id = str(attachment.get("id") or "").strip()
+        if selected_ids is not None and attachment_id not in selected_ids:
+            continue
+        if not attachment_id:
+            attachment["download_error"] = "附件 ID 缺失"
+            continue
+        try:
+            downloaded = client.download_attachment(
+                story_view["workspace_id"],
+                attachment_id,
+                output_dir,
+                int(attachment["index"]),
+                filename=str(attachment.get("filename") or ""),
+            )
+            attachment["local_path"] = downloaded["local_path"]
+            attachment["filename"] = downloaded["filename"]
+            attachment["content_type"] = downloaded.get("content_type") or ""
+            attachment["size"] = downloaded.get("size") or attachment.get("size") or ""
+        except TapdError as exc:
+            attachment["download_error"] = str(exc)
+
+
+def _hydrate_story_media(
+    client: TapdClient,
+    args: argparse.Namespace,
+    story: Dict[str, Any],
+    raw_story: Dict[str, Any],
+) -> None:
+    entry_id = str(raw_story.get("id") or story["story_id"])
+    _list_attachments(client, story, entry_id)
+    if args.download_images and story["images"]:
+        _download_images(client, story, _image_dir(args, args.id))
+    selected_ids = set(getattr(args, "attachment_id", []) or [])
+    if selected_ids:
+        known_ids = {item["id"] for item in story.get("attachments", [])}
+        missing = selected_ids - known_ids
+        if missing:
+            story["attachment_selection_error"] = "指定附件未在清单中找到：" + ", ".join(sorted(missing))
+    if args.download_attachments or selected_ids:
+        _download_attachments(
+            client, story, _attachment_dir(args, args.id),
+            selected_ids if selected_ids else None,
+        )
+
+
+def _render_attachment_lines(story: Dict[str, Any]) -> List[str]:
+    if story.get("attachment_error"):
+        return ["", "## 需求附件", f"- 附件列表获取失败：{story['attachment_error']}"]
+    attachments = story.get("attachments") or []
+    if not attachments and not story.get("attachment_selection_error"):
+        return []
+
+    lines = ["", "## 需求附件"]
+    if story.get("attachment_selection_error"):
+        lines.append(f"- {story['attachment_selection_error']}")
+    for attachment in attachments:
+        lines.append(f"- 附件 {attachment['index']}：{attachment['filename']}")
+        if attachment.get("id"):
+            lines.append(f"  - 附件 ID：{attachment['id']}")
+        if attachment.get("local_path"):
+            lines.append(f"  - 本地文件：{attachment['local_path']}")
+            lines.append("  - 状态：已下载，未读取；下载成功不代表已理解附件内容")
+            lines.append(
+                "  - 说明：客户原始材料；正文足够时不要打开。"
+                "正文缺失、含糊、要求参照附件、已有冲突证据或用户要求时再读取；不确定内容标为待确认。"
+            )
+        if attachment.get("download_error"):
+            lines.append(f"  - 下载失败：{attachment['download_error']}")
+        elif not attachment.get("local_path"):
+            lines.append("  - 状态：已列出，未下载、未读取")
+    return lines
 
 
 def _render_detail_markdown(story: Dict[str, Any]) -> str:
@@ -148,6 +276,7 @@ def _render_detail_markdown(story: Dict[str, Any]) -> str:
                 lines.append("  - 状态：待视觉/OCR 读取；清晰内容可纳入需求事实")
             if image.get("download_error"):
                 lines.append(f"  - 下载失败：{image['download_error']}")
+    lines.extend(_render_attachment_lines(story))
     return "\n".join(lines).strip() + "\n"
 
 
@@ -191,6 +320,7 @@ def _render_plan_context_markdown(story: Dict[str, Any], context: Dict[str, Any]
             if image.get("download_error"):
                 lines.append(f"  - 下载失败：{image['download_error']}")
 
+    lines.extend(_render_attachment_lines(story))
     lines.extend(["", f"## 当前仓库命中（{context['repo_root']}）"])
     lines.extend(_render_hits(context.get("repo_hits")))
     lines.extend(["", "## 当前仓库候选文件"])
@@ -375,8 +505,7 @@ def command_detail(args: argparse.Namespace) -> int:
     client = TapdClient(args.base_url)
     raw_payload, raw_story = client.get_story(workspace_id, args.id, args.fields)
     story = build_story_view(args.id, workspace_id, raw_story)
-    if args.download_images and story["images"]:
-        _download_images(client, story, _image_dir(args, args.id))
+    _hydrate_story_media(client, args, story, raw_story)
 
     if args.format == "json":
         payload: Dict[str, Any] = {"story": story}
@@ -403,8 +532,7 @@ def command_plan_context(args: argparse.Namespace) -> int:
     client = TapdClient(args.base_url)
     raw_payload, raw_story = client.get_story(workspace_id, args.id, args.fields)
     story = build_story_view(args.id, workspace_id, raw_story)
-    if args.download_images and story["images"]:
-        _download_images(client, story, _image_dir(args, args.id))
+    _hydrate_story_media(client, args, story, raw_story)
     context = scan_context(
         story,
         repo_root,

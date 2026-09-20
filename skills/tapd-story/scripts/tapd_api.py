@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
@@ -86,6 +87,43 @@ def _safe_filename(value: str, fallback: str) -> str:
     name = Path(value or fallback).name
     name = re.sub(r"[^0-9A-Za-z._-]+", "-", name).strip(".-")
     return name or fallback
+
+
+def _safe_attachment_filename(value: str, fallback: str) -> str:
+    name = Path(str(value or "").replace("\\", "/")).name
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")
+    return name or fallback
+
+
+def _redact_url_query(value: str) -> str:
+    return re.sub(r"(https?://[^?\s]+)\?[^\s]+", r"\1?<redacted>", value)
+
+
+def _extract_attachments(data: Any) -> list[Dict[str, Any]]:
+    if data is None:
+        return []
+    if isinstance(data, list):
+        items: list[Dict[str, Any]] = []
+        for item in data:
+            items.extend(_extract_attachments(item))
+        return items
+    if not isinstance(data, dict):
+        return []
+
+    for key in ("Attachment", "attachment"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            return [value]
+
+    nested = data.get("data")
+    if nested is not None and nested is not data:
+        nested_items = _extract_attachments(nested)
+        if nested_items:
+            return nested_items
+
+    if "id" in data and ("filename" in data or "name" in data or "download_url" in data):
+        return [data]
+    return []
 
 
 class TapdClient:
@@ -226,6 +264,109 @@ class TapdClient:
             "content_type": content_type,
             "size": len(data),
             "source_path": image_path,
+        }
+
+    def list_story_attachments(
+        self,
+        workspace_id: str,
+        story_id: str,
+        limit: int = 200,
+    ) -> list[Dict[str, Any]]:
+        attachments: list[Dict[str, Any]] = []
+        seen: set[str] = set()
+        page = 1
+        while True:
+            payload = self._request_json(
+                "GET",
+                "/attachments",
+                params={
+                    "workspace_id": workspace_id,
+                    "entry_id": story_id,
+                    "limit": limit,
+                    "page": page,
+                },
+            )
+            data = payload.get("data")
+            batch = _extract_attachments(data)
+            for item in batch:
+                attachment_id = str(item.get("id") or "").strip()
+                if attachment_id:
+                    if attachment_id in seen:
+                        continue
+                    seen.add(attachment_id)
+                attachments.append(item)
+
+            page_size = len(data) if isinstance(data, list) else len(batch)
+            if page_size < limit:
+                break
+            page += 1
+            if page > 50:
+                break
+        return attachments
+
+    def get_attachment_download(self, workspace_id: str, attachment_id: str) -> Dict[str, Any]:
+        payload = self._request_json(
+            "GET",
+            "/attachments/down",
+            params={"workspace_id": workspace_id, "id": attachment_id},
+        )
+        items = _extract_attachments(payload.get("data"))
+        attachment = items[0] if items else None
+        if not isinstance(attachment, dict) or not attachment.get("download_url"):
+            raise TapdError(f"附件 {attachment_id} 未返回临时下载地址。")
+        return attachment
+
+    def download_attachment(
+        self,
+        workspace_id: str,
+        attachment_id: str,
+        output_dir: Path,
+        index: int,
+        filename: str = "",
+    ) -> Dict[str, Any]:
+        try:
+            return self._download_attachment(workspace_id, attachment_id, output_dir, index, filename)
+        except TapdError as exc:
+            raise TapdError(_redact_url_query(str(exc))) from exc
+        except (OSError, HTTPException, ValueError) as exc:
+            # 网络读取、响应解析和落盘失败只影响当前附件；不输出可能含签名的异常正文。
+            raise TapdError(f"附件 {attachment_id} 下载或保存失败（{type(exc).__name__}）。") from exc
+
+    def _download_attachment(
+        self,
+        workspace_id: str,
+        attachment_id: str,
+        output_dir: Path,
+        index: int,
+        filename: str = "",
+    ) -> Dict[str, Any]:
+        attachment = self.get_attachment_download(workspace_id, attachment_id)
+        request = Request(str(attachment["download_url"]), headers={"Accept": "*/*"})
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                data = response.read()
+                content_type = response.headers.get("Content-Type", "")
+        except HTTPError as exc:
+            raise TapdError(f"附件下载 HTTP {exc.code}: {attachment_id}") from exc
+        except URLError as exc:
+            raise TapdError(
+                _redact_url_query(f"附件下载失败 {attachment_id}: {exc.reason}")
+            ) from exc
+
+        if not data:
+            raise TapdError(f"附件 {attachment_id} 下载内容为空。")
+
+        source_name = filename or str(attachment.get("filename") or attachment.get("name") or "")
+        safe_name = _safe_attachment_filename(source_name, f"attachment-{index}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{index:02d}-{safe_name}"
+        output_path.write_bytes(data)
+        return {
+            "local_path": str(output_path),
+            "filename": safe_name,
+            "content_type": content_type,
+            "size": len(data),
+            "id": attachment_id,
         }
 
 

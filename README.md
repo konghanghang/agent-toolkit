@@ -27,6 +27,8 @@ agent-toolkit/
 │   ├── online-issue-triage/
 │   ├── prometheus-query/
 │   ├── tapd-story/
+│   ├── grilling/
+│   ├── domain-modeling/
 │   ├── tapd-weekly-report/
 │   ├── verify-test-db/
 │   ├── local-browser-verify/
@@ -376,6 +378,8 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 - `online-issue-triage`
 - `prometheus-query`
 - `tapd-story`
+- `grilling`
+- `domain-modeling`
 - `tapd-weekly-report`
 - `verify-test-db`
   - [测试库配置](skills/verify-test-db/references/configuration.md)

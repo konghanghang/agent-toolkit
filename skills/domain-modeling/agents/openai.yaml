@@ -1,0 +1,4 @@
+interface:
+  display_name: "领域模型"
+  short_description: "把澄清后已确认的业务术语和必要架构决策记录到知识库"
+  default_prompt: "使用 $domain-modeling 记录已确认的业务术语，必要时把架构决策写入知识库。"
