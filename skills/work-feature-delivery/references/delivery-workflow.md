@@ -257,29 +257,17 @@ git rev-list --left-right --count origin/test...HEAD
 - 主读者是测试同学，不是开发自己的实现笔记。
 - 目标：打开文档后 30 秒内能回答「测什么、从哪进、测前做什么、P0 验什么」。
 - 测试清单不承担整批上线编排；发布服务汇总、发布顺序、回滚写在上线清单。
-- 短模板见 `~/data/work/docs/customer-service-knowledge-base/templates/testing-checklist.md`。生成时按模板裁剪，不要为了“章节齐全”而灌水。
+- 短模板见 `~/data/work/docs/templates/requirement.md`。生成时按模板裁剪，不要为了“章节齐全”而灌水。
 
 ### 7.2 目录与命名
 
-目录：
+测试计划、用例和结果维护在需求唯一主记录：
 
 ```text
-~/data/work/docs/customer-service-knowledge-base/testing/
+~/data/work/docs/delivery/requirements/<需求或 Fix ID>/index.md
 ```
 
-命名规则：
-
-```text
-yyyyMMdd-需求或fix简述.md
-```
-
-示例：
-
-```text
-20260713-fix-xxl-job-timezone.md
-```
-
-侧栏展示为「日期 + 文档一级标题」（日期取自文件名，标题取自文内 `#` 标题），因此文件名必须带 `yyyyMMdd-` 前缀。
+编号与主记录字段遵循知识库 `AGENTS.md` 和 `templates/requirement.md`。复用已有记录，不再按测试日期创建独立提测文件；内容确需拆分时，在同一需求目录使用 `testing.md` 并由主记录链接，总进度只在主记录维护。
 
 ### 7.3 复杂度分级
 
@@ -350,7 +338,7 @@ work 常规上线日为每周四。上线清单文件名使用本批周四上线
 
 - 主读者是发布 / 值班同学，不是第二份测试说明书。
 - 目标：一眼看到本批发什么、有无 SQL/配置、顺序、卡点、冒烟和回滚。
-- 短模板见 `~/data/work/docs/customer-service-knowledge-base/templates/release-checklist.md`。追加需求时只增量更新，不把提测全文粘贴进来。
+- 短模板见 `~/data/work/docs/templates/release.md`。追加需求时只增量更新，不把提测全文粘贴进来。
 
 ### 8.2 目标批次确认、目录与命名
 
@@ -368,22 +356,22 @@ work 常规上线日为每周四。上线清单文件名使用本批周四上线
 目录：
 
 ```text
-~/data/work/docs/customer-service-knowledge-base/release/
+~/data/work/docs/delivery/releases/
 ```
 
 命名规则：
 
 ```text
-yyyyMMdd-release-checklist.md
+yyyyMMdd.md
 ```
 
 示例：
 
 ```text
-20260716-release-checklist.md
+20260716.md
 ```
 
-侧栏同样展示「日期 + 标题」；文件名日期前缀与提测清单一致。
+发布批次文件按实际批次日期命名；需求记录引用批次，不与需求目录编号混用。
 
 同一周多个需求都追加到同一份上线清单。临时补丁不走周四常规上线时，按实际补丁上线日期单独生成一份上线清单。
 

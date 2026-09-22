@@ -16,12 +16,12 @@
 
 ## 知识文档
 
-知识库位于 `~/data/work/docs/customer-service-knowledge-base/`。写入前读取该目录适用的协作规则，沿用现有文件及模板：
+知识库位于 `~/data/work/docs/`。写入前读取该目录适用的协作规则，沿用现有文件及模板：
 
 | 内容 | 目录 |
 |---|---|
-| 后续需要复用的稳定业务术语 | `glossary/`，遵守 `templates/knowledge.md` frontmatter |
-| 现行系统边界和已实施架构事实 | `systems/` |
-| 尚未落地的跨仓库方案决策 | `plans/` |
+| 后续需要复用的稳定业务术语 | `knowledge/<业务域>/`，使用 `docType: glossary` 并遵守 `templates/knowledge.md` frontmatter |
+| 现行系统边界和已实施架构事实 | `knowledge/<业务域>/`，使用 `docType: system` |
+| 尚未落地的跨仓库方案决策 | 对应 `delivery/requirements/<ID>/index.md`；跨需求专项按需使用 `delivery/initiatives/` |
 
 临时叫法留在对话；用户未要求记录长期知识时，不为完成流程而建文件。不要把术语或 ADR 复制到提测、上线清单。修改、提交和推送遵守对应仓库规则与已有授权。
