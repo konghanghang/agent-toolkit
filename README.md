@@ -221,6 +221,34 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 --replace-managed  替换指向旧工具箱或旧目录结构的受管链接
 ```
 
+### work 全局协作规则
+
+规则原文件保存在 [`codex/instructions/work.md`](codex/instructions/work.md)，由本仓库统一维护版本。
+源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载。
+这份规则适用于 `~/data/work` 的 work 环境，引用的工作区文档和 Skills 需要在使用环境中另行准备。
+
+当前本机通过软链接保留原加载入口：
+
+```text
+~/data/work/.codex/AGENTS.md
+  -> ~/.agent-toolkit/codex/instructions/work.md
+```
+
+Codex 使用 `~/data/work/.codex` 作为 Codex Home 时，从上述入口加载规则。
+`~/data/work/CLAUDE.md` 保持 `@.codex/AGENTS.md` 引用，通过同一入口读取规则；
+Claude Code 可能要求批准工作区外的文件导入，迁移后应在新会话中用 `/context` 核对加载结果。
+日常修改请直接编辑仓库中的源文件，再检查 Git 差异并提交。
+
+当前安装器不创建这个文件链接，`--agents-only` 只安装子 Agent 定义。
+在 macOS/Linux 的新环境中，确认目标入口不存在后可手动建立链接：
+
+```bash
+mkdir -p ~/data/work/.codex
+ln -s ~/.agent-toolkit/codex/instructions/work.md ~/data/work/.codex/AGENTS.md
+```
+
+如果入口已存在，应先核对并备份原内容，不使用强制覆盖选项。
+
 ### 自定义 Codex Home
 
 安装脚本无参数运行时始终使用默认的 `~/.codex`，不会扫描磁盘、解析 Shell alias
