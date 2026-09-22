@@ -4,6 +4,8 @@
 
 ## 交付流程
 
+收到需求 ID 时，先按 [任务恢复顺序](../../work-feature-delivery/references/delivery-workflow.md#11-先恢复任务再补需求与知识) 查找本地主记录，再决定是否读取远端。已有需求的探索和澄清同样按 [交付记录](../../work-feature-delivery/references/delivery-record.md) 及时保存结论，不要求进入编码才记录。
+
 需要开发或继续交付时，由 [work-feature-delivery](../../work-feature-delivery/SKILL.md) 衔接已授权阶段；只看需求、澄清或记录术语时不进入完整交付流程。
 
 交付规则统一维护在 [work-feature-delivery 的交付规则](../../work-feature-delivery/references/delivery-workflow.md)。先读取目标仓库适用的协作规则，再按任务阶段读取对应章节；不再依赖 docs 下的旧 workflow。
@@ -24,4 +26,4 @@
 | 现行系统边界和已实施架构事实 | `knowledge/<业务域>/`，使用 `docType: system` |
 | 尚未落地的跨仓库方案决策 | 对应 `delivery/requirements/<ID>/index.md`；跨需求专项按需使用 `delivery/initiatives/` |
 
-临时叫法留在对话；用户未要求记录长期知识时，不为完成流程而建文件。不要把术语或 ADR 复制到提测、上线清单。修改、提交和推送遵守对应仓库规则与已有授权。
+临时叫法留在对话；需求中的确认事实按知识库分类规则写入主记录及必要的分析附件。未实施方案不写成长期知识；用户未要求记录长期知识时，不为完成流程而建文件。不要把术语或 ADR 复制到提测、上线清单。修改、提交和推送遵守对应仓库规则与已有授权。
