@@ -233,7 +233,7 @@ git merge <个人功能分支>
 
 - 工作区有未提交改动，且会影响切分支、pull 或 merge。
 - `git pull --ff-only` 失败。
-- 本地 `test` 与远端 `origin/test` 已分叉。
+- 合并功能分支前，本地 `test` 与远端 `origin/test` 已分叉。
 - merge 出现冲突。
 - merge 前发现功能分支提交不是预期提交。
 
@@ -254,7 +254,7 @@ git rev-list --left-right --count origin/test...HEAD
 git log origin/test..HEAD --format='%h %an <%ae> | %cn <%ce> | %s'
 ```
 
-`git rev-list` 结果必须是 `0 N`，表示本地不落后，只领先远端。不是 `0 N` 时，不要 push，先说明分支状态。
+`git rev-list` 结果必须是 `0 N`，表示本地不落后，只领先远端。本地合并后、push 前远端 `test` 又前进时，按 `git-commit` 的推送前远端前进规则核对；满足本轮已有合并与 push 授权且新增提交可安全合入的条件时，普通 merge `origin/test`，复跑受影响的核心验证，再重新 fetch、核对 `0 N` 后 push。其他分叉状态先说明并等待用户选择，不直接 push。
 
 确认无问题后推送：
 

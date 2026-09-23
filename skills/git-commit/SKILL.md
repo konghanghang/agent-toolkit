@@ -282,7 +282,9 @@ git log '@{upstream}..HEAD' --format='%h %an <%ae> | %cn <%ce> | %s'
 
 push 目标不是 upstream，或当前分支没有 upstream 时，先确认目标 `<remote>/<branch>` 是否存在；存在则 fetch 后用该 remote-tracking ref 代替 `@{upstream}` 完成分叉和领先提交检查，不存在则明确报告“这是远端新分支，没有远端身份基线”，并检查准备推送的全部本地提交身份。不要直接执行必然失败的 `@{upstream}` 命令，也不要因为没有 upstream 就猜测 push 目标。
 
-fetch 失败时停止 push，不得用旧 tracking ref 继续。fetch 后 upstream 或目标 remote-tracking ref 的独有提交数大于 `0` 时同样停止：报告落后或分叉状态，等待用户明确选择同步方式，不自动 rebase、merge 或强推。
+fetch 失败时停止 push，不得用旧 tracking ref 继续。fetch 后 upstream 或目标 remote-tracking ref 的独有提交数大于 `0` 时，先检查远端新增提交、当前授权和工作区状态；默认报告落后或分叉状态，等待用户选择同步方式，不自动 rebase、merge 或强推。
+
+同一任务已明确授权将功能分支合入目标分支并 push，且合并前已同步远端、远端只在本地合并后推进时，可以在现有授权内继续：确认新增提交与本次改动、依赖及 CI/目标环境没有冲突或范围变化，工作区干净，普通 merge 能保留双方历史；随后将远端分支合入本地，复验受影响内容，重新 fetch 并完成推送前检查，只有远端独有提交数回到 `0` 才 push。出现冲突、影响不明或需要 rebase、强推时停止并说明。仅授权 commit 或单独 push 不适用此例外。
 
 确认：
 
