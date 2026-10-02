@@ -126,7 +126,7 @@ jobs:
           $codexHome = Join-Path $isolatedHome ".codex"
           New-Item -ItemType Directory -Force -Path $codexHome | Out-Null
 
-          python scripts/install.py --codex-home $codexHome
+          python scripts/install.py --codex-home $codexHome --profile work
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -182,12 +182,12 @@ jobs:
             }
           }
 
-          python scripts/install.py --codex-home $codexHome
+          python scripts/install.py --codex-home $codexHome --profile work
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
 
-          python scripts/install.py --codex-home $codexHome --dry-run
+          python scripts/install.py --codex-home $codexHome --profile work --dry-run
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }

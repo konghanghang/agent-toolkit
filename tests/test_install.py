@@ -23,6 +23,16 @@ SPEC.loader.exec_module(install)
 
 
 class InstallTest(unittest.TestCase):
+    def setUp(self):
+        # Existing behavior tests exercise a fully provisioned work machine.
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        state = Path(temporary.name) / "profile.json"
+        state.write_text(json.dumps({"schema_version": 1, "profile": "work"}))
+        patcher = mock.patch.object(install, "PROFILE_STATE", state)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_default_codex_home_ignores_environment_override(self) -> None:
         args = install.parse_args([])
 
@@ -672,6 +682,108 @@ class InstallTest(unittest.TestCase):
 
         self.assertTrue(success)
         run.assert_called_once_with([sys.executable, str(initializer), "--dry-run"])
+
+
+class ProfileTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.state = self.directory / "local" / "profile.json"
+        patcher = mock.patch.object(install, "PROFILE_STATE", self.state)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_first_install_requires_choice_before_writes(self):
+        with mock.patch.object(sys, "argv", ["install.py"]), mock.patch.object(install, "install_spec") as write:
+            with self.assertRaisesRegex(SystemExit, "Choose an installation profile"):
+                install.main()
+            write.assert_not_called()
+        self.assertFalse(self.state.exists())
+
+    def test_general_excludes_work_skills_rules_and_initializers(self):
+        args = install.parse_args(["--profile", "general"])
+        specs = install.plan_installs(args)
+        rules = {s.source.name for s in specs if s.label == "Codex rule"}
+        self.assertEqual({"git-commit.rules", "github-readonly.rules"}, rules)
+        skills = {s.source.name for s in specs if s.label == "Codex skill"}
+        self.assertIn("git-commit", skills)
+        self.assertNotIn("verify-test-db", skills)
+        self.assertNotIn("tapd-story", skills)
+        self.assertEqual([], install.selected_skill_initializers(args))
+
+    def test_rules_only_obeys_general_profile(self):
+        specs = install.plan_installs(install.parse_args(["--profile", "general", "--rules-only"]))
+        self.assertEqual({"git-commit.rules", "github-readonly.rules"}, {s.source.name for s in specs})
+
+    def test_claude_only_general_has_no_codex_or_work_components(self):
+        args = install.parse_args(["--profile", "general", "--claude-only"])
+        specs = install.plan_installs(args)
+        self.assertTrue(all(s.label == "Claude Code skill" for s in specs))
+        self.assertEqual([], install.selected_skill_initializers(args))
+
+    def test_unclassified_rule_and_invalid_category_rejected(self):
+        rules = self.directory / "rules"
+        rules.mkdir()
+        (rules / "new.rules").write_text("# new")
+        with mock.patch.object(install, "CODEX_RULES_SOURCE", rules):
+            with self.assertRaisesRegex(SystemExit, "Unclassified rules: new.rules"):
+                install.read_profile_manifest()
+        manifest = self.directory / "manifest.json"
+        data = json.loads(install.PROFILE_MANIFEST.read_text())
+        data["skills"]["git-commit"] = "unknown"
+        manifest.write_text(json.dumps(data))
+        with mock.patch.object(install, "PROFILE_MANIFEST", manifest):
+            with self.assertRaisesRegex(SystemExit, "must map names to general or work"):
+                install.read_profile_manifest()
+
+    def test_work_includes_general_and_work(self):
+        general = install.plan_installs(install.parse_args(["--profile", "general"]))
+        args = install.parse_args(["--profile", "work"])
+        work = install.plan_installs(args)
+        self.assertTrue(set(general) < set(work))
+        self.assertEqual(2, len(install.selected_skill_initializers(args)))
+
+    def test_explicit_skill_cannot_bypass_profile(self):
+        args = install.parse_args(["--profile", "general", "--skill", "verify-test-db"])
+        with self.assertRaisesRegex(SystemExit, "outside general profile"):
+            install.plan_installs(args)
+
+    def test_saved_profile_reused_and_explicit_profile_wins(self):
+        install.save_profile("general")
+        self.assertEqual("general", install.resolve_profile(install.parse_args([])))
+        self.assertEqual("work", install.resolve_profile(install.parse_args(["--profile", "work"])))
+
+    def test_corrupt_state_fails_closed(self):
+        self.state.parent.mkdir()
+        self.state.write_text('{"schema_version":1,"profile":"typo"}')
+        with self.assertRaisesRegex(SystemExit, "invalid saved profile"):
+            install.resolve_profile(install.parse_args([]))
+
+    def test_unclassified_skill_rejected_even_for_rules_only(self):
+        skills = self.directory / "skills"
+        new = skills / "new-skill"
+        new.mkdir(parents=True)
+        (new / "SKILL.md").write_text("new skill")
+        with mock.patch.object(install, "SKILLS_DIR", skills):
+            with self.assertRaisesRegex(SystemExit, "Unclassified skills: new-skill"):
+                install.plan_installs(install.parse_args(["--profile", "general", "--rules-only"]))
+
+    def test_dry_run_does_not_save_profile(self):
+        with mock.patch.object(sys, "argv", ["install.py", "--profile", "general", "--dry-run"]), mock.patch.object(install, "install_spec", return_value=("OK", True)), mock.patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(0, install.main())
+        self.assertFalse(self.state.exists())
+
+    def test_failure_does_not_replace_saved_profile(self):
+        install.save_profile("general")
+        with mock.patch.object(sys, "argv", ["install.py", "--profile", "work"]), mock.patch.object(install, "install_spec", return_value=("CONFLICT", False)), mock.patch("sys.stdout", new=io.StringIO()), mock.patch("sys.stderr", new=io.StringIO()):
+            self.assertEqual(1, install.main())
+        self.assertEqual("general", install.resolve_profile(install.parse_args([])))
+
+    def test_success_remembers_profile(self):
+        with mock.patch.object(sys, "argv", ["install.py", "--profile", "general"]), mock.patch.object(install, "install_spec", return_value=("OK", True)), mock.patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(0, install.main())
+        self.assertEqual("general", install.resolve_profile(install.parse_args([])))
 
 
 if __name__ == "__main__":

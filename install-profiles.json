@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "skills": {
+    "work-feature-delivery": "work",
+    "work-url-permission-sql": "work",
+    "aliyun-sls-log-query": "work",
+    "archery-prod-query": "work",
+    "capture-iminling-draft": "general",
+    "domain-modeling": "general",
+    "git-commit": "general",
+    "gitlab-run-pipeline": "work",
+    "grilling": "general",
+    "jumpserver-k8s-log-query": "work",
+    "local-browser-verify": "general",
+    "online-issue-triage": "work",
+    "prometheus-query": "work",
+    "tapd-story": "work",
+    "tapd-weekly-report": "work",
+    "ui-ux-pro-max": "general",
+    "upload-to-easyimage": "general",
+    "verify-test-db": "work"
+  },
+  "rules": {
+    "work-readonly.rules": "work",
+    "git-commit.rules": "general",
+    "github-readonly.rules": "general",
+    "gitlab-pipeline.rules": "work"
+  }
+}

@@ -97,6 +97,55 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 ## 安装
 
+### 安装分类：通用与工作
+
+安装分类由 [`install-profiles.json`](install-profiles.json) 统一维护，Skill 和 Rule 必须明确登记为 `general` 或 `work`。
+
+| 安装选择 | 自然语言约定 | 实际范围 |
+|---|---|---|
+| `--profile general` | “安装通用的”“家庭电脑安装” | 通用与个人用途组件 |
+| `--profile work` | “安装工作用的”“工作新机安装” | **通用组件 + 工作扩展**，不必再指定 general |
+
+通用组的 Skills：
+
+| Skill | 用途 |
+|---|---|
+| `git-commit` | 通用 Git 提交工作流 |
+| `grilling` | 通用需求澄清 |
+| `domain-modeling` | 通用术语与架构决策记录 |
+| `local-browser-verify` | 通用网页验收 |
+| `ui-ux-pro-max` | 通用 UI/UX 设计，外部 Skill |
+| `capture-iminling-draft` | 个人 iminling 博客草稿 |
+| `upload-to-easyimage` | 个人图床上传 |
+
+工作扩展的 Skills：`work-feature-delivery`、`work-url-permission-sql`、`aliyun-sls-log-query`、`archery-prod-query`、`jumpserver-k8s-log-query`、`online-issue-triage`、`prometheus-query`、`verify-test-db`、`tapd-story`、`tapd-weekly-report`、`gitlab-run-pipeline`。
+
+通用组同时安装 `evidence_explorer` Agent、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
+
+首次安装必须显式选择 profile；未选择时只给出提示并退出，不默认安装全量。成功安装后，选择保存在本检出的 `.local/install-profile.json`（Git 忽略），后续无 `--profile` 的安装或更新沿用它。显式指定可覆盖选择；dry-run 和失败安装不会修改记录。记录供本检出的所有安装目标共用，不跟随 `--codex-home` 单独变化。切换 profile 不自动卸载已有组件。
+
+完整通用安装：
+
+```bash
+# 新检出先还原外部 UI/UX Skill；安装器不隐式联网下载
+python3 scripts/update_ui_ux_pro_max.py --from-lock
+python3 scripts/install.py --profile general --dry-run
+python3 scripts/install.py --profile general
+```
+
+完整工作新机安装：
+
+```bash
+python3 scripts/update_ui_ux_pro_max.py --from-lock
+python3 scripts/install.py --profile work --dry-run
+python3 scripts/install.py --profile work
+python3 common/bootstrap_work.py
+```
+
+Windows 使用下文的 `py -3.11` 解释器写法和对应路径。工作运行时初始化仍是独立步骤，需要本机工作区等信息；服务凭证按需填写。通用安装不运行 bootstrap、不创建 work 运行时，也不需要安装工作用 Python 依赖。外部 `ui-ux-pro-max` 未还原时，安装器会明确提示缺失并安装其余可用内容。
+
+`--skill` 只在当前 profile 内进一步筛选；例如 `--profile general --skill verify-test-db` 会报错，不会越过分类安装工作内容。Rules 也按 profile 过滤，因此不再因选择一个通用 Skill 而附带工作 Rules。
+
 ### Windows 前置条件
 
 仓库的真实 Windows CI 使用 `windows-latest` 和 Python 3.11。Windows 本机安装前先准备：
@@ -116,7 +165,7 @@ py -3.11 -c "import venv"
 powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'
 ```
 
-`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，以及 Codex MCP 配置的安全合并；它不创建公共虚拟环境，也不安装 Python 包。需要使用 work 公共入口或带脚本的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
+`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，以及 Codex MCP 配置的安全合并；它不创建公共虚拟环境，也不安装 Python 包。需要使用工作组的 work 公共入口或依赖公共运行时的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
 
 以下外部程序只在对应能力中需要，不是基础安装的硬依赖：
 
@@ -144,21 +193,21 @@ git clone git@github.com:konghanghang/agent-toolkit.git "$HOME\.agent-toolkit"
 ### 预览安装计划
 
 ```bash
-python3 ~/.agent-toolkit/scripts/install.py --dry-run
+python3 ~/.agent-toolkit/scripts/install.py --profile general --dry-run
 ```
 
-### 安装 Codex、Claude Code、Codex Agents、Rules 和 MCP 配置
+### 按分类安装 Codex、Claude Code、Codex Agents、Rules 和 MCP 配置
 
 ```bash
-python3 ~/.agent-toolkit/scripts/install.py
+python3 ~/.agent-toolkit/scripts/install.py --profile general
 ```
 
-安装脚本会：
+以下以通用安装为例；工作电脑改为 `--profile work`。安装脚本会：
 
-1. 扫描 `skills/*/SKILL.md`。
+1. 扫描 `skills/*/SKILL.md`，校验分类清单并按 profile 筛选。
 2. 将 Skill 通过目录链接安装到 `~/.agents/skills/`。
 3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
-4. 默认将 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
+4. 将当前 profile 的 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
 5. 把标准 Playwright MCP 审批、禁用工具和缓存目录安全合并到 `~/.codex/config.toml`，保留其他本机配置。
 6. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
 7. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
@@ -174,8 +223,8 @@ python3 ~/.agent-toolkit/scripts/install.py
 Windows PowerShell 示例：
 
 ```powershell
-py -3.11 "$HOME\.agent-toolkit\scripts\install.py" --dry-run
-py -3.11 "$HOME\.agent-toolkit\scripts\install.py"
+py -3.11 "$HOME\.agent-toolkit\scripts\install.py" --profile general --dry-run
+py -3.11 "$HOME\.agent-toolkit\scripts\install.py" --profile general
 ```
 
 ### Windows 命令入口与 ExecutionPolicy
@@ -210,6 +259,7 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 可选参数：
 
 ```text
+--profile NAME     general = 通用；work = 通用 + 工作扩展；省略时沿用本机记录
 --dry-run          只显示计划，不修改文件
 --codex-only       只安装 Codex Skills、Agents、Rules 和受管配置
 --claude-only      只安装 Claude Code Skills
@@ -445,6 +495,11 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 ## 新增 Skill
 
 新的共享 Skill 必须：
+
+- 在 `install-profiles.json` 的 `skills` 中登记 `general` 或 `work`，并同步上方分类说明。通用/个人项目能力归 general，内部服务、工作凭证、工作流程专用能力归 work；通用 Skill 对工作场景的可选说明不构成工作运行时依赖。
+- 未登记分类或分类值无效时，安装器拒绝继续。外部 Skill 也必须登记；暂未还原的已登记外部 Skill 可以缺席。
+- 新 Rule 同样登记到清单的 `rules`。当前 Agent 目录和 Playwright 配置为通用共享组件；工作专属 Agent/MCP 不能直接加入共享目录或模板，须先扩展安装器隔离机制。
+
 
 1. 放入 `skills/<skill-name>/`。
 2. 同时兼容 Codex 和 Claude Code。

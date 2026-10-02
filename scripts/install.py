@@ -27,6 +27,8 @@ from private_files import (
 )
 
 
+PROFILE_MANIFEST = TOOLKIT_ROOT / "install-profiles.json"
+PROFILE_STATE = TOOLKIT_ROOT / ".local" / "install-profile.json"
 SKILLS_DIR = TOOLKIT_ROOT / "skills"
 CODEX_AGENTS_SOURCE = TOOLKIT_ROOT / "codex" / "agents"
 CODEX_RULES_SOURCE = TOOLKIT_ROOT / "codex" / "rules"
@@ -95,6 +97,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--codex-home",
         help="Install Codex agents and rules into this existing Codex home instead of ~/.codex",
     )
+    parser.add_argument(
+        "--profile",
+        choices=("general", "work"),
+        help="general: personal tools; work: general plus work extensions",
+    )
     parser.add_argument("--skill", action="append", default=[], help="Install only the named skill; repeatable")
     parser.add_argument("--dry-run", action="store_true", help="Print planned changes without writing")
     parser.add_argument(
@@ -124,20 +131,80 @@ def available_skills() -> dict[str, Path]:
     }
 
 
-def selected_skills(names: list[str]) -> dict[str, Path]:
+def resolve_profile(args: argparse.Namespace) -> str:
+    if args.profile is not None:
+        return args.profile
+    if not PROFILE_STATE.exists():
+        raise SystemExit("Choose an installation profile: --profile general or --profile work")
+    try:
+        state = json.loads(PROFILE_STATE.read_text(encoding="utf-8"))
+        if not isinstance(state, dict) or state.get("schema_version") != 1:
+            raise ValueError("invalid profile state")
+        profile = state.get("profile")
+        if profile not in ("general", "work"):
+            raise ValueError("invalid saved profile")
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"Unable to read {PROFILE_STATE}: {error}") from error
+    args.profile = profile
+    return profile
+
+
+def read_profile_manifest() -> dict:
+    try:
+        data = json.loads(PROFILE_MANIFEST.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("schema_version") != 1:
+            raise ValueError("unsupported schema_version")
+        for section, present in (
+            ("skills", set(available_skills())),
+            ("rules", {p.name for p in CODEX_RULES_SOURCE.glob("*.rules")}),
+        ):
+            entries = data.get(section)
+            if not isinstance(entries, dict) or any(
+                value not in ("general", "work") for value in entries.values()
+            ):
+                raise ValueError(f"{section} must map names to general or work")
+            missing = present - entries.keys()
+            if missing:
+                raise ValueError(f"Unclassified {section}: {', '.join(sorted(missing))}")
+        return data
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"Invalid profile manifest {PROFILE_MANIFEST}: {error}") from error
+
+
+def save_profile(profile: str) -> None:
+    PROFILE_STATE.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".install-profile-", dir=PROFILE_STATE.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump({"schema_version": 1, "profile": profile}, output, indent=2)
+            output.write("\n")
+        os.replace(temporary, PROFILE_STATE)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def selected_skills(args: argparse.Namespace) -> dict[str, Path]:
+    profile = resolve_profile(args)
+    categories = read_profile_manifest()["skills"]
     available = available_skills()
-    if not names:
-        return available
+    names = args.skill
     unknown = sorted(set(names) - set(available))
     if unknown:
-        raise SystemExit(f"Unknown skill: {', '.join(unknown)}")
-    return {name: available[name] for name in names}
+        raise SystemExit(f"Unknown or unavailable skill: {', '.join(unknown)}")
+    excluded = [name for name in names if profile == "general" and categories[name] == "work"]
+    if excluded:
+        raise SystemExit(f"Skills outside general profile: {', '.join(excluded)}; use --profile work")
+    return {
+        name: available[name] for name in (names or available)
+        if profile == "work" or categories[name] == "general"
+    }
 
 
 def selected_skill_initializers(args: argparse.Namespace) -> list[Path]:
     if args.rules_only or args.agents_only or args.config_only:
         return []
-    selected = selected_skills(args.skill)
+    selected = selected_skills(args)
     initializers: list[Path] = []
     for name in selected:
         initializer = SKILL_INITIALIZERS.get(name)
@@ -335,10 +402,12 @@ def resolve_codex_home(args: argparse.Namespace) -> tuple[Path, str]:
 
 
 def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -> list[InstallSpec]:
+    profile = resolve_profile(args)
+    categories = read_profile_manifest()
     skills = (
         {}
         if args.rules_only or args.agents_only or args.config_only
-        else selected_skills(args.skill)
+        else selected_skills(args)
     )
     specs: list[InstallSpec] = []
 
@@ -378,6 +447,7 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
             specs.extend(
                 InstallSpec(rule, codex_home / "rules" / rule.name, "Codex rule", COPY_STRATEGY)
                 for rule in sorted(CODEX_RULES_SOURCE.glob("*.rules"))
+                if profile == "work" or categories["rules"][rule.name] == "general"
             )
 
     if installs_codex_playwright_config(args):
@@ -713,6 +783,17 @@ def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
 
 def main() -> int:
     args = parse_args()
+    profile = resolve_profile(args)
+    print(f"Installation profile: {profile}")
+    if (
+        not args.skill
+        and not (SKILLS_DIR / "ui-ux-pro-max" / "SKILL.md").is_file()
+        and not (args.rules_only or args.agents_only or args.config_only)
+    ):
+        print(
+            "NOTE: ui-ux-pro-max is not materialized; run "
+            "scripts/update_ui_ux_pro_max.py --from-lock, then reinstall."
+        )
     codex_home = None
     if installs_codex_configuration(args):
         codex_home, home_kind = resolve_codex_home(args)
@@ -747,6 +828,8 @@ def main() -> int:
         print(f"\n{failures} skill initializer(s) failed.", file=sys.stderr)
         return 1
 
+    if not args.dry_run:
+        save_profile(profile)
     mode = "dry-run" if args.dry_run else "complete"
     print(f"\nInstallation {mode}: {len(specs) + len(initializers)} item(s) checked.")
     return 0
