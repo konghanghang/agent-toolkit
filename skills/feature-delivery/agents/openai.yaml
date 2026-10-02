@@ -1,0 +1,4 @@
+interface:
+  display_name: "通用开发流程"
+  short_description: "覆盖各类开发改动，按任务风险衔接分析、实施、验证与结果交付"
+  default_prompt: "使用 $feature-delivery 从当前状态继续本次开发改动，加载适用项目规则，完成已授权工作并报告验证结果。"

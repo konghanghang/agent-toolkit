@@ -27,6 +27,7 @@ agent-toolkit/
 │   ├── online-issue-triage/
 │   ├── prometheus-query/
 │   ├── tapd-story/
+│   ├── feature-delivery/
 │   ├── work-feature-delivery/
 │   ├── grilling/
 │   ├── domain-modeling/
@@ -110,6 +111,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 | Skill | 用途 |
 |---|---|
+| `feature-delivery` | 所有开发改动的通用流程，按复杂度和风险裁剪 |
 | `git-commit` | 通用 Git 提交工作流 |
 | `grilling` | 通用需求澄清 |
 | `domain-modeling` | 通用术语与架构决策记录 |
@@ -119,6 +121,8 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 | `upload-to-easyimage` | 个人图床上传 |
 
 工作扩展的 Skills：`work-feature-delivery`、`work-url-permission-sql`、`aliyun-sls-log-query`、`archery-prod-query`、`jumpserver-k8s-log-query`、`online-issue-triage`、`prometheus-query`、`verify-test-db`、`tapd-story`、`tapd-weekly-report`、`gitlab-run-pipeline`。
+
+`feature-delivery` 独立提供通用开发阶段；work 业务任务由 `work-feature-delivery` 作为入口自动复用，并在执行各阶段前叠加公司要求。通用流程不依赖工作工具或凭证，项目自身规则提供实际构建、分支及记录约定。完整 `work` profile 包含两者；使用 `--skill` 手动筛选公司交付技能时，需同时选择 `feature-delivery`。
 
 通用组同时安装 `evidence_explorer` Agent、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
 
@@ -457,7 +461,8 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 - `online-issue-triage`
 - `prometheus-query`
 - `tapd-story`
-- [work-feature-delivery](skills/work-feature-delivery/SKILL.md)：衔接 work 已授权交付阶段，按需记录验证、审查和交付证据
+- [feature-delivery](skills/feature-delivery/SKILL.md)：通用开发流程，覆盖功能、修复、重构、脚本、Skill、配置及文档改动
+- [work-feature-delivery](skills/work-feature-delivery/SKILL.md)：复用通用流程，叠加 work 分支、提测及发布要求
   - [work 交付规则](skills/work-feature-delivery/references/delivery-workflow.md)：分支、提测和上线流程的统一维护位置
 - `grilling`
 - `domain-modeling`

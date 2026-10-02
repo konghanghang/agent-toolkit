@@ -6,7 +6,7 @@
 
 收到需求 ID 时，先按 [任务恢复顺序](../../work-feature-delivery/references/delivery-workflow.md#11-先恢复任务再补需求与知识) 查找本地主记录，再决定是否读取远端。已有需求的探索和澄清同样按 [交付记录](../../work-feature-delivery/references/delivery-record.md) 及时保存结论，不要求进入编码才记录。
 
-需要开发或继续交付时，由 [work-feature-delivery](../../work-feature-delivery/SKILL.md) 衔接已授权阶段；只看需求、澄清或记录术语时不进入完整交付流程。
+需要开发或继续交付时，由 [work-feature-delivery](../../work-feature-delivery/SKILL.md) 自动复用通用开发流程并叠加公司要求，衔接已授权阶段；只看需求、澄清或记录术语时不进入完整交付流程。
 
 交付规则统一维护在 [work-feature-delivery 的交付规则](../../work-feature-delivery/references/delivery-workflow.md)。先读取目标仓库适用的协作规则，再按任务阶段读取对应章节；不再依赖 docs 下的旧 workflow。
 

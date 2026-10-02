@@ -708,6 +708,8 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual({"git-commit.rules", "github-readonly.rules"}, rules)
         skills = {s.source.name for s in specs if s.label == "Codex skill"}
         self.assertIn("git-commit", skills)
+        self.assertIn("feature-delivery", skills)
+        self.assertNotIn("work-feature-delivery", skills)
         self.assertNotIn("verify-test-db", skills)
         self.assertNotIn("tapd-story", skills)
         self.assertEqual([], install.selected_skill_initializers(args))
@@ -720,6 +722,9 @@ class ProfileTest(unittest.TestCase):
         args = install.parse_args(["--profile", "general", "--claude-only"])
         specs = install.plan_installs(args)
         self.assertTrue(all(s.label == "Claude Code skill" for s in specs))
+        skills = {spec.source.name for spec in specs}
+        self.assertIn("feature-delivery", skills)
+        self.assertNotIn("work-feature-delivery", skills)
         self.assertEqual([], install.selected_skill_initializers(args))
 
     def test_unclassified_rule_and_invalid_category_rejected(self):
@@ -742,6 +747,9 @@ class ProfileTest(unittest.TestCase):
         args = install.parse_args(["--profile", "work"])
         work = install.plan_installs(args)
         self.assertTrue(set(general) < set(work))
+        for label in ("Codex skill", "Claude Code skill"):
+            skills = {spec.source.name for spec in work if spec.label == label}
+            self.assertTrue({"feature-delivery", "work-feature-delivery"} <= skills)
         self.assertEqual(2, len(install.selected_skill_initializers(args)))
 
     def test_explicit_skill_cannot_bypass_profile(self):
