@@ -712,6 +712,7 @@ class ProfileTest(unittest.TestCase):
         self.assertNotIn("work-feature-delivery", skills)
         self.assertNotIn("verify-test-db", skills)
         self.assertNotIn("tapd-story", skills)
+        self.assertNotIn("nacos-config-query", skills)
         self.assertEqual([], install.selected_skill_initializers(args))
 
     def test_rules_only_obeys_general_profile(self):
@@ -725,6 +726,7 @@ class ProfileTest(unittest.TestCase):
         skills = {spec.source.name for spec in specs}
         self.assertIn("feature-delivery", skills)
         self.assertNotIn("work-feature-delivery", skills)
+        self.assertNotIn("nacos-config-query", skills)
         self.assertEqual([], install.selected_skill_initializers(args))
 
     def test_unclassified_rule_and_invalid_category_rejected(self):
@@ -749,13 +751,15 @@ class ProfileTest(unittest.TestCase):
         self.assertTrue(set(general) < set(work))
         for label in ("Codex skill", "Claude Code skill"):
             skills = {spec.source.name for spec in work if spec.label == label}
-            self.assertTrue({"feature-delivery", "work-feature-delivery"} <= skills)
+            self.assertTrue({"feature-delivery", "work-feature-delivery", "nacos-config-query"} <= skills)
         self.assertEqual(2, len(install.selected_skill_initializers(args)))
 
     def test_explicit_skill_cannot_bypass_profile(self):
-        args = install.parse_args(["--profile", "general", "--skill", "verify-test-db"])
-        with self.assertRaisesRegex(SystemExit, "outside general profile"):
-            install.plan_installs(args)
+        for skill in ("verify-test-db", "nacos-config-query"):
+            with self.subTest(skill=skill):
+                args = install.parse_args(["--profile", "general", "--skill", skill])
+                with self.assertRaisesRegex(SystemExit, "outside general profile"):
+                    install.plan_installs(args)
 
     def test_saved_profile_reused_and_explicit_profile_wins(self):
         install.save_profile("general")

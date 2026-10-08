@@ -177,6 +177,16 @@ def main() -> int:
         existing.get("prometheus_base_url"),
         required=False,
     )
+    nacos_cn_base_url = prompt_url(
+        "国内 Nacos 包装地址 NACOS_CN_BASE_URL（不使用可留空）",
+        existing.get("nacos_cn_base_url"),
+        required=False,
+    )
+    nacos_os_base_url = prompt_url(
+        "海外 Nacos 包装地址 NACOS_OS_BASE_URL（不使用可留空）",
+        existing.get("nacos_os_base_url"),
+        required=False,
+    )
     sls_dir_default = existing.get("sls_dir") or str(CONFIG_DIR / "sls")
     sls_dir = prompt_path("SLS 凭证与 session 目录 SLS_DIR", sls_dir_default)
     archery_dir_default = existing.get("archery_dir") or str(CONFIG_DIR / "archery")
@@ -212,6 +222,8 @@ def main() -> int:
         "python_bin": str(configured_python_path(python_bin)),
         "tmp_dir": str(tmp_dir.resolve()),
         "prometheus_base_url": prometheus_base_url,
+        "nacos_cn_base_url": nacos_cn_base_url,
+        "nacos_os_base_url": nacos_os_base_url,
         "sls_dir": str(sls_dir.resolve()),
         "archery_dir": str(archery_dir.resolve()),
         "jms_dir": str(jms_dir.resolve()),
@@ -228,6 +240,10 @@ def main() -> int:
         print("[+] Prometheus 地址已写入本机运行时配置")
     else:
         print("[i] 未配置 Prometheus 地址；其他工具不受影响")
+    if nacos_cn_base_url or nacos_os_base_url:
+        print("[+] Nacos 地址已写入本机运行时配置")
+    else:
+        print("[i] 未配置 Nacos 地址；其他工具不受影响")
     print("[+] 建议确认 PATH 已包含:")
     print(f"    {toolkit_root / 'bin'}")
     print("[+] 需要补充真实值的凭证文件:")

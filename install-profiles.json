@@ -13,6 +13,7 @@
     "grilling": "general",
     "jumpserver-k8s-log-query": "work",
     "local-browser-verify": "general",
+    "nacos-config-query": "work",
     "online-issue-triage": "work",
     "prometheus-query": "work",
     "tapd-story": "work",

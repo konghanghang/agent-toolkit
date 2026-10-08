@@ -76,6 +76,8 @@ class RuntimeTest(unittest.TestCase):
             self.assertEqual(str(expected_gitlab_dir.resolve()), loaded["gitlab_dir"])
             self.assertFalse(expected_gitlab_dir.exists())
             self.assertNotIn("prometheus_base_url", loaded)
+            self.assertNotIn("nacos_cn_base_url", loaded)
+            self.assertNotIn("nacos_os_base_url", loaded)
 
     def test_loading_runtime_normalizes_separate_prometheus_url(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -111,6 +113,44 @@ class RuntimeTest(unittest.TestCase):
             self.assertEqual(
                 "https://monitor.example/prometheus",
                 loaded["prometheus_base_url"],
+            )
+
+    def test_loading_runtime_normalizes_nacos_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_dir = root / "config"
+            config_dir.mkdir()
+            paths = {
+                key: root / key
+                for key in ("work_root", "tmp_dir", "sls_dir", "archery_dir")
+            }
+            for path in paths.values():
+                path.mkdir()
+            python_bin = root / "python"
+            python_bin.touch()
+            config_file = config_dir / "runtime.json"
+            config_file.write_text(
+                json.dumps(
+                    {
+                        **{key: str(path) for key, path in paths.items()},
+                        "agent_toolkit_root": str(ROOT),
+                        "python_bin": str(python_bin),
+                        "nacos_cn_base_url": "http://nacos-cn.example/",
+                        "nacos_os_base_url": "https://nacos-os.example/wrapper/",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(runtime, "CONFIG_FILE", config_file), patch.object(
+                runtime, "CONFIG_DIR", config_dir
+            ):
+                loaded = runtime.load_runtime(COMMON_DIR / "runtime.py")
+
+            self.assertEqual("http://nacos-cn.example", loaded["nacos_cn_base_url"])
+            self.assertEqual(
+                "https://nacos-os.example/wrapper",
+                loaded["nacos_os_base_url"],
             )
 
     def test_prometheus_url_rejects_credentials(self) -> None:

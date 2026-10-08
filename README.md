@@ -26,6 +26,7 @@ agent-toolkit/
 │   ├── jumpserver-k8s-log-query/
 │   ├── online-issue-triage/
 │   ├── prometheus-query/
+│   ├── nacos-config-query/
 │   ├── tapd-story/
 │   ├── feature-delivery/
 │   ├── work-feature-delivery/
@@ -120,7 +121,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 | `capture-iminling-draft` | 个人 iminling 博客草稿 |
 | `upload-to-easyimage` | 个人图床上传 |
 
-工作扩展的 Skills：`work-feature-delivery`、`work-url-permission-sql`、`aliyun-sls-log-query`、`archery-prod-query`、`jumpserver-k8s-log-query`、`online-issue-triage`、`prometheus-query`、`verify-test-db`、`tapd-story`、`tapd-weekly-report`、`gitlab-run-pipeline`。
+工作扩展的 Skills：`work-feature-delivery`、`work-url-permission-sql`、`aliyun-sls-log-query`、`archery-prod-query`、`jumpserver-k8s-log-query`、`nacos-config-query`、`online-issue-triage`、`prometheus-query`、`verify-test-db`、`tapd-story`、`tapd-weekly-report`、`gitlab-run-pipeline`。
 
 `feature-delivery` 独立提供通用开发阶段；work 业务任务由 `work-feature-delivery` 作为入口自动复用，并在执行各阶段前叠加公司要求。通用流程不依赖工作工具或凭证，项目自身规则提供实际构建、分支及记录约定。完整 `work` profile 包含两者；使用 `--skill` 手动筛选公司交付技能时，需同时选择 `feature-delivery`。
 
@@ -427,6 +428,7 @@ Windows PowerShell：
 - `WORK_ROOT`
 - `TMP_DIR`
 - `PROMETHEUS_BASE_URL`（可选；仅使用 `prometheus-query` 时需要）
+- `NACOS_CN_BASE_URL`、`NACOS_OS_BASE_URL`（可选；仅使用 `nacos-config-query` 时需要）
 - `SLS_DIR`
 - `ARCHERY_DIR`
 - `JMS_DIR`
@@ -460,6 +462,7 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 - `jumpserver-k8s-log-query`
 - `online-issue-triage`
 - `prometheus-query`
+- `nacos-config-query`
 - `tapd-story`
 - [feature-delivery](skills/feature-delivery/SKILL.md)：通用开发流程，覆盖功能、修复、重构、脚本、Skill、配置及文档改动
 - [work-feature-delivery](skills/work-feature-delivery/SKILL.md)：复用通用流程，叠加 work 分支、提测及发布要求
@@ -523,7 +526,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 - SSH 私钥和认证文件
 - EasyImage、PicGo 的真实凭证
 - 数据库和生产环境凭证
-- Prometheus 等通过 `runtime.json` 管理的内部服务地址
+- Prometheus、Nacos 等通过 `runtime.json` 管理的内部服务地址
 - `~/.local/agent-toolkit/work/runtime.json`
 - 工作区绝对路径
 

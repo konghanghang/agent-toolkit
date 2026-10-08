@@ -12,7 +12,14 @@ from urllib import parse as urllib_parse
 CONFIG_DIR = Path.home() / ".local" / "agent-toolkit" / "work"
 CONFIG_FILE = CONFIG_DIR / "runtime.json"
 REQUIRED_KEYS = ("work_root", "python_bin", "tmp_dir", "sls_dir", "archery_dir")
-OPTIONAL_KEYS = ("jms_dir", "test_db_dir", "gitlab_dir", "prometheus_base_url")
+OPTIONAL_KEYS = (
+    "jms_dir",
+    "test_db_dir",
+    "gitlab_dir",
+    "prometheus_base_url",
+    "nacos_cn_base_url",
+    "nacos_os_base_url",
+)
 
 
 class RuntimeConfigError(RuntimeError):
@@ -137,6 +144,10 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
             prometheus_base_url,
             "prometheus_base_url",
         )
+    for key in ("nacos_cn_base_url", "nacos_os_base_url"):
+        nacos_base_url = str(data.get(key) or "").strip()
+        if nacos_base_url:
+            normalized[key] = normalize_http_base_url(nacos_base_url, key)
     return normalized
 
 

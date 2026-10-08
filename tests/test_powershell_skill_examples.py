@@ -16,6 +16,7 @@ WRAPPER_EXAMPLES = {
 }
 DIRECT_SCRIPT_EXAMPLES = {
     "local-browser-verify": "browser_verify.py",
+    "nacos-config-query": "nacos_query.py",
     "prometheus-query": "prometheus_query.py",
     "tapd-story": "tapd_story.py",
     "tapd-weekly-report": "tapd_weekly_report.py",

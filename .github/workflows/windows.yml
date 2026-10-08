@@ -94,6 +94,7 @@ jobs:
             "skills\gitlab-run-pipeline\scripts\init_config.py"
             "skills\jumpserver-k8s-log-query\scripts\jms_ops.py"
             "skills\local-browser-verify\scripts\browser_verify.py"
+            "skills\nacos-config-query\scripts\nacos_query.py"
             "skills\prometheus-query\scripts\prometheus_query.py"
             "skills\tapd-story\scripts\tapd_story.py"
             "skills\tapd-weekly-report\scripts\tapd_weekly_report.py"
