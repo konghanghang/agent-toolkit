@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install Agent Toolkit skills, Codex agents, and managed Codex rules."""
+"""Install Agent Toolkit skills, Codex agents, OpenCode config, and managed Codex rules."""
 
 from __future__ import annotations
 
@@ -38,6 +38,12 @@ CODEX_PLAYWRIGHT_CONFIG_SOURCE = (
 CODEX_SKILLS_TARGET = Path.home() / ".agents" / "skills"
 CLAUDE_SKILLS_TARGET = Path.home() / ".claude" / "skills"
 DEFAULT_CODEX_HOME = Path.home() / ".codex"
+OPENCODE_SOURCE = TOOLKIT_ROOT / "opencode"
+OPENCODE_AGENTS_SOURCE = OPENCODE_SOURCE / "agents"
+OPENCODE_CONFIG_SOURCE = OPENCODE_SOURCE / "opencode.json"
+DEFAULT_OPENCODE_HOME = Path.home() / ".config" / "opencode"
+FILE_LINK_STRATEGY = "file-link"
+OPENCODE_AGENT_REQUIRED_KEYS = ("description", "mode")
 LEGACY_ROOTS = (
     Path.home() / ".shared-skills",
     TOOLKIT_ROOT,
@@ -48,6 +54,7 @@ COPY_STRATEGY = "copy"
 TOML_MERGE_STRATEGY = "toml-merge"
 AGENT_REQUIRED_KEYS = ("name", "description", "developer_instructions")
 TOML_KEY_PATTERN = re.compile(r"(?m)^\s*([A-Za-z0-9_-]+)\s*=")
+FRONTMATTER_KEY_PATTERN = re.compile(r"(?m)^([A-Za-z0-9_-]+):")
 TOML_TABLE_PATTERN = re.compile(r"^\s*\[([^\[\]]+)]\s*(?:#.*)?$")
 TOML_ANY_TABLE_PATTERN = re.compile(r"^\s*\[\[?[^\[\]]+]]?\s*(?:#.*)?$")
 PLAYWRIGHT_MANAGED_KEYS = {
@@ -77,7 +84,7 @@ class InstallSpec:
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Install shared skills, Codex agents, and Codex rules."
+        description="Install shared skills, Codex agents, OpenCode config, and Codex rules."
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -88,6 +95,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     mode.add_argument("--claude-only", action="store_true", help="Install only Claude Code skills")
     mode.add_argument("--rules-only", action="store_true", help="Install only Codex rules")
     mode.add_argument("--agents-only", action="store_true", help="Install only Codex agents")
+    mode.add_argument(
+        "--opencode-only",
+        action="store_true",
+        help="Install only OpenCode config and agents",
+    )
     mode.add_argument(
         "--config-only",
         action="store_true",
@@ -113,10 +125,12 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     if args.claude_only and args.codex_home:
         parser.error("--codex-home cannot be used with --claude-only")
-    if (args.rules_only or args.agents_only or args.config_only) and args.skill:
+    if (args.rules_only or args.agents_only or args.config_only or args.opencode_only) and args.skill:
         parser.error(
-            "--skill cannot be used with --rules-only, --agents-only, or --config-only"
+            "--skill cannot be used with --rules-only, --agents-only, --config-only, or --opencode-only"
         )
+    if args.opencode_only and args.codex_home:
+        parser.error("--codex-home cannot be used with --opencode-only")
 
     return args
 
@@ -202,7 +216,7 @@ def selected_skills(args: argparse.Namespace) -> dict[str, Path]:
 
 
 def selected_skill_initializers(args: argparse.Namespace) -> list[Path]:
-    if args.rules_only or args.agents_only or args.config_only:
+    if args.rules_only or args.agents_only or args.config_only or args.opencode_only:
         return []
     selected = selected_skills(args)
     initializers: list[Path] = []
@@ -245,6 +259,39 @@ def available_codex_agents() -> list[Path]:
             raise SystemExit(
                 f"Codex agent {agent} is missing required fields: {', '.join(missing)}"
             )
+
+    return agents
+
+
+def available_opencode_agents() -> list[Path]:
+    if not OPENCODE_AGENTS_SOURCE.is_dir():
+        raise SystemExit(f"OpenCode agents directory does not exist: {OPENCODE_AGENTS_SOURCE}")
+    if not OPENCODE_CONFIG_SOURCE.is_file():
+        raise SystemExit(f"OpenCode config does not exist: {OPENCODE_CONFIG_SOURCE}")
+
+    agents = sorted(OPENCODE_AGENTS_SOURCE.glob("*.md"))
+    if not agents:
+        raise SystemExit(f"No OpenCode agents found in: {OPENCODE_AGENTS_SOURCE}")
+
+    for agent in agents:
+        try:
+            text = agent.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise SystemExit(f"Unable to read OpenCode agent {agent}: {error}") from error
+        if not text.startswith("---\n"):
+            raise SystemExit(f"OpenCode agent {agent} is missing YAML frontmatter")
+        end = text.find("\n---", 4)
+        if end < 0:
+            raise SystemExit(f"OpenCode agent {agent} has unclosed YAML frontmatter")
+        frontmatter = text[4:end]
+        keys = set(FRONTMATTER_KEY_PATTERN.findall(frontmatter))
+        missing = [key for key in OPENCODE_AGENT_REQUIRED_KEYS if key not in keys]
+        if missing:
+            raise SystemExit(
+                f"OpenCode agent {agent} is missing required fields: {', '.join(missing)}"
+            )
+        if not text[end + 4 :].strip():
+            raise SystemExit(f"OpenCode agent {agent} is missing instructions")
 
     return agents
 
@@ -370,15 +417,40 @@ def is_managed_target(path: Path) -> bool:
 
 
 def installs_codex_rules(args: argparse.Namespace) -> bool:
-    return not args.claude_only and not args.agents_only and not args.config_only
+    return (
+        not args.claude_only
+        and not args.agents_only
+        and not args.config_only
+        and not args.opencode_only
+    )
 
 
 def installs_codex_agents(args: argparse.Namespace) -> bool:
-    return not args.claude_only and not args.rules_only and not args.config_only
+    return (
+        not args.claude_only
+        and not args.rules_only
+        and not args.config_only
+        and not args.opencode_only
+    )
 
 
 def installs_codex_playwright_config(args: argparse.Namespace) -> bool:
-    return not args.claude_only and not args.rules_only and not args.agents_only
+    return (
+        not args.claude_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.opencode_only
+    )
+
+
+def installs_opencode(args: argparse.Namespace) -> bool:
+    return (
+        not args.claude_only
+        and not args.codex_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.config_only
+    )
 
 
 def installs_codex_configuration(args: argparse.Namespace) -> bool:
@@ -406,7 +478,7 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
     categories = read_profile_manifest()
     skills = (
         {}
-        if args.rules_only or args.agents_only or args.config_only
+        if args.rules_only or args.agents_only or args.config_only or args.opencode_only
         else selected_skills(args)
     )
     specs: list[InstallSpec] = []
@@ -472,6 +544,7 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
         and not args.rules_only
         and not args.agents_only
         and not args.config_only
+        and not args.opencode_only
     ):
         specs.extend(
             InstallSpec(
@@ -483,28 +556,71 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
             for name, source in skills.items()
         )
 
+    if installs_opencode(args):
+        available_opencode_agents()
+        specs.append(
+            InstallSpec(
+                OPENCODE_AGENTS_SOURCE,
+                DEFAULT_OPENCODE_HOME / "agents",
+                "OpenCode agents",
+                DIRECTORY_LINK_STRATEGY,
+            )
+        )
+        specs.append(
+            InstallSpec(
+                OPENCODE_CONFIG_SOURCE,
+                DEFAULT_OPENCODE_HOME / "opencode.json",
+                "OpenCode config",
+                FILE_LINK_STRATEGY,
+            )
+        )
+
     return specs
 
 
-def install_directory_link(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+def backup_replaced_path(target: Path) -> Path:
+    stamp = target.name + "." + os.urandom(4).hex()
+    root = Path(os.environ.get("AGENT_TOOLKIT_BACKUP_DIR", str(TOOLKIT_ROOT / ".local" / "backups")))
+    destination = root / "opencode" / stamp
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(target, destination)
+    return destination
+
+
+def adopt_matching_file(target: Path, source: Path) -> bool:
+    """Replace a regular file with a link when its bytes already match the source."""
+    try:
+        if target.is_symlink() or not target.is_file():
+            return False
+        return target.read_bytes() == source.read_bytes()
+    except OSError:
+        return False
+
+
+def install_file_link(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     source = spec.source.resolve()
     target = spec.target
 
     if os.path.lexists(target):
-        if directory_link_kind(target) is None:
-            return f"CONFLICT {spec.label}: {target} exists and is not a directory link", False
-
-        try:
-            existing = resolve_directory_link(target)
-        except DirectoryLinkError as error:
-            return f"CONFLICT {spec.label}: {error}", False
-        if existing == source:
-            return f"OK       {spec.label}: {target} -> {source}", True
-
-        if not args.replace_managed or not is_managed_target(existing):
-            return f"CONFLICT {spec.label}: {target} -> {existing}", False
-
-        action = "REPLACE"
+        if target.is_symlink():
+            try:
+                existing = resolve_link_target(target)
+            except OSError as error:
+                return f"CONFLICT {spec.label}: {target} ({error})", False
+            if existing == source:
+                return f"OK       {spec.label}: {target} -> {source}", True
+            if not args.replace_managed or not is_managed_target(existing):
+                return f"CONFLICT {spec.label}: {target} -> {existing}", False
+            action = "REPLACE"
+        elif target.is_dir():
+            return f"CONFLICT {spec.label}: {target} exists and is not a file link", False
+        elif adopt_matching_file(target, source):
+            action = "ADOPT  "
+        else:
+            return (
+                f"CONFLICT {spec.label}: {target} exists and differs from {source}",
+                False,
+            )
     else:
         action = "CREATE "
 
@@ -513,16 +629,94 @@ def install_directory_link(spec: InstallSpec, args: argparse.Namespace) -> tuple
         return message, True
 
     target.parent.mkdir(parents=True, exist_ok=True)
+    backup = None
+    if os.path.lexists(target) and not target.is_symlink():
+        try:
+            backup = backup_replaced_path(target)
+        except OSError as error:
+            return f"ERROR    {spec.label}: unable to preserve {target} ({error})", False
+    elif os.path.lexists(target):
+        try:
+            target.unlink()
+        except OSError as error:
+            return f"ERROR    {spec.label}: unable to replace {target} ({error})", False
+    try:
+        target.symlink_to(source)
+    except OSError as error:
+        if backup is not None:
+            os.replace(backup, target)
+        return f"ERROR    {spec.label}: {target} -> {source} ({error})", False
+    if backup is not None:
+        message = f"{message} (preserved {backup})"
+    return message, True
+
+
+def install_directory_link(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    source = spec.source.resolve()
+    target = spec.target
+
+    adopting = False
+    if os.path.lexists(target):
+        if directory_link_kind(target) is None:
+            if not adopt_matching_directory(target, source):
+                return f"CONFLICT {spec.label}: {target} exists and is not a directory link", False
+            adopting = True
+            action = "ADOPT  "
+        else:
+            try:
+                existing = resolve_directory_link(target)
+            except DirectoryLinkError as error:
+                return f"CONFLICT {spec.label}: {error}", False
+            if existing == source:
+                return f"OK       {spec.label}: {target} -> {source}", True
+
+            if not args.replace_managed or not is_managed_target(existing):
+                return f"CONFLICT {spec.label}: {target} -> {existing}", False
+
+            action = "REPLACE"
+    else:
+        action = "CREATE "
+
+    message = f"{action} {spec.label}: {target} -> {source}"
+    if args.dry_run:
+        return message, True
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    backup = None
     if os.path.lexists(target):
         try:
-            remove_directory_link(target)
+            if adopting:
+                backup = backup_replaced_path(target)
+            else:
+                remove_directory_link(target)
         except (DirectoryLinkError, OSError) as error:
             return f"ERROR    {spec.label}: unable to replace {target} ({error})", False
     try:
         create_directory_link(source, target)
     except (DirectoryLinkError, OSError) as error:
+        if backup is not None and not os.path.lexists(target):
+            os.replace(backup, target)
         return f"ERROR    {spec.label}: {target} -> {source} ({error})", False
+    if backup is not None:
+        message = f"{message} (preserved {backup})"
     return message, True
+
+
+def adopt_matching_directory(target: Path, source: Path) -> bool:
+    """A real directory can be replaced only when every file already matches the source."""
+    if not target.is_dir() or directory_link_kind(target) is not None:
+        return False
+    source_files = {
+        path.relative_to(source): path.read_bytes()
+        for path in source.rglob("*")
+        if path.is_file() and not path.name.startswith(".")
+    }
+    target_files = {
+        path.relative_to(target): path.read_bytes()
+        for path in target.rglob("*")
+        if path.is_file() and not path.name.startswith(".")
+    }
+    return source_files == target_files and bool(source_files)
 
 
 def is_managed_rule_file(path: Path) -> bool:
@@ -774,6 +968,8 @@ def install_copy(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
 def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     if spec.strategy == DIRECTORY_LINK_STRATEGY:
         return install_directory_link(spec, args)
+    if spec.strategy == FILE_LINK_STRATEGY:
+        return install_file_link(spec, args)
     if spec.strategy == COPY_STRATEGY:
         return install_copy(spec, args)
     if spec.strategy == TOML_MERGE_STRATEGY:
@@ -788,7 +984,7 @@ def main() -> int:
     if (
         not args.skill
         and not (SKILLS_DIR / "ui-ux-pro-max" / "SKILL.md").is_file()
-        and not (args.rules_only or args.agents_only or args.config_only)
+        and not (args.rules_only or args.agents_only or args.config_only or args.opencode_only)
     ):
         print(
             "NOTE: ui-ux-pro-max is not materialized; run "
@@ -804,6 +1000,11 @@ def main() -> int:
             print(f"Rules target: {codex_home / 'rules'}")
         if installs_codex_playwright_config(args):
             print(f"Config target: {codex_home / 'config.toml'}")
+        print()
+    if installs_opencode(args):
+        print(f"OpenCode home: {DEFAULT_OPENCODE_HOME}")
+        print(f"OpenCode config: {DEFAULT_OPENCODE_HOME / 'opencode.json'}")
+        print(f"OpenCode agents: {DEFAULT_OPENCODE_HOME / 'agents'}")
         print()
 
     specs = plan_installs(args, codex_home)

@@ -1,0 +1,198 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "grok/grok-4.7",
+  "share": "disabled",
+  "default_agent": "build",
+  "agents": {
+    "title": {
+      "model": "codex/gpt-6-luna"
+    },
+    "plan": {
+      "model": "grok/grok-4.7#high"
+    },
+    "build": {
+      "model": "grok/grok-4.7#high"
+    },
+    "general": {
+      "model": "grok/grok-4.7#high"
+    }
+  },
+  "permissions": [
+    { "action": "read", "resource": "*.env", "effect": "deny" },
+    { "action": "read", "resource": "*.env.*", "effect": "deny" },
+    { "action": "read", "resource": "*.env.example", "effect": "allow" },
+    { "action": "shell", "resource": "git push *", "effect": "ask" },
+    { "action": "shell", "resource": "sudo *", "effect": "ask" },
+    { "action": "shell", "resource": "rm *", "effect": "ask" },
+    { "action": "external_directory", "resource": "/tmp/*", "effect": "allow" },
+    { "action": "external_directory", "resource": "~/.local/share/opencode/*", "effect": "allow" }
+  ],
+  "compaction": {
+    "auto": false
+  },
+  "watcher": {
+    "ignore": [
+      "node_modules/**",
+      "dist/**",
+      ".git/**",
+      ".idea/**"
+    ]
+  },
+  "plugins": [],
+  "experimental": {
+    "policies": [
+      { "action": "provider.use", "resource": "*", "effect": "deny" },
+      { "action": "provider.use", "resource": "grok", "effect": "allow" },
+      { "action": "provider.use", "resource": "gemini", "effect": "allow" },
+      { "action": "provider.use", "resource": "codex", "effect": "allow" },
+      { "action": "provider.use", "resource": "glm", "effect": "allow" }
+    ]
+  },
+  "providers": {
+    "grok": {
+      "name": "Grok (NewAPI)",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "{env:NEWAPI_BASE_URL}",
+        "apiKey": "{env:GROK_API_KEY}"
+      },
+      "models": {
+        "grok-4.7": {
+          "name": "Grok 4.7",
+          "limit": { "context": 500000, "output": 500000 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "xhigh", "settings": { "reasoningEffort": "xhigh" } }
+          ]
+        },
+        "grok-4.6": {
+          "name": "Grok 4.6",
+          "limit": { "context": 500000, "output": 500000 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "xhigh", "settings": { "reasoningEffort": "xhigh" } }
+          ]
+        },
+        "grok-build-0.1": {
+          "name": "Grok Build 0.1",
+          "limit": { "context": 256000, "output": 256000 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        }
+      }
+    },
+    "gemini": {
+      "name": "Gemini (NewAPI)",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "{env:NEWAPI_BASE_URL}",
+        "apiKey": "{env:NEWAPI_GEMINI_API_KEY}"
+      },
+      "models": {
+        "gemini-3.8-flash": {
+          "name": "Gemini 3.8 Flash",
+          "limit": { "context": 1048576, "output": 65536 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } }
+          ]
+        }
+      }
+    },
+    "codex": {
+      "name": "Codex (NewAPI)",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "{env:NEWAPI_BASE_URL}",
+        "apiKey": "{env:NEWAPI_CODEX_API_KEY}"
+      },
+      "models": {
+        "gpt-6-astra": {
+          "name": "GPT-6 Astra",
+          "limit": { "context": 1050000, "output": 128000 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "xhigh", "settings": { "reasoningEffort": "xhigh" } },
+            { "id": "max", "settings": { "reasoningEffort": "max" } }
+          ]
+        },
+        "gpt-6.1-sol": {
+          "name": "GPT-6.1 Sol",
+          "limit": { "context": 1050000, "output": 128000 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "none", "settings": { "reasoningEffort": "none" } },
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "xhigh", "settings": { "reasoningEffort": "xhigh" } },
+            { "id": "max", "settings": { "reasoningEffort": "max" } }
+          ]
+        },
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "limit": { "context": 1050000, "output": 128000 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "none", "settings": { "reasoningEffort": "none" } },
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "xhigh", "settings": { "reasoningEffort": "xhigh" } },
+            { "id": "max", "settings": { "reasoningEffort": "max" } }
+          ]
+        }
+      }
+    },
+    "glm": {
+      "name": "GLM (NewAPI)",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "{env:NEWAPI_BASE_URL}",
+        "apiKey": "{env:NEWAPI_ZAI_API_KEY}"
+      },
+      "models": {
+        "glm-5.3": {
+          "name": "GLM-5.3",
+          "limit": { "context": 1000000, "output": 131072 },
+          "capabilities": { "input": ["text"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "max", "settings": { "reasoningEffort": "max" } }
+          ]
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3 Flash",
+          "limit": { "context": 1000000, "output": 131072 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "max", "settings": { "reasoningEffort": "max" } }
+          ]
+        },
+        "glm-5.3-flashx": {
+          "name": "GLM-5.3 FlashX",
+          "limit": { "context": 1000000, "output": 131072 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } },
+            { "id": "max", "settings": { "reasoningEffort": "max" } }
+          ]
+        }
+      }
+    }
+  }
+}

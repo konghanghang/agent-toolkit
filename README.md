@@ -6,6 +6,7 @@
 
 - Codex 与 Claude Code 共用的 Skills
 - Codex 通用 custom Agents
+- OpenCode 全局配置和 custom Agents
 - Codex 全局 Rules
 - 公共运行时和命令入口
 - 跨平台安装脚本
@@ -46,6 +47,11 @@ agent-toolkit/
 │       ├── git-commit.rules
 │       ├── github-readonly.rules
 │       └── gitlab-pipeline.rules
+├── opencode/
+│   ├── agents/
+│   │   ├── evidence_explorer.md
+│   │   └── reviewer.md
+│   └── opencode.json
 ├── claude/
 ├── common/
 └── scripts/
@@ -57,6 +63,7 @@ agent-toolkit/
 
 - `skills/`：Codex、Claude Code 共用的 Skills，每个目录必须包含 `SKILL.md`。
 - `codex/`：Codex 专属配置，保存可版本控制的 custom Agents、MCP 配置模板和全局 Rules。
+- `opencode/`：OpenCode 专属配置。`opencode.json` 用 `{env:NAME}` 引用网关地址和密钥；`agents/` 保存 custom Agents。
 - `claude/`：Claude Code 专属配置占位；没有真实配置前保持为空。
 - `common/`：work 公共运行时、入口脚本和命令模板，不作为 Skill 安装。
 - `scripts/`：工具箱自身的安装和维护脚本。
@@ -214,10 +221,11 @@ python3 ~/.agent-toolkit/scripts/install.py --profile general
 3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
 4. 将当前 profile 的 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
 5. 把标准 Playwright MCP 审批、禁用工具和缓存目录安全合并到 `~/.codex/config.toml`，保留其他本机配置。
-6. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
-7. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
-8. Skill、Agent、Rule 和 Playwright 配置已经一致时跳过。
-9. 旧版受管链接可以显式迁移；未知文件、真实目录链接或 Playwright 配置冲突时拒绝覆盖。
+6. 校验 `opencode/agents/*.md` 的 frontmatter，并把 `opencode/agents/` 链接到 `~/.config/opencode/agents/`，把 `opencode/opencode.json` 链接到 `~/.config/opencode/opencode.json`。
+7. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
+8. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
+9. Skill、Agent、Rule 和 Playwright 配置已经一致时跳过。
+10. 旧版受管链接可以显式迁移；未知文件、真实目录链接或 Playwright 配置冲突时拒绝覆盖。OpenCode 的已有文件或目录只有在内容与仓库逐字节一致时才会换成链接，原路径先移到 Git 忽略的 `.local/backups/opencode/`。
 
 目录链接按平台实现：
 
@@ -270,6 +278,7 @@ python3 ~/.agent-toolkit/scripts/install.py --replace-managed
 --claude-only      只安装 Claude Code Skills
 --rules-only       只安装 Codex Rules
 --agents-only      只安装 Codex Agents
+--opencode-only    只安装 OpenCode 配置和 Agents
 --config-only      只安装受管的 Codex Playwright MCP 配置
 --codex-home PATH  将 Agents、Rules 和受管配置安装到指定的现有 Codex Home
 --skill NAME       只处理指定 Skill，可重复使用
@@ -391,6 +400,18 @@ Codex Playwright MCP 配置：
 
 Codex Agents 使用目录链接，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。macOS/Linux 使用软链接，Windows 使用 directory junction。目标 `agents/` 已经是真实目录或未知目录链接时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
 
+OpenCode：
+
+```text
+~/.config/opencode/opencode.json
+  → ~/.agent-toolkit/opencode/opencode.json
+
+~/.config/opencode/agents
+  → ~/.agent-toolkit/opencode/agents
+```
+
+OpenCode 配置使用文件链接，Agents 使用目录链接。网关地址和 API Key 只通过 `{env:NAME}` 引用，不写入仓库。`cli.json`、`tui.json`、`service.json` 和本机依赖仍留在 `~/.config/opencode/`，不由安装器管理。目标已经指向仓库时跳过；内容与仓库一致的普通文件或目录会先移到 `.local/backups/opencode/` 再换成链接；内容不同或目录里有额外文件时拒绝覆盖。
+
 Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是目录链接。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录链接不受影响。
 
 Codex 会为新会话加载 Agents、Rules 和 MCP 配置。Agent 源文件通过目录链接立即更新，Rule 或 Playwright 配置变更后需要重新安装；完成后应新开会话或重启客户端。
@@ -478,7 +499,17 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 
 ## 当前 Codex Agents
 
-- `evidence_explorer`：只读探索真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。
+- `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。与 OpenCode 的 `evidence_explorer` 保持同一职责和中文指令。
+- `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。与 OpenCode 的 `reviewer` 保持同一职责和中文指令。
+
+## 当前 OpenCode Agents
+
+`codex/agents/` 与 `opencode/agents/` 按同名成对维护。修改其中一个 agent 时，同步另一边的职责和中文指令；模型、权限和沙箱保留各自平台的写法。
+
+- `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。与 Codex 的 `evidence_explorer` 保持同一职责和中文指令。
+- `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。与 Codex 的 `reviewer` 保持同一职责和中文指令。
+
+OpenCode 的网关和密钥来自运行 OpenCode 服务的进程环境：`NEWAPI_BASE_URL`、`GROK_API_KEY`、`NEWAPI_GEMINI_API_KEY`、`NEWAPI_CODEX_API_KEY`、`NEWAPI_ZAI_API_KEY`。变量缺失时 `{env:NAME}` 会原样保留，请求不会改用另一台机器的地址。修改这些变量后需要重启 OpenCode 服务。
 
 ## 当前 Codex Rules
 
@@ -500,13 +531,23 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 5. 不写入凭证、个人机器绝对路径或某个项目独有的业务口径。
 6. 完成后运行安装器单元测试，以及默认和自定义 Codex Home 的 `--agents-only --dry-run`。
 
+## 新增 OpenCode Agent
+
+新的 OpenCode custom Agent 必须：
+
+1. 放入 `opencode/agents/<agent-name>.md`。
+2. 使用 YAML frontmatter，至少定义 `description` 和 `mode`，正文作为 agent 指令。
+3. 只读 Agent 必须显式拒绝 `edit`，并只放行需要的只读 `shell` 命令。
+4. 模型、网关和密钥使用可移植引用；不要写入真实 URL、API Key 或个人机器绝对路径。
+5. 完成后运行安装器单元测试，以及 `--opencode-only --dry-run`。
+
 ## 新增 Skill
 
 新的共享 Skill 必须：
 
 - 在 `install-profiles.json` 的 `skills` 中登记 `general` 或 `work`，并同步上方分类说明。通用/个人项目能力归 general，内部服务、工作凭证、工作流程专用能力归 work；通用 Skill 对工作场景的可选说明不构成工作运行时依赖。
 - 未登记分类或分类值无效时，安装器拒绝继续。外部 Skill 也必须登记；暂未还原的已登记外部 Skill 可以缺席。
-- 新 Rule 同样登记到清单的 `rules`。当前 Agent 目录和 Playwright 配置为通用共享组件；工作专属 Agent/MCP 不能直接加入共享目录或模板，须先扩展安装器隔离机制。
+- 新 Rule 同样登记到清单的 `rules`。当前 Agent 目录、OpenCode 配置和 Playwright 配置为通用共享组件；工作专属 Agent/MCP 不能直接加入共享目录或模板，须先扩展安装器隔离机制。
 
 
 1. 放入 `skills/<skill-name>/`。
@@ -544,7 +585,7 @@ git config --global iminling.repoPath /absolute/path/to/iminling-pages
 git -C ~/.agent-toolkit pull
 ```
 
-Skill 和 Agent 目录链接会立即读取仓库内更新。Rules 是受管副本，拉取后需要重新运行：
+Skill、Codex Agent 和 OpenCode 的目录或文件链接会立即读取仓库内更新。OpenCode 配置变更后需要 `opencode reload` 或重启服务。Rules 是受管副本，拉取后需要重新运行：
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py --rules-only
@@ -595,6 +636,7 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --from-lock
 - `scripts/install.py --dry-run` 无未知冲突。
 - Codex 与 Claude Code 的 Skill 目录链接目标正确。
 - 默认和自定义 Codex Home 的 Agent 目录链接目标正确。
+- OpenCode 配置和 Agent 链接目标正确，且仓库内没有真实网关地址或密钥。
 - Codex Rules 是与源文件一致的真实文件，且 `execpolicy check` 正常。
 - 除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
 - 没有凭证和机器相关运行时文件进入 Git。

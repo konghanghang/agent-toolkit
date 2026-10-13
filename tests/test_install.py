@@ -641,6 +641,134 @@ class InstallTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 install.parse_args(["--agents-only", "--skill", "git-commit"])
 
+    def test_skill_is_rejected_for_opencode_only(self) -> None:
+        with self.assertRaises(SystemExit):
+            install.parse_args(["--opencode-only", "--skill", "git-commit"])
+
+    def test_codex_home_is_rejected_for_opencode_only(self) -> None:
+        with self.assertRaises(SystemExit):
+            install.parse_args(["--opencode-only", "--codex-home", "/tmp/codex"])
+
+    def test_opencode_only_plans_config_file_and_agents_directory(self) -> None:
+        specs = install.plan_installs(install.parse_args(["--opencode-only"]))
+
+        self.assertEqual(["OpenCode agents", "OpenCode config"], [spec.label for spec in specs])
+        self.assertEqual(install.DEFAULT_OPENCODE_HOME / "agents", specs[0].target)
+        self.assertEqual(install.DIRECTORY_LINK_STRATEGY, specs[0].strategy)
+        self.assertEqual(install.DEFAULT_OPENCODE_HOME / "opencode.json", specs[1].target)
+        self.assertEqual(install.FILE_LINK_STRATEGY, specs[1].strategy)
+
+    def test_general_install_includes_opencode(self) -> None:
+        specs = install.plan_installs(install.parse_args(["--profile", "general"]))
+        labels = {spec.label for spec in specs}
+
+        self.assertIn("OpenCode agents", labels)
+        self.assertIn("OpenCode config", labels)
+
+    def test_codex_only_excludes_opencode(self) -> None:
+        specs = install.plan_installs(install.parse_args(["--profile", "general", "--codex-only"]))
+
+        self.assertFalse(any(spec.label.startswith("OpenCode") for spec in specs))
+
+    def test_opencode_config_adopts_identical_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            os.environ,
+            {"AGENT_TOOLKIT_BACKUP_DIR": str(Path(temp_dir) / "backups")},
+        ):
+            root = Path(temp_dir)
+            source = root / "opencode.json"
+            source.write_text('{"model":"example"}\n', encoding="utf-8")
+            target = root / "home" / "opencode.json"
+            target.parent.mkdir()
+            target.write_text('{"model":"example"}\n', encoding="utf-8")
+            spec = install.InstallSpec(source, target, "OpenCode config", install.FILE_LINK_STRATEGY)
+            args = install.parse_args(["--opencode-only"])
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success, message)
+            self.assertIn("ADOPT", message)
+            self.assertTrue(target.is_symlink())
+            self.assertEqual(source.resolve(), install.resolve_link_target(target))
+            self.assertIn("preserved", message)
+
+    def test_opencode_config_rejects_different_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.json"
+            source.write_text('{"model":"managed"}\n', encoding="utf-8")
+            target = root / "target.json"
+            target.write_text('{"model":"local"}\n', encoding="utf-8")
+            spec = install.InstallSpec(source, target, "OpenCode config", install.FILE_LINK_STRATEGY)
+            args = install.parse_args(["--opencode-only"])
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertFalse(success)
+            self.assertIn("differs", message)
+            self.assertEqual('{"model":"local"}\n', target.read_text(encoding="utf-8"))
+            self.assertFalse(target.is_symlink())
+
+    def test_opencode_agents_adopt_identical_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            os.environ,
+            {"AGENT_TOOLKIT_BACKUP_DIR": str(Path(temp_dir) / "backups")},
+        ):
+            root = Path(temp_dir)
+            source = root / "agents"
+            source.mkdir()
+            (source / "reviewer.md").write_text("review\n", encoding="utf-8")
+            target = root / "home" / "agents"
+            target.mkdir(parents=True)
+            (target / "reviewer.md").write_text("review\n", encoding="utf-8")
+            spec = install.InstallSpec(source, target, "OpenCode agents", install.DIRECTORY_LINK_STRATEGY)
+            args = install.parse_args(["--opencode-only"])
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success, message)
+            self.assertIn("ADOPT", message)
+            expected_kind = "junction" if os.name == "nt" else "symlink"
+            self.assertEqual(expected_kind, install.directory_link_kind(target))
+            self.assertEqual(source.resolve(), install.resolve_directory_link(target))
+
+    def test_opencode_agents_reject_directory_with_extra_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source-agents"
+            source.mkdir()
+            (source / "reviewer.md").write_text("review\n", encoding="utf-8")
+            target = root / "home-agents"
+            target.mkdir()
+            (target / "reviewer.md").write_text("review\n", encoding="utf-8")
+            (target / "local.md").write_text("local\n", encoding="utf-8")
+            spec = install.InstallSpec(source, target, "OpenCode agents", install.DIRECTORY_LINK_STRATEGY)
+            args = install.parse_args(["--opencode-only"])
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertFalse(success)
+            self.assertIn("not a directory link", message)
+            self.assertTrue((target / "local.md").is_file())
+
+    def test_opencode_agent_validation_rejects_missing_instructions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            agents = root / "agents"
+            agents.mkdir()
+            (agents / "empty.md").write_text(
+                "---\ndescription: empty\nmode: subagent\n---\n",
+                encoding="utf-8",
+            )
+            config = root / "opencode.json"
+            config.write_text("{}\n", encoding="utf-8")
+
+            with mock.patch.object(install, "OPENCODE_AGENTS_SOURCE", agents), mock.patch.object(
+                install, "OPENCODE_CONFIG_SOURCE", config
+            ):
+                with self.assertRaisesRegex(SystemExit, "missing instructions"):
+                    install.plan_installs(install.parse_args(["--opencode-only"]))
+
     def test_skill_is_rejected_for_config_only(self) -> None:
         with mock.patch("sys.stderr", new=io.StringIO()):
             with self.assertRaises(SystemExit):
