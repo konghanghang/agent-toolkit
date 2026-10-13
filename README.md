@@ -497,17 +497,23 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
   - [线索信息管理待初审夹具](skills/local-browser-verify/references/clue-unsubmitted-fixture.md)
 - `gitlab-run-pipeline`
 
+## 通用 Agent 成对要求
+
+`codex/agents/<name>.toml` 与 `opencode/agents/<name>.md` 按同名成对维护，两个目录的 agent 名称集合必须一致。
+
+新增、修改或删除任意一个 agent 时，必须在同一次改动中同步另一边，不能先改一边、把另一边留到以后。同步的是职责、中文指令和输出要求。模型、沙箱和权限使用各自平台的字段，不把 Codex TOML 语法复制到 OpenCode，也不把 OpenCode frontmatter 复制到 Codex。
+
+提交前核对两个目录的文件名（去掉扩展名）完全一致，并同时更新本节下方两个列表。
+
 ## 当前 Codex Agents
 
-- `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。与 OpenCode 的 `evidence_explorer` 保持同一职责和中文指令。
-- `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。与 OpenCode 的 `reviewer` 保持同一职责和中文指令。
+- `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。
+- `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。
 
 ## 当前 OpenCode Agents
 
-`codex/agents/` 与 `opencode/agents/` 按同名成对维护。修改其中一个 agent 时，同步另一边的职责和中文指令；模型、权限和沙箱保留各自平台的写法。
-
-- `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。与 Codex 的 `evidence_explorer` 保持同一职责和中文指令。
-- `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。与 Codex 的 `reviewer` 保持同一职责和中文指令。
+- `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。
+- `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。
 
 OpenCode 的网关和密钥来自运行 OpenCode 服务的进程环境：`NEWAPI_BASE_URL`、`GROK_API_KEY`、`NEWAPI_GEMINI_API_KEY`、`NEWAPI_CODEX_API_KEY`、`NEWAPI_ZAI_API_KEY`。变量缺失时 `{env:NAME}` 会原样保留，请求不会改用另一台机器的地址。修改这些变量后需要重启 OpenCode 服务。
 
@@ -529,7 +535,8 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 3. 使用清晰、稳定、项目无关的职责边界；项目特定规则继续放在项目 `AGENTS.md`。
 4. 只读 Agent 必须显式配置 `sandbox_mode = "read-only"`。
 5. 不写入凭证、个人机器绝对路径或某个项目独有的业务口径。
-6. 完成后运行安装器单元测试，以及默认和自定义 Codex Home 的 `--agents-only --dry-run`。
+6. 同一次改动中按「通用 Agent 成对要求」同步 `opencode/agents/<agent-name>.md`。
+7. 完成后运行安装器单元测试，以及默认和自定义 Codex Home 的 `--agents-only --dry-run`。
 
 ## 新增 OpenCode Agent
 
@@ -539,7 +546,8 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 2. 使用 YAML frontmatter，至少定义 `description` 和 `mode`，正文作为 agent 指令。
 3. 只读 Agent 必须显式拒绝 `edit`，并只放行需要的只读 `shell` 命令。
 4. 模型、网关和密钥使用可移植引用；不要写入真实 URL、API Key 或个人机器绝对路径。
-5. 完成后运行安装器单元测试，以及 `--opencode-only --dry-run`。
+5. 同一次改动中按「通用 Agent 成对要求」同步 `codex/agents/<agent-name>.toml`。
+6. 完成后运行安装器单元测试，以及 `--opencode-only --dry-run`。
 
 ## 新增 Skill
 

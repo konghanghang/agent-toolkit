@@ -10,7 +10,7 @@
 - 安装前运行对应 profile 的 dry-run。`--skill` 不能越过 profile 边界。切换分类不自动卸载；需要卸载时单独确认范围。
 - 新机完整安装先通过 `scripts/update_ui_ux_pro_max.py --from-lock` 还原外部 Skill，再按 profile 安装。工作新机还需执行 `common/bootstrap_work.py` 初始化运行时；家庭电脑不运行它。
 - 本机 profile、运行时、凭证和备份不进入版本控制。
-- `codex/agents/*.toml` 与 `opencode/agents/*.md` 必须按同名成对维护，并保持同一职责和中文指令。新增或修改一边时同步另一边；模型、权限和沙箱按各自平台字段表达，不把平台语法复制过去。当前成对 agent 是 `evidence_explorer` 和 `reviewer`。
+- `codex/agents/*.toml` 与 `opencode/agents/*.md` 必须按同名成对维护。新增、修改或删除任意一边时，必须在同一次改动中同步另一边，不能只留待办。两边保持同一职责和中文指令；模型、权限和沙箱按各自平台字段表达，不复制平台语法。提交前核对两个目录的 agent 名称集合一致。当前成对 agent 是 `evidence_explorer` 和 `reviewer`。
 
 ## 验证
 
