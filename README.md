@@ -499,13 +499,23 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
   - [线索信息管理待初审夹具](skills/local-browser-verify/references/clue-unsubmitted-fixture.md)
 - `gitlab-run-pipeline`
 
-## 通用 Agent 成对要求
+## 通用 Agent 功能一致性
 
 `codex/agents/<name>.toml` 与 `opencode/agents/<name>.md` 按同名成对维护，两个目录的 agent 名称集合必须一致。
 
-新增、修改或删除任意一个 agent 时，必须在同一次改动中同步另一边，不能先改一边、把另一边留到以后。同步的是职责、中文指令和输出要求。模型、沙箱和权限使用各自平台的字段，不把 Codex TOML 语法复制到 OpenCode，也不把 OpenCode frontmatter 复制到 Codex。
+新增、修改或删除任意一个 agent 时，必须在同一次改动中同步另一边，不能先改一边、把另一边留到以后。两端应完成同一种任务，保持职责、任务边界、证据要求和输出契约一致，并具备完成任务所需的读取、搜索和 Git 检查能力。模型、工具、沙箱和权限使用各自平台的字段，按实际行为核对；一边独有的步数限制或工具限制不能削弱任务能力。
 
-提交前核对两个目录的文件名（去掉扩展名）完全一致，并同时更新本节下方两个列表。
+| 功能契约 | Codex | OpenCode |
+|---|---|---|
+| 目录枚举、内容搜索和定点读取 | 只读沙箱内的工具和 shell | 内置目录、grep 和 read 工具 |
+| Git 差异、状态和历史检查 | 只读沙箱内执行 | shell 白名单允许无参数及带参数的只读 Git 检查 |
+| 禁止写入 | `sandbox_mode = "read-only"` 与任务指令 | 拒绝 `edit`，默认拒绝 shell，拒绝 Git 输出文件和输出重定向 |
+| 分工边界 | 指令禁止自行派生 Agent，向父 agent 报告 | 同一指令，并拒绝 `subagent` 工具 |
+| 完成与输出 | 按职责完成证据追踪或审查，明确未核实范围 | 同一职责和输出契约，不另设 20 步截断 |
+
+OpenCode 的工具权限与 Codex 的操作系统只读沙箱有不同的隔离强度，不能把权限字段相似当成隔离机制相同。功能验收应核对读取、搜索、Git 检查和拒绝写入的实际行为，并分别说明配置检查与真实模型任务验收的覆盖范围。
+
+提交前核对名称集合、成对任务指令及只读能力，运行 `tests/test_agent_pairs.py` 对应的仓库测试，并同时更新下方两个列表。测试覆盖配置契约；真实模型任务验收需另外执行。
 
 ## 当前 Codex Agents
 
@@ -537,7 +547,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 3. 使用清晰、稳定、项目无关的职责边界；项目特定规则继续放在项目 `AGENTS.md`。
 4. 只读 Agent 必须显式配置 `sandbox_mode = "read-only"`。
 5. 不写入凭证、个人机器绝对路径或某个项目独有的业务口径。
-6. 同一次改动中按「通用 Agent 成对要求」同步 `opencode/agents/<agent-name>.md`。
+6. 同一次改动中按「通用 Agent 功能一致性」同步 `opencode/agents/<agent-name>.md`。
 7. 完成后运行安装器单元测试，以及默认和自定义 Codex Home 的 `--agents-only --dry-run`。
 
 ## 新增 OpenCode Agent
@@ -548,7 +558,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 2. 使用 YAML frontmatter，至少定义 `description` 和 `mode`，正文作为 agent 指令。
 3. 只读 Agent 必须显式拒绝 `edit`，并只放行需要的只读 `shell` 命令。
 4. 模型、网关和密钥使用可移植引用；不要写入真实 URL、API Key 或个人机器绝对路径。
-5. 同一次改动中按「通用 Agent 成对要求」同步 `codex/agents/<agent-name>.toml`。
+5. 同一次改动中按「通用 Agent 功能一致性」同步 `codex/agents/<agent-name>.toml`。
 6. 完成后运行安装器单元测试，以及 `--opencode-only --dry-run`。
 
 ## 新增 Skill
@@ -647,13 +657,12 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --version 2.10.2
 python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --from-lock
 ```
 
-提交前至少检查：
+提交前按改动的影响范围检查。未受影响、且内容和相关环境未变化的项目可复用有效结果，注明对应版本与覆盖范围；未执行、跳过和真实环境验收分别报告。安装器改动仍须检查 general、work 两个 profile。
 
-- 所有 Skill 均能通过格式校验。
-- `scripts/install.py --dry-run` 无未知冲突。
-- Codex 与 Claude Code 的 Skill 目录链接目标正确。
-- 默认和自定义 Codex Home 的 Agent 目录链接目标正确。
-- OpenCode 配置和 Agent 链接目标正确，且仓库内没有真实网关地址或密钥。
-- Codex Rules 是与源文件一致的真实文件，且 `execpolicy check` 正常。
-- 除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
-- 没有凭证和机器相关运行时文件进入 Git。
+- Skill 或安装清单改动：校验相关 Skill 格式和显式分类；安装器改动校验所有可安装 Skill。
+- 安装器改动：覆盖各平台的链接权限、路径表示、配置保护和重复安装行为；两个 profile 的 dry-run 无未知冲突，Codex 与 Claude Code 的 Skill 目录链接目标正确。
+- Agent 改动：核对两端名称、任务与输出契约、只读能力和执行限制；检查默认和自定义 Codex Home 的 Agent 目录链接，以及 OpenCode Agent 目录链接。
+- OpenCode 配置或安装逻辑改动：macOS/Linux 检查配置文件链接目标；Windows 检查受管副本内容与安装记录摘要。仓库内只有网关和密钥的环境变量引用。
+- Rules 改动或安装迁移：确认受管 Rules 为与源文件一致的真实文件，执行 `codex execpolicy check --rules <文件> <命令及参数>`，检查代表性的允许与未放行命令；复用结果时明确记录来源。
+- 路径或迁移改动：除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
+- 每次提交：审查完整任务差异，确认没有凭证和机器相关运行时文件进入 Git，记录验证版本与范围。
