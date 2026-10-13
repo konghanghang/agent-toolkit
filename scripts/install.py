@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -297,7 +298,15 @@ def available_opencode_agents() -> list[Path]:
 
 
 def resolve_link_target(target: Path) -> Path:
-    raw = Path(os.readlink(target))
+    link = os.readlink(target)
+    if is_windows():
+        # readlink() includes the Win32 namespace prefix, which resolve()
+        # preserves when it was already present in its input.
+        if link.startswith("\\\\?\\UNC\\"):
+            link = "\\\\" + link[8:]
+        elif link.startswith("\\\\?\\"):
+            link = link[4:]
+    raw = Path(link)
     if not raw.is_absolute():
         raw = target.parent / raw
     return raw.expanduser().resolve(strict=False)
@@ -598,6 +607,9 @@ def adopt_matching_file(target: Path, source: Path) -> bool:
 
 
 def install_file_link(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    if is_windows():
+        return install_windows_file_copy(spec, args)
+
     source = spec.source.resolve()
     target = spec.target
 
@@ -646,6 +658,79 @@ def install_file_link(spec: InstallSpec, args: argparse.Namespace) -> tuple[str,
         if backup is not None:
             os.replace(backup, target)
         return f"ERROR    {spec.label}: {target} -> {source} ({error})", False
+    if backup is not None:
+        message = f"{message} (preserved {backup})"
+    return message, True
+
+
+def install_windows_file_copy(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    """Manage a file copy without requiring Windows symlink privileges."""
+    source = spec.source.resolve()
+    target = spec.target
+    receipt = target.with_name(f".{target.name}.agent-toolkit.json")
+    metadata = None
+    try:
+        if os.path.lexists(receipt):
+            if receipt.is_symlink() or not receipt.is_file():
+                raise ValueError("installation receipt is not a regular file")
+            metadata = json.loads(receipt.read_text(encoding="utf-8"))
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("schema_version") != 1
+                or metadata.get("managed_by") != "agent-toolkit"
+                or metadata.get("component") != spec.label
+                or not isinstance(metadata.get("sha256"), str)
+            ):
+                raise ValueError("unrecognized installation receipt")
+        source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        if target.is_symlink():
+            existing = resolve_link_target(target)
+            if existing == source:
+                return f"OK       {spec.label}: {target} -> {source}", True
+            if not args.replace_managed or not is_managed_target(existing):
+                return f"CONFLICT {spec.label}: {target} -> {existing}", False
+            action = "REPLACE"
+        elif os.path.lexists(target):
+            if not target.is_file():
+                return f"CONFLICT {spec.label}: {target} is not a regular file", False
+            current_digest = hashlib.sha256(target.read_bytes()).hexdigest()
+            if metadata is not None and metadata["sha256"] != current_digest:
+                return f"CONFLICT {spec.label}: {target} was modified locally", False
+            if current_digest == source_digest:
+                if metadata is not None:
+                    return f"OK       {spec.label}: {target} matches {source} (managed copy)", True
+                action = "ADOPT  "
+            elif metadata is not None:
+                action = "UPDATE "
+            else:
+                return f"CONFLICT {spec.label}: {target} exists and differs from {source}", False
+        else:
+            action = "CREATE "
+    except (OSError, UnicodeError, ValueError) as error:
+        return f"CONFLICT {spec.label}: {target} ({error})", False
+
+    message = f"{action} {spec.label}: {source} -> {target} (managed copy)"
+    if args.dry_run:
+        return message, True
+
+    backup = None
+    try:
+        if os.path.lexists(target):
+            backup = backup_replaced_path(target)
+        atomic_copy(source, target)
+        metadata = {
+            "schema_version": 1,
+            "managed_by": "agent-toolkit",
+            "component": spec.label,
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+        }
+        atomic_write_text(receipt, json.dumps(metadata, indent=2) + "\n")
+    except OSError as error:
+        if backup is not None:
+            os.replace(backup, target)
+        elif action.strip() == "CREATE":
+            target.unlink(missing_ok=True)
+        return f"ERROR    {spec.label}: unable to install {target} ({error})", False
     if backup is not None:
         message = f"{message} (preserved {backup})"
     return message, True
@@ -709,12 +794,12 @@ def adopt_matching_directory(target: Path, source: Path) -> bool:
     source_files = {
         path.relative_to(source): path.read_bytes()
         for path in source.rglob("*")
-        if path.is_file() and not path.name.startswith(".")
+        if path.is_file()
     }
     target_files = {
         path.relative_to(target): path.read_bytes()
         for path in target.rglob("*")
-        if path.is_file() and not path.name.startswith(".")
+        if path.is_file()
     }
     return source_files == target_files and bool(source_files)
 

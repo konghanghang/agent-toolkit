@@ -670,6 +670,25 @@ class InstallTest(unittest.TestCase):
 
         self.assertFalse(any(spec.label.startswith("OpenCode") for spec in specs))
 
+    def test_resolve_link_target_normalizes_windows_namespace_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "opencode.json"
+            source.write_bytes(b"{}\n")
+            target = Path(temp_dir) / "home" / "link.json"
+            target.parent.mkdir()
+            for raw in (str(source), "\\\\?\\" + str(source), os.path.relpath(source, target.parent)):
+                with self.subTest(raw=raw), mock.patch.object(
+                    install, "is_windows", return_value=True
+                ), mock.patch.object(install.os, "readlink", return_value=raw):
+                    self.assertEqual(source.resolve(), install.resolve_link_target(target))
+
+            # Inspect UNC conversion without contacting a network share.
+            with mock.patch.object(install, "is_windows", return_value=True), mock.patch.object(
+                install.os, "readlink", return_value="\\\\?\\UNC\\server\\share\\opencode.json"
+            ), mock.patch.object(install, "Path", return_value=source) as path:
+                self.assertEqual(source.resolve(), install.resolve_link_target(target))
+                path.assert_called_once_with("\\\\server\\share\\opencode.json")
+
     def test_opencode_config_adopts_identical_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
             os.environ,
@@ -688,9 +707,18 @@ class InstallTest(unittest.TestCase):
 
             self.assertTrue(success, message)
             self.assertIn("ADOPT", message)
-            self.assertTrue(target.is_symlink())
-            self.assertEqual(source.resolve(), install.resolve_link_target(target))
+            if os.name == "nt":
+                self.assertFalse(target.is_symlink())
+                self.assertEqual(source.read_bytes(), target.read_bytes())
+            else:
+                self.assertTrue(target.is_symlink())
+                self.assertEqual(source.resolve(), install.resolve_link_target(target))
             self.assertIn("preserved", message)
+
+            message, success = install.install_spec(spec, args)
+
+            self.assertTrue(success, message)
+            self.assertTrue(message.startswith("OK"), message)
 
     def test_opencode_config_rejects_different_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -718,9 +746,11 @@ class InstallTest(unittest.TestCase):
             source = root / "agents"
             source.mkdir()
             (source / "reviewer.md").write_text("review\n", encoding="utf-8")
+            (source / ".metadata").write_bytes(b"metadata\n")
             target = root / "home" / "agents"
             target.mkdir(parents=True)
             (target / "reviewer.md").write_text("review\n", encoding="utf-8")
+            (target / ".metadata").write_bytes(b"metadata\n")
             spec = install.InstallSpec(source, target, "OpenCode agents", install.DIRECTORY_LINK_STRATEGY)
             args = install.parse_args(["--opencode-only"])
 
@@ -731,6 +761,7 @@ class InstallTest(unittest.TestCase):
             expected_kind = "junction" if os.name == "nt" else "symlink"
             self.assertEqual(expected_kind, install.directory_link_kind(target))
             self.assertEqual(source.resolve(), install.resolve_directory_link(target))
+            self.assertEqual(b"metadata\n", (target / ".metadata").read_bytes())
 
     def test_opencode_agents_reject_directory_with_extra_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -750,6 +781,29 @@ class InstallTest(unittest.TestCase):
             self.assertFalse(success)
             self.assertIn("not a directory link", message)
             self.assertTrue((target / "local.md").is_file())
+
+    def test_opencode_agents_reject_extra_or_different_hidden_file(self) -> None:
+        for source_content in (None, b"source\n"):
+            with self.subTest(source_content=source_content), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                source = root / "source-agents"
+                target = root / "home-agents"
+                source.mkdir()
+                target.mkdir()
+                for directory in (source, target):
+                    (directory / "reviewer.md").write_bytes(b"review\n")
+                hidden = target / ".local-agent.md"
+                hidden.write_bytes(b"local\n")
+                if source_content is not None:
+                    (source / hidden.name).write_bytes(source_content)
+                spec = install.InstallSpec(source, target, "OpenCode agents", install.DIRECTORY_LINK_STRATEGY)
+
+                message, success = install.install_spec(spec, install.parse_args(["--opencode-only"]))
+
+                self.assertFalse(success, message)
+                self.assertTrue(message.startswith("CONFLICT"), message)
+                self.assertIsNone(install.directory_link_kind(target))
+                self.assertEqual(b"local\n", hidden.read_bytes())
 
     def test_opencode_agent_validation_rejects_missing_instructions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -810,6 +864,128 @@ class InstallTest(unittest.TestCase):
 
         self.assertTrue(success)
         run.assert_called_once_with([sys.executable, str(initializer), "--dry-run"])
+
+
+class WindowsFileCopyTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.source = self.root / "source.json"
+        self.source.write_bytes(b'{"model":"managed"}\r\n')
+        self.target = self.root / "home" / "opencode.json"
+        self.receipt = self.target.with_name(".opencode.json.agent-toolkit.json")
+        self.spec = install.InstallSpec(
+            self.source, self.target, "OpenCode config", install.FILE_LINK_STRATEGY
+        )
+        self.args = install.parse_args(["--opencode-only"])
+        patches = [
+            mock.patch.object(install, "is_windows", return_value=True),
+            mock.patch.dict(os.environ, {"AGENT_TOOLKIT_BACKUP_DIR": str(self.root / "backups")}),
+        ]
+        if os.name != "nt":
+            patches.extend([
+                mock.patch.object(install, "secure_private_file"),
+                mock.patch.object(install, "copy_windows_acl"),
+            ])
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_copy_lifecycle_protects_local_edits_without_symlink_privileges(self):
+        with mock.patch.object(
+            Path, "symlink_to", side_effect=OSError(1314, "symlink privilege unavailable")
+        ) as symlink:
+            message, success = install.install_spec(self.spec, self.args)
+            self.assertTrue(success, message)
+            self.assertFalse(self.target.is_symlink())
+            self.assertEqual(self.source.read_bytes(), self.target.read_bytes())
+
+            message, success = install.install_spec(self.spec, self.args)
+            self.assertTrue(success, message)
+            self.assertTrue(message.startswith("OK"), message)
+
+            previous = self.target.read_bytes()
+            self.source.write_bytes(b'{"model":"updated"}\n')
+            message, success = install.install_spec(self.spec, self.args)
+            self.assertTrue(success, message)
+            self.assertTrue(message.startswith("UPDATE"), message)
+            self.assertEqual(self.source.read_bytes(), self.target.read_bytes())
+            backups = list((self.root / "backups" / "opencode").iterdir())
+            self.assertEqual([previous], [path.read_bytes() for path in backups])
+
+            self.target.write_bytes(b'{"model":"local"}\n')
+            receipt_before = self.receipt.read_bytes()
+            args = install.parse_args(["--opencode-only", "--replace-managed"])
+            message, success = install.install_spec(self.spec, args)
+            self.assertFalse(success, message)
+            self.assertIn("modified locally", message)
+            self.assertEqual(b'{"model":"local"}\n', self.target.read_bytes())
+            self.assertEqual(receipt_before, self.receipt.read_bytes())
+            symlink.assert_not_called()
+
+    def test_copy_rejects_unmanaged_files_and_invalid_receipts(self):
+        self.target.parent.mkdir()
+        self.target.write_bytes(b'{"model":"local"}\n')
+        for receipt_content in (None, "invalid json", '{"managed_by":"someone-else"}'):
+            with self.subTest(receipt=receipt_content):
+                if receipt_content is not None:
+                    self.receipt.write_text(receipt_content, encoding="utf-8")
+                message, success = install.install_spec(self.spec, self.args)
+                self.assertFalse(success, message)
+                self.assertTrue(message.startswith("CONFLICT"), message)
+                self.assertEqual(b'{"model":"local"}\n', self.target.read_bytes())
+                if receipt_content is None:
+                    self.assertFalse(self.receipt.exists())
+                else:
+                    self.assertEqual(receipt_content, self.receipt.read_text(encoding="utf-8"))
+        self.assertFalse((self.root / "backups").exists())
+
+    def test_copy_dry_run_does_not_create_or_update_files(self):
+        args = install.parse_args(["--opencode-only", "--dry-run"])
+        message, success = install.install_spec(self.spec, args)
+        self.assertTrue(success, message)
+        self.assertFalse(self.target.parent.exists())
+
+        self.target.parent.mkdir()
+        self.target.write_bytes(self.source.read_bytes())
+        message, success = install.install_spec(self.spec, args)
+        self.assertTrue(success, message)
+        self.assertIn("ADOPT", message)
+        self.assertFalse(self.receipt.exists())
+        self.assertFalse((self.root / "backups").exists())
+
+        message, success = install.install_spec(self.spec, self.args)
+        self.assertTrue(success, message)
+        self.source.write_bytes(b'{"model":"updated"}\n')
+        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        message, success = install.install_spec(self.spec, args)
+        self.assertTrue(success, message)
+        self.assertIn("UPDATE", message)
+        after = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_receipt_write_failure_restores_original_config(self):
+        for action in ("create", "adopt", "update"):
+            with self.subTest(action=action):
+                target = self.root / action / "opencode.json"
+                receipt = target.with_name(".opencode.json.agent-toolkit.json")
+                spec = install.InstallSpec(self.source, target, "OpenCode config", install.FILE_LINK_STRATEGY)
+                if action != "create":
+                    target.parent.mkdir()
+                    target.write_bytes(self.source.read_bytes())
+                if action == "update":
+                    message, success = install.install_spec(spec, self.args)
+                    self.assertTrue(success, message)
+                    self.source.write_bytes(b'{"model":"updated"}\n')
+                original = target.read_bytes() if target.exists() else None
+                original_receipt = receipt.read_bytes() if receipt.exists() else None
+                with mock.patch.object(install, "atomic_write_text", side_effect=OSError("receipt write failed")):
+                    message, success = install.install_spec(spec, self.args)
+                self.assertFalse(success, message)
+                self.assertIn("receipt write failed", message)
+                self.assertEqual(original, target.read_bytes() if target.exists() else None)
+                self.assertEqual(original_receipt, receipt.read_bytes() if receipt.exists() else None)
 
 
 class ProfileTest(unittest.TestCase):

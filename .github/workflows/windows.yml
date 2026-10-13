@@ -165,6 +165,23 @@ jobs:
           }
 
           Assert-Junction -Path (Join-Path $codexHome "agents") -ContentPath "evidence_explorer.toml"
+          $opencodeHome = Join-Path $isolatedHome ".config\opencode"
+          Assert-Junction -Path (Join-Path $opencodeHome "agents") -ContentPath "reviewer.md"
+          $opencodeConfig = Join-Path $opencodeHome "opencode.json"
+          $configItem = Get-Item -LiteralPath $opencodeConfig -Force
+          if ($configItem.PSIsContainer -or -not [string]::IsNullOrEmpty([string]$configItem.LinkType)) {
+            throw "Expected a regular OpenCode config file at $opencodeConfig"
+          }
+          $sourceHash = (Get-FileHash -LiteralPath "opencode\opencode.json" -Algorithm SHA256).Hash
+          if ($sourceHash -ne (Get-FileHash -LiteralPath $opencodeConfig -Algorithm SHA256).Hash) {
+            throw "Installed OpenCode config differs from its source"
+          }
+          $receiptPath = Join-Path $opencodeHome ".opencode.json.agent-toolkit.json"
+          $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+          if ($receipt.schema_version -ne 1 -or $receipt.managed_by -ne "agent-toolkit" -or
+              $receipt.component -ne "OpenCode config" -or $receipt.sha256 -ne $sourceHash.ToLowerInvariant()) {
+            throw "OpenCode config installation receipt is invalid"
+          }
 
           $sourceRules = Get-ChildItem -Path "codex\rules" -Filter "*.rules" -File
           if (-not $sourceRules) {

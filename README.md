@@ -221,11 +221,11 @@ python3 ~/.agent-toolkit/scripts/install.py --profile general
 3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
 4. 将当前 profile 的 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
 5. 把标准 Playwright MCP 审批、禁用工具和缓存目录安全合并到 `~/.codex/config.toml`，保留其他本机配置。
-6. 校验 `opencode/agents/*.md` 的 frontmatter，并把 `opencode/agents/` 链接到 `~/.config/opencode/agents/`，把 `opencode/opencode.json` 链接到 `~/.config/opencode/opencode.json`。
+6. 校验 `opencode/agents/*.md` 的 frontmatter，并把 `opencode/agents/` 链接到 `~/.config/opencode/agents/`。OpenCode 配置安装到 `~/.config/opencode/opencode.json`：macOS/Linux 使用文件链接，Windows 使用受管副本，无需文件符号链接权限。
 7. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
 8. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
 9. Skill、Agent、Rule 和 Playwright 配置已经一致时跳过。
-10. 旧版受管链接可以显式迁移；未知文件、真实目录链接或 Playwright 配置冲突时拒绝覆盖。OpenCode 的已有文件或目录只有在内容与仓库逐字节一致时才会换成链接，原路径先移到 Git 忽略的 `.local/backups/opencode/`。
+10. 旧版受管链接可以显式迁移；未知文件、真实目录链接或 Playwright 配置冲突时拒绝覆盖。OpenCode 的已有文件或目录只有在内容与仓库逐字节一致时才会接管，原路径先移到 Git 忽略的 `.local/backups/opencode/`。Windows 受管配置副本按安装记录更新；本机修改过的内容拒绝覆盖。
 
 目录链接按平台实现：
 
@@ -410,7 +410,9 @@ OpenCode：
   → ~/.agent-toolkit/opencode/agents
 ```
 
-OpenCode 配置使用文件链接，Agents 使用目录链接。网关地址和 API Key 只通过 `{env:NAME}` 引用，不写入仓库。`cli.json`、`tui.json`、`service.json` 和本机依赖仍留在 `~/.config/opencode/`，不由安装器管理。目标已经指向仓库时跳过；内容与仓库一致的普通文件或目录会先移到 `.local/backups/opencode/` 再换成链接；内容不同或目录里有额外文件时拒绝覆盖。
+上图的配置文件链接适用于 macOS/Linux；Windows 使用普通文件副本，Agents 使用目录 junction。Windows 在同目录的 `.opencode.json.agent-toolkit.json` 中记录安装内容的 SHA-256；重复安装时跳过一致的副本，仓库配置更新后重新运行安装器即可更新副本。本机文件被修改、未知文件内容不同或安装记录无效时拒绝覆盖，`--replace-managed` 也不会覆盖本机修改。已有正确的配置文件链接可继续使用。
+
+网关地址和 API Key 只通过 `{env:NAME}` 引用，不写入仓库。`cli.json`、`tui.json`、`service.json` 和本机依赖仍留在 `~/.config/opencode/`，不由安装器管理。目标已经指向仓库时跳过；接管内容一致的普通文件或目录、更新 Windows 配置副本时，原路径先移到 `.local/backups/opencode/`；目录里有额外文件时拒绝覆盖。目录比较包含隐藏文件，文件路径和内容均须一致。
 
 Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是目录链接。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录链接不受影响。
 
@@ -593,10 +595,17 @@ git config --global iminling.repoPath /absolute/path/to/iminling-pages
 git -C ~/.agent-toolkit pull
 ```
 
-Skill、Codex Agent 和 OpenCode 的目录或文件链接会立即读取仓库内更新。OpenCode 配置变更后需要 `opencode reload` 或重启服务。Rules 是受管副本，拉取后需要重新运行：
+Skill、Codex Agent 和 OpenCode 的目录或文件链接会立即读取仓库内更新。Windows 的 OpenCode 配置副本和 Rules 都需要拉取后重新运行安装器才能更新。OpenCode 配置变更后需要 `opencode reload` 或重启服务。更新 Rules：
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py --rules-only
+```
+
+Windows 更新 OpenCode 配置：
+
+```powershell
+py -3.11 "$HOME\.agent-toolkit\scripts\install.py" --opencode-only --dry-run
+py -3.11 "$HOME\.agent-toolkit\scripts\install.py" --opencode-only
 ```
 
 Agent 或 Rule 更新后，新开会话或重启客户端使其生效。
