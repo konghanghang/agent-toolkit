@@ -51,7 +51,7 @@
   "providers": {
     "grok": {
       "name": "Grok (NewAPI)",
-      "package": "@opencode/ai/providers/openai-compatible",
+      "package": "@opencode/ai/providers/xai",
       "settings": {
         "baseURL": "{env:NEWAPI_BASE_URL}",
         "apiKey": "{env:GROK_API_KEY}"
