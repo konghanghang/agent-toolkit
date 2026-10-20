@@ -121,7 +121,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 |---|---|
 | `feature-delivery` | 所有开发改动的通用流程，按复杂度和风险裁剪 |
 | `git-commit` | 通用 Git 提交工作流 |
-| `grilling` | 通用需求澄清 |
+| `grilling` | 未定想法访谈，以及编码前的业务口径澄清 |
 | `domain-modeling` | 通用术语与架构决策记录 |
 | `local-browser-verify` | 通用网页验收 |
 | `ui-ux-pro-max` | 通用 UI/UX 设计，外部 Skill |
