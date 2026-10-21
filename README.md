@@ -54,6 +54,8 @@ agent-toolkit/
 │   └── opencode.json
 ├── claude/
 ├── common/
+├── evals/
+│   └── workflow/
 └── scripts/
     ├── install.py
     └── update_ui_ux_pro_max.py
@@ -66,6 +68,7 @@ agent-toolkit/
 - `opencode/`：OpenCode 专属配置。`opencode.json` 用 `{env:NAME}` 引用网关地址和密钥；`agents/` 保存 custom Agents。
 - `claude/`：Claude Code 专属配置占位；没有真实配置前保持为空。
 - `common/`：work 公共运行时、入口脚本和命令模板，不作为 Skill 安装。
+- `evals/`：工具箱自身的行为评估材料和离线样例，不作为 Skill 安装。
 - `scripts/`：工具箱自身的安装和维护脚本。
 
 ## Skill 兼容规则
@@ -498,6 +501,12 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 - `local-browser-verify`
   - [线索信息管理待初审夹具](skills/local-browser-verify/references/clue-unsubmitted-fixture.md)
 - `gitlab-run-pipeline`
+
+## 工作流行为评估
+
+修改交付流程或 Agent 契约时，可用 [工作流行为评估](evals/workflow/README.md) 在临时目录准备可复用场景，检查授权延续、完整审查、证据分层、操作范围、事实查证和重复错误约束。先运行 `python evals/workflow/prepare.py`，再按说明在新会话执行并核对实际轨迹。
+
+准备脚本不启动模型或真实浏览器。格式校验、离线样例测试、真实模型行为观察和真实环境验收分别报告；行为评估不是所有小改动的强制门禁。
 
 ## 通用 Agent 功能一致性
 
