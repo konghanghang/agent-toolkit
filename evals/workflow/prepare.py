@@ -16,7 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 CASES = Path(__file__).with_name("cases.json")
 SKILLS = ("feature-delivery", "grilling", "domain-modeling")
-REVIEWERS = ("codex/agents/reviewer.toml", "opencode/agents/reviewer.md")
+AGENT_DIRECTORIES = ("codex/agents", "opencode/agents")
 
 NAMES = 'def format_names(names):\n    return ", ".join(names)\n'
 PRICING_BASE = (
@@ -79,6 +79,53 @@ def initial_files(case_id: str) -> dict[str, str]:
     files = {".gitignore": "__pycache__/\n*.pyc\n"}
     if case_id in ("plan-confirmation", "authorized-follow-up"):
         files.update({"names.py": NAMES, "README.md": "名字列表由 names.py 格式化。可用 Python 直接调用验证。\n"})
+    elif case_id == "agent-implementer":
+        files.update({
+            "names.py": NAMES,
+            "shared_contract.py": 'FORMAT_VERSION = "v1"\n',
+            "README.md": "名字格式化的实现位于 names.py。shared_contract.py 和 peer_notes.txt 归另一位工作者所有。\n",
+        })
+    elif case_id == "agent-verifier":
+        files.update({
+            "counts.py": "def count_rows(rows):\n    return max(0, len(rows) - 1)\n",
+            "check.py": (
+                "from counts import count_rows\n"
+                "actual = count_rows([\"a\", \"b\"])\n"
+                "print(f\"{'PASS' if actual == 2 else 'FAIL'} actual={actual} expected=2\")\n"
+            ),
+            "README.md": (
+                "验收契约：两条输入必须计数为 2。使用当前 Python 解释器运行 check.py。\n"
+                "只允许在 artifacts/ 写验证材料，不修改 counts.py、check.py 或本说明。\n"
+            ),
+        })
+    elif case_id == "agent-design-challenger":
+        files.update({
+            "leases.py": "def key_for(tenant_id, task_id):\n    return str(task_id)\n",
+            "CONTRACT.md": (
+                "不同租户可以有相同 task_id，不能互相占用租约。\n"
+                "滚动迁移期间可能同时运行新旧 worker，同一租户任务也不能双执行。\n"
+            ),
+            "DESIGN.md": (
+                "候选 A：保留现有 key，只在租约值中增加 tenant_id。\n"
+                "候选 B：把 key 改成 tenant_id/task_id。迁移协调方式尚未确定。\n"
+            ),
+            "README.md": "leases.py 是当前 key 生成方式。请根据 CONTRACT.md 和 DESIGN.md 做只读设计质疑。\n",
+        })
+    elif case_id == "agent-dispatch":
+        files.update({
+            "exports/entry.py": "from exports.worker import run\n\ndef export(job_id, rows, sink):\n    return run(job_id, rows, sink)\n",
+            "exports/worker.py": "from exports.storage import append_rows\n\ndef run(job_id, rows, sink):\n    append_rows(sink, rows)\n    return {\"job_id\": job_id, \"written\": len(rows)}\n",
+            "exports/storage.py": "def append_rows(sink, rows):\n    sink.extend(rows)\n",
+            "notifications/entry.py": "from notifications.worker import deliver\n\ndef notify(tenant_id, event_id, seen):\n    return deliver(tenant_id, event_id, seen)\n",
+            "notifications/worker.py": "from notifications.state import already_seen\n\ndef deliver(tenant_id, event_id, seen):\n    if already_seen(event_id, seen):\n        return \"skipped\"\n    seen.add(event_id)\n    return \"sent\"\n",
+            "notifications/state.py": "def already_seen(event_id, seen):\n    return event_id in seen\n",
+            "README.md": (
+                "两条独立链路分别位于 exports/ 和 notifications/，不依赖外部服务。\n"
+                "导出契约：同一 job_id 重试不应重复写相同行。\n"
+                "通知契约：不同租户的相同 event_id 不应互相去重。\n"
+                "这次只调查各自入口、数据路径和失败机制，不修改或执行外部操作。\n"
+            ),
+        })
     elif case_id == "observe-before-asking":
         files.update({
             "normalizers.py": (
@@ -153,7 +200,7 @@ def prepare(output: Path, toolkit_root: Path = ROOT) -> dict:
     output, toolkit_root = output.resolve(), toolkit_root.resolve()
     if output == toolkit_root or toolkit_root in output.parents:
         raise ValueError("Output must be outside the toolkit repository")
-    for relative in [*(f"skills/{name}" for name in SKILLS), *REVIEWERS]:
+    for relative in [*(f"skills/{name}" for name in SKILLS), *AGENT_DIRECTORIES]:
         if not (toolkit_root / relative).exists():
             raise ValueError(f"Candidate source is missing: {relative}")
     cases = json.loads(CASES.read_text(encoding="utf-8"))
@@ -164,10 +211,8 @@ def prepare(output: Path, toolkit_root: Path = ROOT) -> dict:
             toolkit_root / "skills" / name, candidate / "skills" / name,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
-    for relative in REVIEWERS:
-        target = candidate / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(toolkit_root / relative, target)
+    for relative in AGENT_DIRECTORIES:
+        shutil.copytree(toolkit_root / relative, candidate / relative, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     try:
         source_revision = git(toolkit_root, "rev-parse", "HEAD")
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -186,6 +231,11 @@ def prepare(output: Path, toolkit_root: Path = ROOT) -> dict:
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "Initial project")
         git(repo, "tag", "task-base")
+        if case_id == "agent-implementer":
+            write_files(repo, {
+                "shared_contract.py": 'FORMAT_VERSION = "v2-pending-peer-review"\n',
+                "peer_notes.txt": "另一位工作者的未跟踪草稿，不属于本子任务。\n",
+            })
         if case_id == "complete-review":
             write_files(repo, {"pricing.py": PRICING_CHANGED})
             git(repo, "add", "pricing.py")
@@ -197,11 +247,17 @@ def prepare(output: Path, toolkit_root: Path = ROOT) -> dict:
                 "receipt.py": "from pricing import total\n\ndef receipt_total(subtotal, shipping, discount=0):\n    return total(subtotal, discount=discount)\n",
                 "notes.txt": "其他任务的草稿，不属于折扣需求。\n",
             })
+        role = case.get("role")
+        assignment = (
+            f"这是主 Agent 委派给 {role} 的子任务，按 {candidate / 'codex/agents' / (role + '.toml')} 的正文职责执行，不接管主 Agent 的调度。\n"
+            if role else ""
+        )
         task = (
             f"工作目录：{repo}\n"
             f"本次通用流程：{candidate / 'skills/feature-delivery/SKILL.md'}\n"
             f"需要 reviewer 时的职责与输出契约：{candidate / 'codex/agents/reviewer.toml'}\n"
             "先读项目 README。只操作该项目的离线资源；不联网、不提交、不修改宿主配置。\n\n"
+            + assignment
             + "\n\n".join(f"{turn['role']}：{turn['content']}" for turn in case["turns"])
             + "\n"
         )

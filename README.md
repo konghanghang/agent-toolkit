@@ -39,7 +39,11 @@ agent-toolkit/
 │   └── gitlab-run-pipeline/
 ├── codex/
 │   ├── agents/
-│   │   └── evidence_explorer.toml
+│   │   ├── evidence_explorer.toml
+│   │   ├── reviewer.toml
+│   │   ├── implementer.toml
+│   │   ├── verifier.toml
+│   │   └── design_challenger.toml
 │   ├── config/
 │   │   └── playwright-mcp.toml.template
 │   └── rules/
@@ -50,7 +54,10 @@ agent-toolkit/
 ├── opencode/
 │   ├── agents/
 │   │   ├── evidence_explorer.md
-│   │   └── reviewer.md
+│   │   ├── reviewer.md
+│   │   ├── implementer.md
+│   │   ├── verifier.md
+│   │   └── design_challenger.md
 │   └── opencode.json
 ├── claude/
 ├── common/
@@ -135,7 +142,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 `feature-delivery` 独立提供通用开发阶段；work 业务任务由 `work-feature-delivery` 作为入口自动复用，并在执行各阶段前叠加公司要求。通用流程不依赖工作工具或凭证，项目自身规则提供实际构建、分支及记录约定。完整 `work` profile 包含两者；使用 `--skill` 手动筛选公司交付技能时，需同时选择 `feature-delivery`。
 
-通用组同时安装 `evidence_explorer` Agent、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
+通用组同时安装全部通用 Agents、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
 
 首次安装必须显式选择 profile；未选择时只给出提示并退出，不默认安装全量。成功安装后，选择保存在本检出的 `.local/install-profile.json`（Git 忽略），后续无 `--profile` 的安装或更新沿用它。显式指定可覆盖选择；dry-run 和失败安装不会修改记录。记录供本检出的所有安装目标共用，不跟随 `--codex-home` 单独变化。切换 profile 不自动卸载已有组件。
 
@@ -516,13 +523,16 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 
 | 功能契约 | Codex | OpenCode |
 |---|---|---|
-| 目录枚举、内容搜索和定点读取 | 只读沙箱内的工具和 shell | 内置目录、grep 和 read 工具 |
-| Git 差异、状态和历史检查 | 只读沙箱内执行 | shell 白名单允许无参数及带参数的只读 Git 检查 |
-| 禁止写入 | `sandbox_mode = "read-only"` 与任务指令 | 拒绝 `edit`，默认拒绝 shell，拒绝 Git 输出文件和输出重定向 |
-| 分工边界 | 指令禁止自行派生 Agent，向父 agent 报告 | 同一指令，并拒绝 `subagent` 工具 |
-| 完成与输出 | 按职责完成证据追踪或审查，明确未核实范围 | 同一职责和输出契约，不另设 20 步截断 |
+| 目录枚举、内容搜索和定点读取 | 使用父会话允许的工具 | 内置目录、grep 和 read 工具，角色不额外禁用必要读取 |
+| Git 差异、状态和历史检查 | 使用父会话允许的命令，不执行 Git 交付 | 只读角色保留 Git 检查；执行角色沿用全局默认规则并拒绝常见 Git 写命令 |
+| 探索、审查、设计质疑 | 正文约束只读，实际权限继承父会话 | 拒绝 `edit`，默认拒绝 shell，仅放行 Git 检查 |
+| 实现 | 按交接范围修改及验证，实际权限继承父会话 | 编辑和普通运行沿用全局默认规则，不额外增加通配 `allow` |
+| 运行验证 | 可生成授权产物，不修改受审源码和正式测试 | 拒绝直接 `edit`，运行沿用全局默认规则，正文保护受审实现 |
+| 分工与输出 | 不自行派生；返回范围、版本、证据和缺口 | 同一职责并拒绝 `subagent`，不另设 20 步截断 |
 
-OpenCode 的工具权限与 Codex 的操作系统只读沙箱有不同的隔离强度，不能把权限字段相似当成隔离机制相同。功能验收应核对读取、搜索、Git 检查和拒绝写入的实际行为，并分别说明配置检查与真实模型任务验收的覆盖范围。
+Codex 现行官方契约规定自定义角色继承父会话的沙箱、审批、provider 和 MCP，角色文件中的 `sandbox_mode` 不覆盖父配置。本机 0.163.0 尚未逐字段实测，故只读角色保留旧 `sandbox_mode = "read-only"` 标记用于兼容，但不将其视为已生效的独立沙箱证据。需要系统级只读保证时，应在父会话选择相应权限，不能把角色正文当成独立隔离。OpenCode V2 子角色使用自身权限，不是父角色权限的子集；全局规则后追加角色规则，按最后匹配生效，agent 规则可覆盖 global 规则；新执行角色不添加 `edit` 或 `shell` 的通配允许。即便 `edit` 被拒绝，允许的 shell 仍可能间接写文件，常见 Git 命令拒绝也不是任意程序的行为证明。功能验收应按角色核对读取、搜索、运行、直接工具限制和范围遵守情况，并分别说明配置、原生加载、模型行为与系统隔离的覆盖。依据：[Codex Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)、[OpenCode V2 Agents](https://opencode.ai/v2/docs/agents)、[OpenCode V2 Permissions](https://opencode.ai/v2/docs/permissions)。
+
+新角色省略模型配置，使用各平台的父会话或默认模型；现有 `evidence_explorer` 和 `reviewer` 的显式模型配置保留。角色定义不会自行启动工作；[通用流程的 Agent 分工规则](skills/feature-delivery/references/agent-orchestration.md) 规定触发条件，满足条件时主 Agent 应主动委派。小任务不启动全套角色。
 
 提交前核对名称集合、成对任务指令及只读能力，运行 `tests/test_agent_pairs.py` 对应的仓库测试，并同时更新下方两个列表。测试覆盖配置契约；真实模型任务验收需另外执行。
 
@@ -530,11 +540,17 @@ OpenCode 的工具权限与 Codex 的操作系统只读沙箱有不同的隔离�
 
 - `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。
 - `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。
+- `implementer`：按已确认契约完成分配范围的实现及局部验证，不操作 Git 交付或扩大需求。
+- `verifier`：执行已授权复现、验收或性能检查，返回版本化行为证据，不修改受审源码和正式测试。
+- `design_challenger`：只读检验难以逆转的设计，比较有据可查的候选和兼容代价，不替用户作取舍。
 
 ## 当前 OpenCode Agents
 
 - `evidence_explorer`：只读追踪真实调用链、数据边界、行为分支和待确认项，向主 Agent 返回带代码证据的压缩结果，不修改代码或生成最终计划。
 - `reviewer`：只读审查当前改动，按严重程度返回正确性、回归、安全和测试缺口，不修改文件。
+- `implementer`：按已确认契约完成分配范围的实现及局部验证，不操作 Git 交付或扩大需求。
+- `verifier`：执行已授权复现、验收或性能检查，返回版本化行为证据，不修改受审源码和正式测试。
+- `design_challenger`：只读检验难以逆转的设计，比较有据可查的候选和兼容代价，不替用户作取舍。
 
 OpenCode 的网关和密钥来自运行 OpenCode 服务的进程环境：`NEWAPI_BASE_URL`、`GROK_API_KEY`、`NEWAPI_GEMINI_API_KEY`、`NEWAPI_CODEX_API_KEY`、`NEWAPI_ZAI_API_KEY`。变量缺失时 `{env:NAME}` 会原样保留，请求不会改用另一台机器的地址。修改这些变量后需要重启 OpenCode 服务。
 
@@ -554,7 +570,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 1. 放入 `codex/agents/<agent-name>.toml`。
 2. 至少定义 `name`、`description` 和 `developer_instructions`。
 3. 使用清晰、稳定、项目无关的职责边界；项目特定规则继续放在项目 `AGENTS.md`。
-4. 只读 Agent 必须显式配置 `sandbox_mode = "read-only"`。
+4. 实际权限遵守父会话；只读角色可保留 `sandbox_mode = "read-only"` 兼容标记，但不得把它当作生效证明或用角色配置请求更宽权限。正文按职责明确只读、文件归属或验证产物范围。
 5. 不写入凭证、个人机器绝对路径或某个项目独有的业务口径。
 6. 同一次改动中按「通用 Agent 功能一致性」同步 `opencode/agents/<agent-name>.md`。
 7. 完成后运行安装器单元测试，以及默认和自定义 Codex Home 的 `--agents-only --dry-run`。
@@ -565,7 +581,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 
 1. 放入 `opencode/agents/<agent-name>.md`。
 2. 使用 YAML frontmatter，至少定义 `description` 和 `mode`，正文作为 agent 指令。
-3. 只读 Agent 必须显式拒绝 `edit`，并只放行需要的只读 `shell` 命令。
+3. 按职责配置工具：只读角色拒绝 `edit` 并只放行 Git 检查；执行角色沿用全局默认与自身规则，不用通配 `allow` 放大编辑或运行权限；验证角色另拒绝直接编辑。所有角色禁止自行派生及执行 Git 交付。
 4. 模型、网关和密钥使用可移植引用；不要写入真实 URL、API Key 或个人机器绝对路径。
 5. 同一次改动中按「通用 Agent 功能一致性」同步 `codex/agents/<agent-name>.toml`。
 6. 完成后运行安装器单元测试，以及 `--opencode-only --dry-run`。
@@ -670,7 +686,7 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --from-lock
 
 - Skill 或安装清单改动：校验相关 Skill 格式和显式分类；安装器改动校验所有可安装 Skill。
 - 安装器改动：覆盖各平台的链接权限、路径表示、配置保护和重复安装行为；两个 profile 的 dry-run 无未知冲突，Codex 与 Claude Code 的 Skill 目录链接目标正确。
-- Agent 改动：核对两端名称、任务与输出契约、只读能力和执行限制；检查默认和自定义 Codex Home 的 Agent 目录链接，以及 OpenCode Agent 目录链接。
+- Agent 改动：核对两端名称、任务与输出契约，以及各角色的读取、搜索、运行、编辑与交付限制；检查默认和自定义 Codex Home 的 Agent 目录链接，以及 OpenCode Agent 目录链接。
 - OpenCode 配置或安装逻辑改动：macOS/Linux 检查配置文件链接目标；Windows 检查受管副本内容与安装记录摘要。仓库内只有网关和密钥的环境变量引用。
 - Rules 改动或安装迁移：确认受管 Rules 为与源文件一致的真实文件，执行 `codex execpolicy check --rules <文件> <命令及参数>`，检查代表性的允许与未放行命令；复用结果时明确记录来源。
 - 路径或迁移改动：除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。
