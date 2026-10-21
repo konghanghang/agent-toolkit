@@ -140,7 +140,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 工作扩展的 Skills：`work-feature-delivery`、`work-url-permission-sql`、`aliyun-sls-log-query`、`archery-prod-query`、`jumpserver-k8s-log-query`、`nacos-config-query`、`online-issue-triage`、`prometheus-query`、`verify-test-db`、`tapd-story`、`tapd-weekly-report`、`gitlab-run-pipeline`。
 
-`feature-delivery` 独立提供通用开发阶段；work 业务任务由 `work-feature-delivery` 作为入口自动复用，并在执行各阶段前叠加公司要求。通用流程不依赖工作工具或凭证，项目自身规则提供实际构建、分支及记录约定。完整 `work` profile 包含两者；使用 `--skill` 手动筛选公司交付技能时，需同时选择 `feature-delivery`。
+`feature-delivery` 独立提供通用开发阶段；work 业务任务由 `work-feature-delivery` 作为入口自动复用，并在执行各阶段前叠加公司要求。业务功能、Fix 及独立性能优化、重构等技术交付在编码或委派实现前必须有需求主记录，小改动只精简内容；开发收尾时核对上线材料，批次可确定则更新共享上线清单，待定则在主记录保留材料与原因。五类入口与阶段接续见 [阶段衔接](skills/work-feature-delivery/references/stages.md)；无 ID 的新业务和独立技术任务经探索、澄清及明确创建授权后取得 TAPD ID，再建立主记录。纯问答、只读排查且无已有记录时不自动建档。通用流程不依赖工作工具或凭证，项目自身规则提供实际构建、分支及记录约定。完整 `work` profile 包含两者；使用 `--skill` 手动筛选公司交付技能时，需同时选择 `feature-delivery`。
 
 通用组同时安装全部通用 Agents、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
 
