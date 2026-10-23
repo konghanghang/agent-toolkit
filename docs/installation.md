@@ -1,0 +1,260 @@
+# 安装指南
+
+[返回首页](../README.md) · [Windows 指南](windows.md) · [维护与验证](maintenance.md)
+
+首次安装的克隆、外部 Skill 还原和安装命令见 [快速开始](../README.md#快速开始)。本文说明安装范围、参数、配置保护与工作环境初始化。
+
+## 安装分类与本机记录
+
+分类唯一来源为 [`install-profiles.json`](../install-profiles.json)。`general` 用于通用与个人用途；`work` 包含 general + 工作扩展。完整能力清单见 [首页索引](../README.md#能力索引)。
+
+通用组同时安装全部通用 Agents、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
+
+首次安装必须显式选择 profile；未选择时只给出提示并退出，不默认安装全量。成功安装后，选择保存在本检出的 `.local/install-profile.json`（Git 忽略），后续无 `--profile` 的安装或更新沿用它。显式指定可覆盖选择；dry-run 和失败安装不会修改记录。记录供本检出的所有安装目标共用，不跟随 `--codex-home` 单独变化。切换 profile 不自动卸载已有组件。
+
+`--skill` 只在当前 profile 内进一步筛选；例如 `--profile general --skill verify-test-db` 会报错，不会越过分类安装工作内容。Rules 也按 profile 过滤，因此不再因选择一个通用 Skill 而附带工作 Rules。
+
+完整 `work` profile 包含 `feature-delivery` 和 `work-feature-delivery`；使用 `--skill` 手动筛选公司交付技能时，需同时选择 `feature-delivery`。两者的配合方式见 [开发工作流](workflows.md)。
+
+外部 `ui-ux-pro-max` 未还原时，安装器会明确提示缺失并安装其余可用内容；新检出应先运行 `scripts/update_ui_ux_pro_max.py --from-lock`，安装器不隐式联网下载。工作运行时初始化是独立步骤，需要本机工作区等信息；服务凭证按需填写。
+
+## 安装器管理范围
+
+`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，以及 Codex MCP 配置的安全合并；它不创建公共虚拟环境，也不安装 Python 包。需要使用工作组的 work 公共入口或依赖公共运行时的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
+
+以下以通用安装为例；工作电脑改为 `--profile work`。安装脚本会：
+
+1. 扫描 `skills/*/SKILL.md`，校验分类清单并按 profile 筛选。
+2. 将 Skill 通过目录链接安装到 `~/.agents/skills/`。
+3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
+4. 将当前 profile 的 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
+5. 把标准 Playwright MCP 审批、禁用工具和缓存目录安全合并到 `~/.codex/config.toml`，保留其他本机配置。
+6. 校验 `opencode/agents/*.md` 的 frontmatter，并把 `opencode/agents/` 链接到 `~/.config/opencode/agents/`。OpenCode 配置安装到 `~/.config/opencode/opencode.json`：macOS/Linux 使用文件链接，Windows 使用受管副本，无需文件符号链接权限。
+7. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
+8. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
+9. Skill、Agent、Rule 和 Playwright 配置已经一致时跳过。
+10. 旧版受管链接可以显式迁移；未知文件、真实目录链接或 Playwright 配置冲突时拒绝覆盖。OpenCode 的已有文件或目录只有在内容与仓库逐字节一致时才会接管，原路径先移到 Git 忽略的 `.local/backups/opencode/`。Windows 受管配置副本按安装记录更新；本机修改过的内容拒绝覆盖。
+
+目录链接按平台实现：
+
+- macOS/Linux 使用目录软链接。
+- Windows 使用 NTFS directory junction，不要求开启 Developer Mode，也不复制 Skill 或 Agent 内容。
+- Windows junction 创建失败时安装器会停止并保留错误信息；仓库和安装目标应位于本机 NTFS 卷，且需要可用的 Windows PowerShell。安装器不会静默回退成普通目录副本。
+
+Windows 的依赖检查、PowerShell 命令和入口行为见 [Windows 指南](windows.md)。
+
+## 安装参数与旧版迁移
+
+可选参数：
+
+```text
+--profile NAME     general = 通用；work = 通用 + 工作扩展；省略时沿用本机记录
+--dry-run          只显示计划，不修改文件
+--codex-only       只安装 Codex Skills、Agents、Rules 和受管配置
+--claude-only      只安装 Claude Code Skills
+--rules-only       只安装 Codex Rules
+--agents-only      只安装 Codex Agents
+--opencode-only    只安装 OpenCode 配置和 Agents
+--config-only      只安装受管的 Codex Playwright MCP 配置
+--codex-home PATH  将 Agents、Rules 和受管配置安装到指定的现有 Codex Home
+--skill NAME       只处理指定 Skill，可重复使用
+--replace-managed  替换指向旧工具箱或旧目录结构的受管链接
+```
+
+从旧的 `~/.shared-skills` 迁移时，先预览，再替换受管链接；profile 沿用本机记录，首次使用须显式指定：
+
+```bash
+python3 ~/.agent-toolkit/scripts/install.py --replace-managed --dry-run
+python3 ~/.agent-toolkit/scripts/install.py --replace-managed
+```
+
+## 自定义 Codex Home
+
+安装脚本无参数运行时始终使用默认的 `~/.codex`，不会扫描磁盘、解析 Shell alias
+或读取 `CODEX_HOME` 来猜测其他 Codex Home。
+
+存在额外 Codex Home 时，由用户或对应环境的初始化脚本明确指定目录，并分别安装 Agents、Rules 和受管配置：
+
+```bash
+python3 ~/.agent-toolkit/scripts/install.py \
+  --agents-only \
+  --codex-home ~/data/work/.codex \
+  --dry-run
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --rules-only \
+  --codex-home ~/data/work/.codex \
+  --dry-run
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --config-only \
+  --codex-home ~/data/work/.codex \
+  --dry-run
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --agents-only \
+  --codex-home ~/data/work/.codex
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --rules-only \
+  --codex-home ~/data/work/.codex
+
+python3 ~/.agent-toolkit/scripts/install.py \
+  --config-only \
+  --codex-home ~/data/work/.codex
+```
+
+自定义 Codex Home 必须已经存在；安装脚本不会因为路径拼写错误而创建一个新的 Home。
+每次运行都会输出实际使用的 Codex Home，以及本次涉及的 Agents 或 Rules 目标目录。
+
+## 安装结果与配置保护
+
+Codex Skills：
+
+```text
+~/.agents/skills/<name>
+  → ~/.agent-toolkit/skills/<name>
+```
+
+Claude Code Skills：
+
+```text
+~/.claude/skills/<name>
+  → ~/.agent-toolkit/skills/<name>
+```
+
+Codex Agents：
+
+```text
+~/.codex/agents
+  → ~/.agent-toolkit/codex/agents
+
+<custom-codex-home>/agents
+  → ~/.agent-toolkit/codex/agents
+```
+
+Codex Rules：
+
+```text
+~/.agent-toolkit/codex/rules/<name>.rules
+  --原子复制--> ~/.codex/rules/<name>.rules
+
+~/.agent-toolkit/codex/rules/<name>.rules
+  --原子复制--> <custom-codex-home>/rules/<name>.rules
+```
+
+Codex Playwright MCP 配置：
+
+```text
+~/.agent-toolkit/codex/config/playwright-mcp.toml.template
+  --安全合并--> ~/.codex/config.toml
+  --安全合并--> <custom-codex-home>/config.toml
+```
+
+安装器只管理 `[mcp_servers.playwright]` 下的 `default_tools_approval_mode`、`disabled_tools`，以及 `[mcp_servers.playwright.env]` 下的 `npm_config_cache`。Playwright 尚未配置时会写入完整标准配置；已经配置时保留原有 transport、其他 MCP、模型和权限设置。受管字段存在不同值时停止并报告冲突，不静默覆盖本机选择。新建 `config.toml` 在 macOS/Linux 使用 `0600` 权限，在 Windows 将 ACL 收紧到当前用户、SYSTEM 和 Administrators；更新已有文件时保留原有 POSIX 权限或 Windows ACL。
+
+Codex Agents 使用目录链接，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。macOS/Linux 使用软链接，Windows 使用 directory junction。目标 `agents/` 已经是真实目录或未知目录链接时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
+
+OpenCode：
+
+```text
+~/.config/opencode/opencode.json
+  → ~/.agent-toolkit/opencode/opencode.json
+
+~/.config/opencode/agents
+  → ~/.agent-toolkit/opencode/agents
+```
+
+上图的配置文件链接适用于 macOS/Linux；Windows 使用普通文件副本，Agents 使用目录 junction。Windows 在同目录的 `.opencode.json.agent-toolkit.json` 中记录安装内容的 SHA-256；重复安装时跳过一致的副本，仓库配置更新后重新运行安装器即可更新副本。本机文件被修改、未知文件内容不同或安装记录无效时拒绝覆盖，`--replace-managed` 也不会覆盖本机修改。已有正确的配置文件链接可继续使用。
+
+网关地址和 API Key 只通过 `{env:NAME}` 引用，不写入仓库。`cli.json`、`tui.json`、`service.json` 和本机依赖仍留在 `~/.config/opencode/`，不由安装器管理。目标已经指向仓库时跳过；接管内容一致的普通文件或目录、更新 Windows 配置副本时，原路径先移到 `.local/backups/opencode/`；目录里有额外文件时拒绝覆盖。目录比较包含隐藏文件，文件路径和内容均须一致。
+
+Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是目录链接。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录链接不受影响。
+
+Codex 会为新会话加载 Agents、Rules 和 MCP 配置。Agent 源文件通过目录链接立即更新，Rule 或 Playwright 配置变更后需要重新安装；完成后应新开会话或重启客户端。
+
+## work 公共运行时
+
+仅工作环境需要初始化；通用安装不运行 bootstrap，也不创建 work 运行时。Windows 命令见 [Windows 指南](windows.md#安装)。
+
+初始化：
+
+```bash
+python3 ~/.agent-toolkit/common/bootstrap_work.py
+```
+
+首次初始化默认在仓库根目录创建 `.venv`，并从 `requirements.txt` 安装公共运行时和 Skill 校验依赖。`.venv` 是本机环境，不进入 Git；业务凭证和 Session 仍保存在 `~/.local/agent-toolkit/work/`。已有运行时配置会保留当前 `PYTHON_BIN` 默认值，迁移到项目环境时在交互提示中明确输入 `~/.agent-toolkit/.venv/bin/python`（Windows 使用 `.venv\Scripts\python.exe`）。
+
+初始化会配置：
+
+- `WORK_ROOT`
+- `TMP_DIR`
+- `PROMETHEUS_BASE_URL`（可选；仅使用 `prometheus-query` 时需要）
+- `NACOS_CN_BASE_URL`、`NACOS_OS_BASE_URL`（可选；仅使用 `nacos-config-query` 时需要）
+- `SLS_DIR`
+- `ARCHERY_DIR`
+- `JMS_DIR`
+- `TEST_DB_DIR`
+- `GITLAB_DIR`
+- `PYTHON_BIN`
+- `AGENT_TOOLKIT_ROOT`
+
+并在 `AGENT_TOOLKIT_ROOT/bin/` 生成：
+
+- `sls`
+- `archery`
+- `jms`
+- `testdb`
+- `gitlab`
+- Windows 对应的 `.cmd` 与 `.ps1` 入口
+
+`~/.local/agent-toolkit/work/runtime.json`、凭证和 Session 都是本机状态，不提交到本仓库。
+
+GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`，仓库内不写死服务地址。安装器和 bootstrap 会在文件不存在时创建仅含 `base_url`、`private_token` 两个空 value 的私有模板，已有文件绝不覆盖。填写后可用 `gitlab whoami` 验证，并用 `gitlab trigger` 触发和跟踪 Pipeline、`gitlab result` 查询最终结果。
+
+## work 全局协作规则
+
+规则原文件保存在 [`codex/instructions/work.md`](../codex/instructions/work.md)，由本仓库统一维护版本。
+源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载。
+这份规则适用于 `~/data/work` 的 work 环境，引用的工作区文档和 Skills 需要在使用环境中另行准备。
+
+当前本机通过软链接保留原加载入口：
+
+```text
+~/data/work/.codex/AGENTS.md
+  -> ~/.agent-toolkit/codex/instructions/work.md
+```
+
+Codex 使用 `~/data/work/.codex` 作为 Codex Home 时，从上述入口加载规则。
+`~/data/work/CLAUDE.md` 保持 `@.codex/AGENTS.md` 引用，通过同一入口读取规则；
+Claude Code 可能要求批准工作区外的文件导入，迁移后应在新会话中用 `/context` 核对加载结果。
+日常修改请直接编辑仓库中的源文件，再检查 Git 差异并提交。
+
+当前安装器不创建这个文件链接，`--agents-only` 只安装子 Agent 定义。
+在 macOS/Linux 的新环境中，确认目标入口不存在后可手动建立链接：
+
+```bash
+mkdir -p ~/data/work/.codex
+ln -s ~/.agent-toolkit/codex/instructions/work.md ~/data/work/.codex/AGENTS.md
+```
+
+如果入口已存在，应先核对并备份原内容，不使用强制覆盖选项。
+
+## 按能力配置
+
+- 测试库：[多实例 profiles 配置](../skills/verify-test-db/references/configuration.md)。
+- EasyImage：[PicGo web-uploader 配置](../skills/upload-to-easyimage/references/picgo-config.md)与[线上图文教程](https://www.iminling.com/2025/typora-how-to-use-picgo-upload-image-to-easyimage/)。
+- OpenCode：网关和密钥变量见 [机器相关配置](maintenance.md#机器相关配置)。
+
+## 按能力准备外部依赖
+
+以下外部程序只在对应能力中需要，不是基础安装的硬依赖：
+
+- Google Chrome：SLS 和 Archery 自动登录。
+- `ripgrep`（`rg`）：`tapd-story` 的仓库检索，以及 `online-issue-triage` 的本地代码定位。
+- `curl`（Windows 为 `curl.exe`）：`upload-to-easyimage` 的实际上传请求。
+- Node.js（含 `npm` / `npx`）：运行 `local-browser-verify` 所需的 Playwright MCP、首次安装 PicGo Core 与 `web-uploader` 插件，以及维护 `ui-ux-pro-max` 外部 Skill；已有 PicGo 配置的日常上传不需要启动 Node.js 或 PicGo。
+- Playwright MCP：`local-browser-verify` 的浏览器驱动；Codex 安装会写入标准 MCP 配置，首次启动时 `npx` 可能联网下载 npm 包。其他 Agent 仍由 Skill 在运行时检查，缺失时先提示并等待用户授权。
+- PicGo Core 与 `web-uploader` 插件：仅在首次生成或重建 EasyImage 上传配置时需要；上传脚本日常只读取已生成的配置文件。
+- Hugo：`capture-iminling-draft` 的草稿构建验证。
+- `rsvg-convert`（librsvg）：`upload-to-easyimage --convert-svg`；不转换 SVG 时不需要。
