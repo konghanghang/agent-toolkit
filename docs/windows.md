@@ -52,6 +52,15 @@ py -3.11 "$HOME\.agent-toolkit\common\bootstrap_work.py"
 
 工作运行时默认在仓库根目录创建 `.venv`，解释器为 `.venv\Scripts\python.exe`；已有运行时配置保留当前 `PYTHON_BIN` 默认值，迁移时需在交互提示中明确选择项目解释器。凭证和 Session 保留在本机 `~/.local/agent-toolkit/work/`。
 
+使用 SLS 路由或 TAPD 周报前，再创建并填写 [工作环境私有配置](installation.md#工作环境私有配置)：
+
+```powershell
+py -3.11 "$HOME\.agent-toolkit\scripts\init_work_config.py" --dry-run
+py -3.11 "$HOME\.agent-toolkit\scripts\init_work_config.py"
+```
+
+需要自定义配置路径时设置 `$env:AGENT_TOOLKIT_WORK_CONFIG`。
+
 ## 链接与配置文件
 
 Skill 和 Agent 目录使用 NTFS directory junction，不要求开启 Developer Mode，也不复制目录内容。junction 创建失败时安装器停止并保留错误，不静默回退为普通目录副本。

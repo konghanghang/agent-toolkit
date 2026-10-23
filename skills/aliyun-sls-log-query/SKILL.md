@@ -1,6 +1,6 @@
 ---
 name: aliyun-sls-log-query
-description: 查询阿里云 SLS 日志服务 (Log Service), 用于排查 data-center / AgentCC / work 等微服务的线上日志。自动登录 RAM 用户 (账号+密码+VMFA TOTP 自动), 抓 cookies + 真实 x-csrf-token, 然后用 requests 直接 POST getLogs.json 取日志, 不依赖浏览器。当用户提到 SLS、阿里云日志、example-domestic-project、lognext、查日志、trace ID、请求链路、线上错误、data-center 服务、AgentccController、ai-admin 等场景, 或需要在没有 JumpServer / kubectl 时查生产日志, 使用本技能。
+description: 查询阿里云 SLS 日志服务 (Log Service), 用于排查 data-center / AgentCC / work 等微服务的线上日志。自动登录 RAM 用户 (账号+密码+VMFA TOTP 自动), 抓 cookies + 真实 x-csrf-token, 然后用 requests 直接 POST getLogs.json 取日志, 不依赖浏览器。当用户提到 SLS、阿里云日志、lognext、查日志、trace ID、请求链路、线上错误、data-center 服务、AgentccController、ai-admin 等场景, 或需要在没有 JumpServer / kubectl 时查生产日志, 使用本技能。
 ---
 
 # 阿里云 SLS 日志查询
@@ -31,6 +31,15 @@ python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_work.py"
 - `SLS_DIR`: SLS 凭证与 session 目录
 
 凭证文件路径: `SLS_DIR/aliyun-credentials.json` (不进 git, 初始化时配置)
+
+查询目标另从本机工作配置读取，仓库不包含真实 project/logstore。先预览并创建空模板，再填写 `sls` 节：
+
+```bash
+python3 "$AGENT_TOOLKIT_ROOT/scripts/init_work_config.py" --dry-run
+python3 "$AGENT_TOOLKIT_ROOT/scripts/init_work_config.py"
+```
+
+默认路径为 `~/.local/agent-toolkit/work/config.json`；可用 `AGENT_TOOLKIT_WORK_CONFIG` 指向其他私有文件。`sls.domestic` 和 `sls.overseas` 各自支持 `default`（非空 `project`、`logstore`）与 `services`（按服务名覆盖）。路由更新后，下次运行直接读取，无需修改源码或重启服务。配置不完整时在登录、查询前停止。
 
 脚本在读取凭证和写入 session 前会收紧本机权限：macOS/Linux 使用 `0600` 文件与 `0700` 目录，Windows 使用关闭继承的受保护 ACL，只保留当前用户、`SYSTEM` 和内置管理员。
 
@@ -63,7 +72,7 @@ $AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
 & "$AgentToolkitRoot\bin\sls.cmd" search-safe --service ai-open-api --size 1
 ```
 
-Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只允许内置路由，禁止 `--project`、`--logstore`、`--out`、`--full`，查询窗口最多 3 天、返回最多 100 行；`agg-safe` 还强制使用单条 SELECT 聚合，禁止直接输出或分组原始日志字段，只允许聚合值及有边界的 `regexp_extract(...)` 派生维度。需要完整日志落盘、自选 project/logstore 或非聚合 pSQL 时才使用原始 `query` / `agg`，并保留审批。
+Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只允许本机配置路由，禁止 `--project`、`--logstore`、`--out`、`--full`，查询窗口最多 3 天、返回最多 100 行；`agg-safe` 还强制使用单条 SELECT 聚合，禁止直接输出或分组原始日志字段，只允许聚合值及有边界的 `regexp_extract(...)` 派生维度。需要完整日志落盘、自选 project/logstore 或非聚合 pSQL 时才使用原始 `query` / `agg`，并保留审批。
 
 底层 Python 脚本仍然保留，方便排查或单独调试。
 
@@ -74,8 +83,8 @@ Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只�
   "password": "xxx",
   "mfa_secret": "BASE32_TOTP_SEED",
   "target_url": "https://sls.console.aliyun.com/lognext/project/<project>/logsearch/<logstore>",
-  "project": "example-domestic-project",
-  "logstore": "datalogs",
+  "project": "<login-project>",
+  "logstore": "<login-logstore>",
   "default_query": "data-center | with_pack_meta"
 }
 ```
@@ -158,11 +167,14 @@ sls query --scope domestic --service data-center --full --out "<TMP_DIR>/logs.js
 
 ### 第 4 步：切换 project / logstore
 
-项目路由规则:
+路由由本机 `sls` 配置决定：
 
-- 海外所有服务 → `example-overseas-project / datalogs`
-- 国内 `ai-open-api` → `example-api-project / example-api-project`
-- 国内其他服务 → `example-domestic-project / datalogs`
+- `--scope overseas` → `sls.overseas.services.<service>`，未配置该服务时使用 `sls.overseas.default`。
+- 国内已配置服务 → `sls.domestic.services.<service>`；可省略 `--scope domestic`。
+- `--scope domestic --service <service>` → 服务覆盖或 `sls.domestic.default`。
+- 无路由提示的查询（如仅 `--minutes`）和省略 scope 的聚合查询使用 `sls.domestic.default`。
+- 普通 `query` 的 `--query` / `--keyword` 在所选 scope（省略时为国内）只匹配一个已配置服务时推断服务；多匹配时须显式指定 `--service`。
+- 完整显式 `--project` / `--logstore` 不依赖路由配置。仅给 project 时，只有配置中存在唯一 logstore 才自动补齐。
 
 如果信息不足以确定是“海外”还是“国内其他服务”，必须先追问确认，再查日志。
 
@@ -225,14 +237,14 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 
 ## 查询路由判断
 
-对话中默认按下面规则路由:
+对话先确认环境，再使用本机配置：
 
-1. 用户明确说“海外”“国际”“新加坡”等海外语义 → `example-overseas-project / datalogs`
-2. 用户明确要查 `ai-open-api` → `example-api-project / example-api-project`
-3. 用户明确是国内且服务不是 `ai-open-api` → `example-domestic-project / datalogs`
-4. 如果只有 trace ID / 关键词 / 报错片段，仍然无法判断是海外还是国内其他服务，必须先追问确认 project，再继续查询
+1. 用户明确说“海外”“国际”等海外语义 → `--scope overseas --service <service>`。
+2. 用户明确要查已配置的国内服务 → 对应 `sls.domestic.services` 覆盖或国内默认路由。
+3. 用户明确是国内其他服务 → `--scope domestic --service <service>`。
+4. 如果只有 trace ID / 关键词 / 报错片段，无法确定路由时必须先确认环境与服务；不要猜测 project。
 
-凭证文件里的 `project` / `logstore` 只是登录落点和底层脚本默认值，不作为对话查询路由的唯一依据。
+凭证文件里的 `project` / `logstore` 用于登录落点和直接调用底层脚本；`sls query` / `sls agg` 的自动路由以工作配置为准，不回退到凭证默认目标。
 
 ## 常见报错
 
@@ -250,10 +262,7 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 - 使用自己的 work 阿里云 RAM 子账号及对应主账号 alias
 - MFA 为 VMFA, TOTP 标准 6 位 30 秒
 - 登录后可能出现“重置密码”弹窗, 需要点“跳过重置”
-- 默认查询路由:
-  - 海外服务 -> `example-overseas-project / datalogs`
-  - 国内 `ai-open-api` -> `example-api-project / example-api-project`
-  - 国内其他服务 -> `example-domestic-project / datalogs`
+- 查询路由由本机工作配置维护；不要在 Skill、脚本或测试中写入真实 project/logstore。
 - 常见服务名: `data-center`, `ai-admin`, `ai-decision-system`, `company-aggre`, `call-task`, `agentcc`
 - 如需保留抓包或请求样例, 统一放共享仓库内的脱敏文件, 不要引用个人机器路径
 

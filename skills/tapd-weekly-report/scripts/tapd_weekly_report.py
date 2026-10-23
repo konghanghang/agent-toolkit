@@ -12,39 +12,57 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-TEAM_MEMBERS = ["成员甲", "成员乙", "成员丙"]
+COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
+if str(COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_DIR))
+
+from work_config import WorkConfigError, load_work_config
+
 DEFAULT_BASE_URL = "https://api.tapd.cn"
-DEFAULT_WORKSPACE_ID = "10000000"
 
 
-def parse_owners(owner_str):
+def load_report_config(config_path=None, workspace_id=None):
+    config = load_work_config(config_path)
+    section = config.get("tapd_weekly_report")
+    if not isinstance(section, dict):
+        raise WorkConfigError("工作配置缺少 tapd_weekly_report 对象。")
+
+    raw_members = section.get("members")
+    if not isinstance(raw_members, list) or not raw_members or any(
+        not isinstance(member, str) or not member.strip() for member in raw_members
+    ):
+        raise WorkConfigError("tapd_weekly_report.members 必须为非空成员名称数组。")
+    members = [member.strip() for member in raw_members]
+    if any(";" in member for member in members):
+        raise WorkConfigError("tapd_weekly_report.members 的成员名称不能包含分隔符 ';'。")
+    if len(set(members)) != len(members):
+        raise WorkConfigError("tapd_weekly_report.members 不能包含重复成员。")
+
+    if workspace_id is None:
+        workspace_id = os.getenv("TAPD_WORKSPACE_ID", "").strip() or section.get("workspace_id")
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise WorkConfigError(
+            "缺少工作区 ID：请配置 tapd_weekly_report.workspace_id，"
+            "或使用 --workspace-id / TAPD_WORKSPACE_ID。"
+        )
+    return workspace_id.strip(), members
+
+
+def parse_owners(owner_str, members=None):
     if not owner_str:
         return []
-    return [o.strip() for o in owner_str.replace(";", " ").split() if o.strip()]
+    if not members:
+        return owner_str.replace(";", " ").split()
+    names = "|".join(re.escape(member) for member in sorted(members, key=len, reverse=True))
+    return [
+        owner
+        for segment in owner_str.split(";")
+        for owner in re.findall(rf"(?<!\S)(?:{names})(?!\S)|\S+", segment)
+    ]
 
 
-def classify_story(owners):
-    team_owners = [o for o in owners if o in TEAM_MEMBERS]
-    if not team_owners:
-        return None
-
-    if "成员丙" in team_owners:
-        if len(team_owners) == 1:
-            return "成员丙"
-        other_members = [o for o in team_owners if o != "成员丙"]
-        if len(other_members) == 1:
-            return other_members[0]
-        if "成员甲" in other_members:
-            return "成员甲"
-        if "成员乙" in other_members:
-            return "成员乙"
-    else:
-        if "成员甲" in team_owners:
-            return "成员甲"
-        if "成员乙" in team_owners:
-            return "成员乙"
-
-    return None
+def classify_story(owners, members):
+    return next((member for member in members if member in owners), None)
 
 
 def clean_story_name(name):
@@ -67,8 +85,8 @@ def fetch_stories(version, token, workspace_id, base_url):
     return payload.get("data", [])
 
 
-def process_stories(stories_data):
-    result = {name: [] for name in TEAM_MEMBERS}
+def process_stories(stories_data, members):
+    result = {name: [] for name in members}
 
     for item in stories_data:
         story = item.get("Story", {})
@@ -79,8 +97,8 @@ def process_stories(stories_data):
         if status == "rejected":
             continue
 
-        owners = parse_owners(owner_str)
-        assigned_to = classify_story(owners)
+        owners = parse_owners(owner_str, members)
+        assigned_to = classify_story(owners, members)
         if assigned_to:
             result[assigned_to].append(
                 {
@@ -94,19 +112,23 @@ def process_stories(stories_data):
     return result
 
 
-def generate_weekly_report(completed_stories, planned_stories, week_start_date):
+def format_member_counts(counts, members, separator="，"):
+    return separator.join(f"{member}: {counts[member]}" for member in members)
+
+
+def generate_weekly_report(completed_stories, planned_stories, week_start_date, members):
     start = datetime.strptime(week_start_date, "%Y-%m-%d")
     end = start + timedelta(days=6)
     date_range = f"{start.strftime('%Y-%m-%d')} ~ {end.strftime('%Y-%m-%d')}"
 
-    completed_counts = {name: len(stories) for name, stories in completed_stories.items()}
-    planned_counts = {name: len(stories) for name, stories in planned_stories.items()}
+    completed_counts = {name: len(completed_stories[name]) for name in members}
+    planned_counts = {name: len(planned_stories[name]) for name in members}
     total_completed = sum(completed_counts.values())
     total_planned = sum(planned_counts.values())
 
     report = f"# 工作周报 ({date_range})\n\n"
     report += "## 本周完成\n\n"
-    for member in TEAM_MEMBERS:
+    for member in members:
         if completed_stories[member]:
             report += f"### {member}\n"
             for story in completed_stories[member]:
@@ -114,14 +136,12 @@ def generate_weekly_report(completed_stories, planned_stories, week_start_date):
             report += "\n"
 
     report += f"**本周完成数量统计**：共 {total_completed} 个需求"
-    report += f"（成员甲: {completed_counts['成员甲']}，"
-    report += f"成员乙: {completed_counts['成员乙']}，"
-    report += f"成员丙: {completed_counts['成员丙']}）\n\n"
+    report += f"（{format_member_counts(completed_counts, members)}）\n\n"
 
     report += "---\n\n"
 
     report += "## 下周计划\n\n"
-    for member in TEAM_MEMBERS:
+    for member in members:
         if planned_stories[member]:
             report += f"### {member}\n"
             for story in planned_stories[member]:
@@ -129,9 +149,7 @@ def generate_weekly_report(completed_stories, planned_stories, week_start_date):
             report += "\n"
 
     report += f"**下周计划数量统计**：共 {total_planned} 个需求"
-    report += f"（成员甲: {planned_counts['成员甲']}，"
-    report += f"成员乙: {planned_counts['成员乙']}，"
-    report += f"成员丙: {planned_counts['成员丙']}）\n"
+    report += f"（{format_member_counts(planned_counts, members)}）\n"
 
     return report, completed_counts, planned_counts
 
@@ -158,7 +176,8 @@ def main():
     parser.add_argument("--next-version", help="下一个版本，例如 2026-0122")
     parser.add_argument("--output-root", default="reports", help="周报输出根目录")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="TAPD API 基础地址")
-    parser.add_argument("--workspace-id", default=os.getenv("TAPD_WORKSPACE_ID", DEFAULT_WORKSPACE_ID))
+    parser.add_argument("--config", help="本机工作配置文件路径")
+    parser.add_argument("--workspace-id", help="覆盖环境变量和工作配置中的工作区 ID")
     parser.add_argument("--dry-run", action="store_true", help="只输出推导结果，不真正写文件")
     args = parser.parse_args()
 
@@ -168,7 +187,7 @@ def main():
         next_version = (version_date + timedelta(days=7)).strftime("%Y-%m%d")
 
     week_start = (version_date - timedelta(days=version_date.weekday())).strftime("%Y-%m-%d")
-    output_path = build_output_path(args.output_root, week_start, ensure_dir=not args.dry_run)
+    output_path = build_output_path(args.output_root, week_start, ensure_dir=False)
 
     if args.dry_run:
         print(f"version={args.version}")
@@ -182,32 +201,29 @@ def main():
         print("缺少 TAPD_TOKEN 环境变量。", file=sys.stderr)
         return 1
 
-    completed_data = fetch_stories(args.version, token, args.workspace_id, args.base_url)
-    planned_data = fetch_stories(next_version, token, args.workspace_id, args.base_url)
+    try:
+        workspace_id, members = load_report_config(args.config, args.workspace_id)
+    except WorkConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
-    completed_stories = process_stories(completed_data)
-    planned_stories = process_stories(planned_data)
+    completed_data = fetch_stories(args.version, token, workspace_id, args.base_url)
+    planned_data = fetch_stories(next_version, token, workspace_id, args.base_url)
+
+    completed_stories = process_stories(completed_data, members)
+    planned_stories = process_stories(planned_data, members)
 
     report, completed_counts, planned_counts = generate_weekly_report(
-        completed_stories, planned_stories, week_start
+        completed_stories, planned_stories, week_start, members
     )
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as handle:
         handle.write(report)
 
     print(f"周报已生成：{output_path}")
-    print(
-        "本周完成统计 - "
-        f"成员甲: {completed_counts['成员甲']}, "
-        f"成员乙: {completed_counts['成员乙']}, "
-        f"成员丙: {completed_counts['成员丙']}"
-    )
-    print(
-        "下周计划统计 - "
-        f"成员甲: {planned_counts['成员甲']}, "
-        f"成员乙: {planned_counts['成员乙']}, "
-        f"成员丙: {planned_counts['成员丙']}"
-    )
+    print("本周完成统计 - " + format_member_counts(completed_counts, members, ", "))
+    print("下周计划统计 - " + format_member_counts(planned_counts, members, ", "))
 
     return 0
 

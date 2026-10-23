@@ -11,14 +11,9 @@ if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
 from runtime import load_runtime_or_exit
+from work_config import WorkConfigError, load_work_config
 
 
-PROJECT_OVERSEAS = "example-overseas-project"
-LOGSTORE_OVERSEAS = "datalogs"
-PROJECT_CN_OPENAPI = "example-api-project"
-LOGSTORE_CN_OPENAPI = "example-api-project"
-PROJECT_CN_DEFAULT = "example-domestic-project"
-LOGSTORE_CN_DEFAULT = "datalogs"
 SESSION_ERROR_RE = re.compile(r"ConsoleNeedLogin|Invalid CSRF token|找不到 session 文件")
 SAFE_MAX_MINUTES = 3 * 24 * 60
 SAFE_MAX_SIZE = 100
@@ -62,9 +57,9 @@ def usage() -> str:
   - query 会在 session 缺失或失效时自动转去登录，再重试一次
   - search-safe/agg-safe 禁止自选 project/logstore、完整输出和落盘，并限制窗口与结果量
   - agg 走 pSql 聚合(count / GROUP BY / 精确去重总数), 使用 --index + --sql, 避坑见 references/advanced-query.md
-  - 海外全部服务: example-overseas-project / datalogs
-  - 国内 ai-open-api: example-api-project / example-api-project
-  - 国内其他服务: example-domestic-project / datalogs
+  - project/logstore 路由从本机工作配置的 sls 节读取，支持国内/海外默认目标和服务覆盖
+  - 默认配置: ~/.local/agent-toolkit/work/config.json，可用 AGENT_TOOLKIT_WORK_CONFIG 覆盖路径
+  - 初始化空模板: python3 $AGENT_TOOLKIT_ROOT/scripts/init_work_config.py
 """
 
 
@@ -103,16 +98,71 @@ def normalize_scope(scope: str) -> str:
     return mapping[scope]
 
 
+def load_sls_config(*, required: bool = True) -> dict:
+    try:
+        config = load_work_config(required=required)
+    except WorkConfigError as exc:
+        raise SystemExit(f"[!] {exc}") from exc
+    sls = config.get("sls", {})
+    if not isinstance(sls, dict) or (required and not sls):
+        raise SystemExit("[!] 工作配置需要 sls 路由；请运行 scripts/init_work_config.py 并填写本机配置。")
+    return sls
+
+
+def scope_routes(config: dict, scope: str) -> tuple[dict, dict]:
+    scope_config = config.get(scope, {})
+    if not isinstance(scope_config, dict):
+        raise SystemExit(f"[!] 工作配置 sls.{scope} 必须是对象。")
+    services = scope_config.get("services", {})
+    if not isinstance(services, dict):
+        raise SystemExit(f"[!] 工作配置 sls.{scope}.services 必须是对象。")
+    return scope_config, services
+
+
+def route_target(route: object, label: str, *, required: bool = True) -> tuple[str, str] | None:
+    if not isinstance(route, dict):
+        raise SystemExit(f"[!] 工作配置 {label} 必须是包含 project/logstore 的对象。")
+    values = [route.get(name, "") for name in ("project", "logstore")]
+    if not all(isinstance(value, str) for value in values):
+        raise SystemExit(f"[!] 工作配置 {label} 的 project/logstore 必须是字符串。")
+    project, logstore = (value.strip() for value in values)
+    if not project or not logstore:
+        if required:
+            raise SystemExit(f"[!] 工作配置 {label} 需要非空 project 和 logstore。")
+        return None
+    return project, logstore
+
+
+def configured_route(config: dict, scope: str, service: str = "") -> tuple[str, str]:
+    scope_config, services = scope_routes(config, scope)
+    label = f"sls.{scope}"
+    if service in services:
+        route = route_target(services[service], f"{label}.services.{service}")
+    else:
+        route = route_target(scope_config.get("default", {}), f"{label}.default")
+    assert route is not None
+    return route
+
+
 def infer_logstore_by_project(project: str) -> str | None:
-    if project in {PROJECT_OVERSEAS, PROJECT_CN_DEFAULT}:
-        return LOGSTORE_OVERSEAS
-    if project == PROJECT_CN_OPENAPI:
-        return LOGSTORE_CN_OPENAPI
-    return None
+    logstores = set()
+    config = load_sls_config(required=False)
+    for scope in ("domestic", "overseas"):
+        scope_config, services = scope_routes(config, scope)
+        routes = [("default", scope_config.get("default", {})), *services.items()]
+        for name, route in routes:
+            target = route_target(route, f"sls.{scope}.{name}", required=False)
+            if target is not None and target[0] == project:
+                logstores.add(target[1])
+    return next(iter(logstores)) if len(logstores) == 1 else None
 
 
-def infer_service_from_text(text: str) -> str | None:
-    return "ai-open-api" if "ai-open-api" in text else None
+def infer_service_from_text(text: str, config: dict, scope: str) -> str | None:
+    _, services = scope_routes(config, scope)
+    matches = [name for name in services if name and name in text]
+    if len(matches) > 1:
+        raise SystemExit("[!] 查询包含多个已配置服务；请显式指定 --service。")
+    return matches[0] if matches else None
 
 
 def resolve_route_args(args: list[str]) -> list[str]:
@@ -172,27 +222,25 @@ def resolve_route_args(args: list[str]) -> list[str]:
             pass_args.extend(["--logstore", logstore])
         return pass_args
 
-    inferred_service = infer_service_from_text(f"{query_text} {keyword_text}")
-    if not service and inferred_service:
-        service = inferred_service
-        service_present = True
+    config = load_sls_config()
+    if not service:
+        inferred_service = infer_service_from_text(
+            f"{query_text} {keyword_text}", config, scope or "domestic"
+        )
+        if inferred_service:
+            service = inferred_service
+            service_present = True
 
-    route_project = route_logstore = ""
+    _, services = scope_routes(config, scope or "domestic")
     if scope == "overseas":
-        route_project, route_logstore = PROJECT_OVERSEAS, LOGSTORE_OVERSEAS
-    elif service == "ai-open-api":
-        route_project, route_logstore = PROJECT_CN_OPENAPI, LOGSTORE_CN_OPENAPI
-    elif scope == "domestic" and service:
-        route_project, route_logstore = PROJECT_CN_DEFAULT, LOGSTORE_CN_DEFAULT
-
-    if not route_project:
-        if not route_hint_present and not query_present and not keyword_present and not trace_present:
-            return pass_args
+        route_project, route_logstore = configured_route(config, scope, service)
+    elif (scope == "domestic" and service) or service in services:
+        route_project, route_logstore = configured_route(config, "domestic", service)
+    elif not route_hint_present and not query_present and not keyword_present and not trace_present:
+        route_project, route_logstore = configured_route(config, "domestic")
+    else:
         raise SystemExit(
             "[!] 无法确定要查询的 SLS project。\n"
-            f"    1. 海外全部服务 -> {PROJECT_OVERSEAS} / {LOGSTORE_OVERSEAS}\n"
-            f"    2. 国内 ai-open-api -> {PROJECT_CN_OPENAPI} / {LOGSTORE_CN_OPENAPI}\n"
-            f"    3. 国内其他服务 -> {PROJECT_CN_DEFAULT} / {LOGSTORE_CN_DEFAULT}\n"
             "    请补充 --scope domestic|overseas、--service <service>，或直接指定 --project/--logstore。"
         )
 
@@ -430,12 +478,14 @@ def run_login_auto() -> int:
 
 
 def run_query(args: list[str]) -> int:
-    runtime, _, query_script = runtime_and_paths()
     if wants_help(args):
+        runtime, _, query_script = runtime_and_paths()
         result = run_subprocess([runtime["python_bin"], str(query_script), *args])
         print_output(result)
         return result.returncode
 
+    resolved_args = resolve_route_args(args)
+    runtime, _, query_script = runtime_and_paths()
     require_credentials(runtime)
     session_file = Path(runtime["sls_dir"]) / "aliyun_session.json"
     if not session_file.exists():
@@ -444,7 +494,6 @@ def run_query(args: list[str]) -> int:
         if code != 0:
             return code
 
-    resolved_args = resolve_route_args(args)
     result = run_subprocess([runtime["python_bin"], str(query_script), *resolved_args])
     if SESSION_ERROR_RE.search(result.stdout + result.stderr):
         print_output(result)
@@ -514,15 +563,9 @@ def resolve_agg_args(args: list[str]) -> list[str]:
                     f"[!] 已指定 --project={project}，但无法自动推断 logstore。\n"
                     "    请补充 --logstore。"
                 )
-    elif scope == "overseas":
-        project = PROJECT_OVERSEAS
-        logstore = logstore or LOGSTORE_OVERSEAS
-    elif parsed.service == "ai-open-api":
-        project = PROJECT_CN_OPENAPI
-        logstore = logstore or LOGSTORE_CN_OPENAPI
     else:
-        project = PROJECT_CN_DEFAULT
-        logstore = logstore or LOGSTORE_CN_DEFAULT
+        project, configured_logstore = configured_route(load_sls_config(), scope or "domestic", parsed.service)
+        logstore = logstore or configured_logstore
 
     index = parsed.index if parsed.index is not None else parsed.service or "*"
 

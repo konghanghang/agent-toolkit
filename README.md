@@ -44,6 +44,8 @@ python3 common/bootstrap_work.py
 
 工作区和服务凭证在本机按需配置，不进入 Git。安装参数、自定义 Codex Home、配置保护与运行时说明见 [安装指南](docs/installation.md)。
 
+SLS 路由、TAPD 周报工作区和成员通过 [工作环境私有配置](docs/installation.md#工作环境私有配置)管理，仓库只提供空模板。
+
 ### Windows
 
 使用 Python 3.11、Windows PowerShell 和本机 NTFS 卷，命令以 `py -3.11` 执行。完整的依赖检查、安装和更新步骤见 [Windows 指南](docs/windows.md)。

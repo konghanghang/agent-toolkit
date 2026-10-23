@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = SKILL_DIR / "scripts" / "tapd_weekly_report.py"
+MEMBERS = ["成员甲", "成员乙", "成员丙"]
 
 
 def load_module():
@@ -58,6 +59,10 @@ class TapdWeeklyReportTest(unittest.TestCase):
             ["成员丙", "成员甲", "成员乙"],
             weekly.parse_owners("成员丙; 成员甲 成员乙"),
         )
+        self.assertEqual(
+            ["成员丙", "成员甲", "成员乙"],
+            weekly.parse_owners("成员丙; 成员甲 成员乙", MEMBERS),
+        )
         cases = {
             ("成员丙",): "成员丙",
             ("成员丙", "成员甲"): "成员甲",
@@ -69,7 +74,7 @@ class TapdWeeklyReportTest(unittest.TestCase):
         }
         for owners, expected in cases.items():
             with self.subTest(owners=owners):
-                self.assertEqual(expected, weekly.classify_story(list(owners)))
+                self.assertEqual(expected, weekly.classify_story(list(owners), MEMBERS))
 
     def test_process_stories_filters_and_normalizes(self) -> None:
         processed = weekly.process_stories(
@@ -78,7 +83,8 @@ class TapdWeeklyReportTest(unittest.TestCase):
                 story("【内部】监控改造", "成员乙"),
                 story("【废弃】不会进入周报", "成员丙", status="rejected"),
                 story("外部团队事项", "其他成员"),
-            ]
+            ],
+            MEMBERS,
         )
 
         self.assertEqual(
@@ -94,6 +100,28 @@ class TapdWeeklyReportTest(unittest.TestCase):
             "【客户需求】【进行中】OpenAPI 接口",
             processed["成员甲"][0]["original_name"],
         )
+
+    def test_process_stories_preserves_configured_names_with_spaces(self) -> None:
+        members = ["Alice Smith", "Bob Jones", "Alice", "成员甲"]
+        self.assertEqual(["Alice", "Smith"], weekly.parse_owners("Alice;Smith", members))
+        processed = weekly.process_stories(
+            [
+                story("独立需求", "Alice Smith"),
+                story("共同需求", "Bob Jones Alice Smith; 成员甲"),
+            ],
+            members,
+        )
+
+        self.assertEqual(
+            ["独立需求", "共同需求"],
+            [item["name"] for item in processed["Alice Smith"]],
+        )
+        self.assertEqual(
+            ["Bob Jones", "Alice Smith", "成员甲"],
+            processed["Alice Smith"][1]["owners"],
+        )
+        self.assertEqual([], processed["Alice"])
+        self.assertEqual([], processed["Bob Jones"])
 
     def test_fetch_stories_uses_bearer_get_and_validates_api_status(self) -> None:
         payload = {"status": 1, "data": [story("需求", "成员丙")]}
@@ -128,8 +156,8 @@ class TapdWeeklyReportTest(unittest.TestCase):
                 )
 
     def test_generate_weekly_report_preserves_dates_tasks_and_counts(self) -> None:
-        completed = {name: [] for name in weekly.TEAM_MEMBERS}
-        planned = {name: [] for name in weekly.TEAM_MEMBERS}
+        completed = {name: [] for name in MEMBERS}
+        planned = {name: [] for name in MEMBERS}
         completed["成员甲"] = [{"name": "完成 A"}]
         completed["成员丙"] = [{"name": "完成 B"}]
         planned["成员乙"] = [{"name": "计划 C"}]
@@ -138,6 +166,7 @@ class TapdWeeklyReportTest(unittest.TestCase):
             completed,
             planned,
             "2026-01-12",
+            MEMBERS,
         )
 
         self.assertIn("# 工作周报 (2026-01-12 ~ 2026-01-18)", report)
@@ -192,6 +221,10 @@ class TapdWeeklyReportTest(unittest.TestCase):
                 weekly,
                 "fetch_stories",
                 side_effect=AssertionError("dry-run must not use the network"),
+            ), patch.object(
+                weekly,
+                "load_work_config",
+                side_effect=AssertionError("dry-run must not require configuration"),
             ), redirect_stdout(output):
                 code = weekly.main()
 
@@ -223,6 +256,83 @@ class TapdWeeklyReportTest(unittest.TestCase):
 
         self.assertEqual(1, code)
         self.assertIn("缺少 TAPD_TOKEN", error.getvalue())
+
+    def test_main_uses_configured_members_and_workspace_precedence(self) -> None:
+        cases = (
+            ({}, [], "workspace-config"),
+            ({"TAPD_WORKSPACE_ID": "workspace-env"}, [], "workspace-env"),
+            (
+                {"TAPD_WORKSPACE_ID": "workspace-env"},
+                ["--workspace-id", "workspace-cli"],
+                "workspace-cli",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "work.json"
+            for index, (environment, arguments, workspace_id) in enumerate(cases):
+                members = ["成员丁", "成员甲"] if index == 0 else ["成员甲", "成员丁", "成员乙", "成员丙"]
+                config_path.write_text(json.dumps({
+                    "schema_version": 1,
+                    "tapd_weekly_report": {
+                        "workspace_id": "workspace-config",
+                        "members": members,
+                    },
+                }))
+                output_root = Path(temp_dir) / f"reports-{index}"
+                argv = [
+                    str(SCRIPT), "--version", "2026-0115", "--config", str(config_path),
+                    "--output-root", str(output_root), *arguments,
+                ]
+                data = [story("【客户】完成需求", "成员甲;成员丁")]
+                output = io.StringIO()
+                with self.subTest(workspace_id=workspace_id), patch.object(
+                    sys, "argv", argv
+                ), patch.dict(
+                    os.environ, {"TAPD_TOKEN": "test-token", **environment}, clear=True
+                ), patch.object(
+                    weekly, "fetch_stories", side_effect=[data, []]
+                ) as fetch, redirect_stdout(output):
+                    self.assertEqual(0, weekly.main())
+
+                self.assertEqual(2, fetch.call_count)
+                self.assertTrue(all(item.args[2] == workspace_id for item in fetch.call_args_list))
+                report = (output_root / "2026" / "01" / "weekly-report-2026-01-12.md").read_text()
+                first_member = members[0]
+                self.assertIn(f"### {first_member}\n- 完成需求", report)
+                counts = "，".join(f"{member}: {int(member == first_member)}" for member in members)
+                self.assertIn(f"（{counts}）", report)
+                self.assertIn(f"本周完成统计 - {first_member}: 1", output.getvalue())
+
+    def test_invalid_config_stops_before_network_or_output_creation(self) -> None:
+        invalid = (
+            None,
+            "{invalid-json",
+            {"schema_version": 1},
+            {"schema_version": 1, "tapd_weekly_report": {"workspace_id": "workspace", "members": []}},
+            {"schema_version": 1, "tapd_weekly_report": {"workspace_id": "workspace", "members": ["成员甲", " 成员甲 "]}},
+            {"schema_version": 1, "tapd_weekly_report": {"workspace_id": "workspace", "members": ["成员甲", 1]}},
+            {"schema_version": 1, "tapd_weekly_report": {"workspace_id": "workspace", "members": ["Alice;Smith"]}},
+            {"schema_version": 1, "tapd_weekly_report": {"workspace_id": "", "members": MEMBERS}},
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for index, value in enumerate(invalid):
+                config_path = Path(temp_dir) / f"config-{index}.json"
+                if value is not None:
+                    config_path.write_text(value if isinstance(value, str) else json.dumps(value))
+                output_root = Path(temp_dir) / f"reports-{index}"
+                argv = [
+                    str(SCRIPT), "--version", "2026-0115", "--config", str(config_path),
+                    "--output-root", str(output_root),
+                ]
+                error = io.StringIO()
+                with self.subTest(config=value), patch.object(sys, "argv", argv), patch.dict(
+                    os.environ, {"TAPD_TOKEN": "test-token"}, clear=True
+                ), patch.object(
+                    weekly, "fetch_stories", side_effect=AssertionError("invalid config must stop before network")
+                ), redirect_stderr(error):
+                    self.assertEqual(1, weekly.main())
+                self.assertTrue(error.getvalue())
+                self.assertFalse(output_root.exists())
 
 
 if __name__ == "__main__":

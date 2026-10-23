@@ -8,11 +8,13 @@
 - 字段：`id,name,owner,status,version`
 - 鉴权：`Authorization` 头里放 Bearer Token
 
-示例请求：
+脚本从本机工作配置读取成员与工作区 ID，路径、覆盖规则和初始化方式见 [工作环境私有配置](../../../docs/installation.md#工作环境私有配置)。实际名单和工作区 ID 不写入本文件。
+
+以下底层请求示例使用环境变量传入工作区 ID，需要先设置 `TAPD_WORKSPACE_ID`：
 
 ```bash
 curl -s -H "Authorization: Bearer $TAPD_TOKEN" \
-  "https://api.tapd.cn/stories?workspace_id=10000000&version=2026-0115&limit=100&fields=id,name,owner,status,version"
+  "https://api.tapd.cn/stories?workspace_id=$TAPD_WORKSPACE_ID&version=2026-0115&limit=100&fields=id,name,owner,status,version"
 ```
 
 ## 版本规则
@@ -23,6 +25,8 @@ curl -s -H "Authorization: Bearer $TAPD_TOKEN" \
 - 周报统计区间：该版本所在周的周一到周日
 
 ## 输出格式
+
+下例中的成员甲、成员乙、成员丙是说明用名称。实际成员标题和数量统计按本机 `members` 数组动态生成，展示顺序也与该数组一致。
 
 ```markdown
 # 工作周报 (YYYY-MM-DD ~ YYYY-MM-DD)

@@ -212,6 +212,67 @@ python3 ~/.agent-toolkit/common/bootstrap_work.py
 
 GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`，仓库内不写死服务地址。安装器和 bootstrap 会在文件不存在时创建仅含 `base_url`、`private_token` 两个空 value 的私有模板，已有文件绝不覆盖。填写后可用 `gitlab whoami` 验证，并用 `gitlab trigger` 触发和跟踪 Pipeline、`gitlab result` 查询最终结果。
 
+## 工作环境私有配置
+
+SLS 的 project/logstore、服务路由，以及 TAPD 周报的工作区和成员列表，放在本机 `~/.local/agent-toolkit/work/config.json`。这些值不写入源码、测试或公共文档；仓库只保存空模板和虚构示例。
+
+在仓库根目录预览并创建模板：
+
+```bash
+python3 scripts/init_work_config.py --dry-run
+python3 scripts/init_work_config.py
+```
+
+Windows PowerShell 使用 `py -3.11 scripts\init_work_config.py`，同样支持 `--dry-run`。初始化只创建缺失文件，保留已有配置；新文件在 macOS/Linux 使用 `0600`，Windows 使用与其他私有配置相同的受限 ACL。该步骤独立于 Skills 安装，通用安装不创建工作配置。
+
+默认路径以外的配置文件，可通过 `AGENT_TOOLKIT_WORK_CONFIG` 指定；初始化脚本和周报脚本另支持 `--config PATH`，显式参数优先。若在仓库内保存本机配置，应放进已被 Git 忽略的 `.local/` 目录：
+
+```bash
+export AGENT_TOOLKIT_WORK_CONFIG="$HOME/.agent-toolkit/.local/work/config.json"
+python3 scripts/init_work_config.py --dry-run
+python3 scripts/init_work_config.py
+```
+
+填充后格式如下，示例中的名称和 ID 均需替换为本机实际值：
+
+```json
+{
+  "schema_version": 1,
+  "sls": {
+    "domestic": {
+      "default": {
+        "project": "example-cn-project",
+        "logstore": "example-cn-logstore"
+      },
+      "services": {
+        "example-service": {
+          "project": "example-api-project",
+          "logstore": "example-api-logstore"
+        }
+      }
+    },
+    "overseas": {
+      "default": {
+        "project": "example-overseas-project",
+        "logstore": "example-overseas-logstore"
+      },
+      "services": {}
+    }
+  },
+  "tapd_weekly_report": {
+    "workspace_id": "example-workspace",
+    "members": ["成员甲", "成员乙", "成员丙"]
+  }
+}
+```
+
+- SLS 按 scope 和 service 选路由；`services` 中的键是服务名，匹配时优先于该 scope 的 `default`。普通查询、聚合和受限查询使用同一配置。完整显式指定 `--project` 和 `--logstore` 时无需路由配置；受限入口继续禁止自选目标。
+- 周报的 `members` 决定展示顺序和多人需求归属优先级：取需求负责人中第一个出现在此列表的人。可以调整人数和顺序，无须修改脚本。`--workspace-id`、`TAPD_WORKSPACE_ID` 优先于配置中的工作区。
+- 每次执行重新读取配置；修改后下一次命令生效。所用功能缺少必要配置时，在请求外部系统前报错，不回退到源码中的公司环境值。周报 `--dry-run` 仅推导版本日期和路径，无需真实配置。
+- `TAPD_TOKEN` 继续通过环境变量提供；SLS 凭证和 Session 继续由现有私有目录管理，不放进模板。使用 SLS 前仍需准备公共运行时及登录配置。
+
+现有机器升级时，应先把原来的实际路由、工作区和成员优先顺序填入私有配置，再使用新入口；初始化空模板不会自动恢复旧值。
+
 ## work 全局协作规则
 
 规则原文件保存在 [`codex/instructions/work.md`](../codex/instructions/work.md)，由本仓库统一维护版本。

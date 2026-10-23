@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -24,7 +25,31 @@ def load_module(name: str, path: Path):
     return module
 
 
-class SlsWorkflowTest(unittest.TestCase):
+class ConfiguredSlsTest(unittest.TestCase):
+    def setUp(self):
+        self.config = {
+            "schema_version": 1,
+            "sls": {
+                "domestic": {
+                    "default": {"project": "cn-project", "logstore": "cn-logs"},
+                    "services": {
+                        "example-api": {"project": "api-project", "logstore": "api-logs"},
+                    },
+                },
+                "overseas": {
+                    "default": {"project": "overseas-project", "logstore": "overseas-logs"},
+                    "services": {},
+                },
+            },
+        }
+        self.read_work_config = self.cli.load_work_config
+        config = patch.object(self.cli, "load_work_config", return_value=self.config)
+        config.start()
+        self.addCleanup(config.stop)
+
+
+
+class SlsWorkflowTest(ConfiguredSlsTest):
 
     @classmethod
     def setUpClass(cls):
@@ -205,40 +230,6 @@ class SlsWorkflowTest(unittest.TestCase):
         self.assertEqual("--no-keep", run.call_args_list[1].args[0][-1])
         self.assertEqual(3, run.call_count)
 
-    def test_agg_rejects_unknown_argument(self):
-        with self.assertRaises(SystemExit) as raised:
-            self.cli.resolve_agg_args([
-                "--service", "data-center",
-                "--sql", "SELECT count(*) as c",
-                "--minuts", "5",
-            ])
-
-        self.assertEqual(2, raised.exception.code)
-
-    def test_agg_infers_logstore_from_explicit_project(self):
-        args = self.cli.resolve_agg_args([
-            "--project", "example-api-project",
-            "--sql", "SELECT count(*) as c",
-        ])
-
-        self.assertEqual("example-api-project", args[args.index("--project") + 1])
-        self.assertEqual("example-api-project", args[args.index("--logstore") + 1])
-
-    def test_agg_requires_logstore_for_unknown_project(self):
-        with self.assertRaisesRegex(SystemExit, "请补充 --logstore"):
-            self.cli.resolve_agg_args([
-                "--project", "custom-project",
-                "--sql", "SELECT count(*) as c",
-            ])
-
-    def test_agg_rejects_size_above_sls_limit(self):
-        with self.assertRaisesRegex(SystemExit, "--size 必须在 1-100"):
-            self.cli.resolve_agg_args([
-                "--service", "data-center",
-                "--sql", "SELECT content",
-                "--size", "200",
-            ])
-
     def test_query_logs_enables_psql_in_request(self):
         response = unittest.mock.Mock()
         response.status_code = 200
@@ -247,8 +238,8 @@ class SlsWorkflowTest(unittest.TestCase):
         with patch.object(self.query.requests, "post", return_value=response) as post:
             self.query.query_logs(
                 {"cookies": {}, "csrf": "token"},
-                {"project": "example-api-project", "logstore": "example-api-project"},
-                query="ai-open-api | SELECT count(*) as c",
+                {"project": "api-project", "logstore": "api-logs"},
+                query="example-api | SELECT count(*) as c",
                 psql=True,
             )
 
@@ -262,7 +253,7 @@ class SlsWorkflowTest(unittest.TestCase):
         with patch.object(self.query.requests, "post", return_value=response) as post:
             self.query.query_logs(
                 {"cookies": {}, "csrf": "token"},
-                {"project": "example-api-project", "logstore": "example-api-project"},
+                {"project": "api-project", "logstore": "api-logs"},
                 from_ts=0,
                 to_ts=0,
             )
@@ -270,74 +261,9 @@ class SlsWorkflowTest(unittest.TestCase):
         self.assertEqual(0, post.call_args.kwargs["data"]["from"])
         self.assertEqual(0, post.call_args.kwargs["data"]["to"])
 
-    def test_search_safe_rejects_raw_routing_and_output_options(self):
-        args = self.cli.resolve_search_safe_args([
-            "--scope", "domestic",
-            "--service", "data-center",
-            "--trace-id", "6b62e9b764de5d45",
-            "--minutes", "60",
-            "--size", "50",
-        ])
-        self.assertNotIn("--project", args)
-        self.assertNotIn("--logstore", args)
-        self.assertNotIn("--out", args)
-        self.assertNotIn("--full", args)
-        with self.assertRaises(SystemExit):
-            self.cli.resolve_search_safe_args([
-                "--service", "ai-open-api", "--out", str(TEST_TMP_ROOT / "logs.json"),
-            ])
-        with self.assertRaises(SystemExit):
-            self.cli.resolve_search_safe_args([
-                "--service", "ai-open-api", "--minutes", "4321",
-            ])
-
-    def test_agg_safe_requires_single_select_aggregate(self):
-        args = self.cli.resolve_agg_safe_args([
-            "--scope", "overseas",
-            "--service", "agentcc",
-            "--sql", "SELECT count(*) AS c",
-        ])
-        self.assertIn("--sql", args)
-        resolved = self.cli.resolve_agg_args(args)
-        self.assertIn("--psql", resolved)
-        self.assertIn("--redact", resolved)
-        with self.assertRaises(SystemExit):
-            self.cli.resolve_agg_safe_args([
-                "--service", "ai-open-api", "--sql", "SELECT content",
-            ])
-        with self.assertRaises(SystemExit):
-            self.cli.resolve_agg_safe_args([
-                "--service", "ai-open-api", "--sql", "SELECT count(*); SELECT count(*)",
-            ])
-
-    def test_agg_safe_rejects_direct_raw_log_dimensions(self):
-        for sql in (
-            "SELECT content, count(*) AS c GROUP BY content",
-            "SELECT message, max(__time__) GROUP BY message",
-            "SELECT max(__content__) AS latest",
-            'SELECT max(concat(content, "")) AS latest, count(*) AS c',
-            "SELECT count(*) || content AS value",
-            'SELECT regexp_extract(content, "(.*)", 1) AS raw, count(*) AS c '
-            "GROUP BY raw",
-        ):
-            with self.subTest(sql=sql), self.assertRaises(SystemExit):
-                self.cli.resolve_agg_safe_args([
-                    "--service", "ai-open-api", "--sql", sql,
-                ])
-
-    def test_agg_safe_allows_derived_raw_log_dimension(self):
-        sql = (
-            'SELECT regexp_extract(content, "messageId[: ]*([0-9A-F]{20,})", 1) '
-            "AS mid, count(*) AS c GROUP BY mid"
-        )
-        args = self.cli.resolve_agg_safe_args([
-            "--service", "data-center", "--sql", sql,
-        ])
-        self.assertEqual(sql, args[args.index("--sql") + 1])
-
     def test_safe_queries_enable_output_redaction(self):
         args = self.cli.resolve_search_safe_args([
-            "--service", "ai-open-api", "--keyword", "ERROR",
+            "--service", "example-api", "--keyword", "ERROR",
         ])
         self.assertIn("--redact", args)
         text = self.query.redact_sensitive_output(
@@ -365,11 +291,198 @@ class SlsWorkflowTest(unittest.TestCase):
         ), patch.object(self.cli, "run_login_auto", return_value=0
         ) as login:
             code = self.cli.run_query([
-                "--service", "ai-open-api", "--redact",
+                "--service", "example-api", "--redact",
             ])
 
         self.assertEqual(0, code)
         login.assert_called_once_with()
+
+
+class SlsRoutingTest(ConfiguredSlsTest):
+    @classmethod
+    def setUpClass(cls):
+        cls.cli = load_module(
+            "sls_routing_cli_test",
+            TOOLKIT_ROOT / "common/entrypoints/sls_cli.py",
+        )
+
+    def test_query_and_aggregate_use_configured_scope_and_service_routes(self):
+        cases = [
+            (["--scope", "domestic", "--service", "worker"], "cn-project", "cn-logs"),
+            (["--service", "example-api"], "api-project", "api-logs"),
+            (["--scope", "overseas", "--service", "example-api"], "overseas-project", "overseas-logs"),
+        ]
+        for args, project, logstore in cases:
+            with self.subTest(args=args):
+                query = self.cli.resolve_route_args(args)
+                aggregate = self.cli.resolve_agg_args([*args, "--sql", "SELECT count(*)"])
+                for resolved in (query, aggregate):
+                    self.assertEqual(project, resolved[resolved.index("--project") + 1])
+                    self.assertEqual(logstore, resolved[resolved.index("--logstore") + 1])
+        default = self.cli.resolve_route_args(["--minutes", "15"])
+        self.assertEqual("cn-project", default[default.index("--project") + 1])
+        self.config["sls"]["domestic"]["default"]["project"] = "updated-project"
+        changed = self.cli.resolve_agg_args(["--service", "worker", "--sql", "SELECT count(*)"])
+        self.assertEqual("updated-project", changed[changed.index("--project") + 1])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(self.config), encoding="utf-8")
+            with patch.object(self.cli, "load_work_config", self.read_work_config), patch.dict(
+                os.environ, {"AGENT_TOOLKIT_WORK_CONFIG": str(path)}
+            ):
+                first = self.cli.resolve_route_args(["--scope", "domestic", "--service", "worker"])
+                self.config["sls"]["domestic"]["default"]["project"] = "reloaded-project"
+                path.write_text(json.dumps(self.config), encoding="utf-8")
+                second = self.cli.resolve_route_args(["--scope", "domestic", "--service", "worker"])
+            self.assertEqual("updated-project", first[first.index("--project") + 1])
+            self.assertEqual("reloaded-project", second[second.index("--project") + 1])
+
+    def test_configured_service_inference_requires_unambiguous_route(self):
+        inferred = self.cli.resolve_route_args(["--query", "example-api and ERROR"])
+        self.assertEqual("api-project", inferred[inferred.index("--project") + 1])
+        self.config["sls"]["overseas"]["services"]["overseas-api"] = {
+            "project": "overseas-api-project", "logstore": "overseas-api-logs",
+        }
+        overseas = self.cli.resolve_route_args([
+            "--scope", "overseas", "--keyword", "overseas-api and ERROR",
+        ])
+        self.assertEqual("overseas-api-project", overseas[overseas.index("--project") + 1])
+        self.config["sls"]["domestic"]["services"]["another-api"] = {
+            "project": "another-project", "logstore": "another-logs",
+        }
+        with self.assertRaisesRegex(SystemExit, "多个已配置服务"):
+            self.cli.resolve_route_args(["--query", "example-api or another-api"])
+        with self.assertRaisesRegex(SystemExit, "无法确定"):
+            self.cli.resolve_route_args(["--trace-id", "example-trace"])
+
+    def test_missing_or_invalid_routes_stop_before_login_or_query(self):
+        with patch.object(
+            self.cli, "load_work_config",
+            side_effect=self.cli.WorkConfigError("missing private config"),
+        ), patch.object(self.cli, "run_login_auto") as login, patch.object(
+            self.cli, "run_subprocess"
+        ) as query, patch.object(self.cli, "runtime_and_paths") as runtime:
+            with self.assertRaisesRegex(SystemExit, "missing private config"):
+                self.cli.run_query(["--scope", "domestic", "--service", "worker"])
+            login.assert_not_called()
+            query.assert_not_called()
+            runtime.assert_not_called()
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, self.cli.main(["--help"]))
+        self.config["sls"]["domestic"]["default"]["project"] = ""
+        with self.assertRaisesRegex(SystemExit, "非空 project"):
+            self.cli.resolve_agg_args(["--service", "worker", "--sql", "SELECT count(*)"])
+
+    def test_explicit_complete_target_does_not_read_route_config(self):
+        args = ["--project", "custom-project", "--logstore", "custom-logs"]
+        with patch.object(
+            self.cli, "load_work_config",
+            side_effect=AssertionError("explicit routing must not read private config"),
+        ):
+            query = self.cli.resolve_route_args([*args, "--query", "*"])
+            aggregate = self.cli.resolve_agg_args([*args, "--sql", "SELECT count(*)"])
+        for resolved in (query, aggregate):
+            self.assertEqual("custom-project", resolved[resolved.index("--project") + 1])
+            self.assertEqual("custom-logs", resolved[resolved.index("--logstore") + 1])
+
+    def test_agg_rejects_unknown_argument(self):
+        with self.assertRaises(SystemExit) as raised:
+            self.cli.resolve_agg_args([
+                "--service", "data-center",
+                "--sql", "SELECT count(*) as c",
+                "--minuts", "5",
+            ])
+
+        self.assertEqual(2, raised.exception.code)
+
+    def test_agg_infers_logstore_from_explicit_project(self):
+        args = self.cli.resolve_agg_args([
+            "--project", "api-project",
+            "--sql", "SELECT count(*) as c",
+        ])
+
+        self.assertEqual("api-project", args[args.index("--project") + 1])
+        self.assertEqual("api-logs", args[args.index("--logstore") + 1])
+
+    def test_agg_requires_logstore_for_unknown_project(self):
+        with self.assertRaisesRegex(SystemExit, "请补充 --logstore"):
+            self.cli.resolve_agg_args([
+                "--project", "custom-project",
+                "--sql", "SELECT count(*) as c",
+            ])
+
+    def test_agg_rejects_size_above_sls_limit(self):
+        with self.assertRaisesRegex(SystemExit, "--size 必须在 1-100"):
+            self.cli.resolve_agg_args([
+                "--service", "data-center",
+                "--sql", "SELECT content",
+                "--size", "200",
+            ])
+
+    def test_search_safe_rejects_raw_routing_and_output_options(self):
+        args = self.cli.resolve_search_safe_args([
+            "--scope", "domestic",
+            "--service", "data-center",
+            "--trace-id", "6b62e9b764de5d45",
+            "--minutes", "60",
+            "--size", "50",
+        ])
+        self.assertNotIn("--project", args)
+        self.assertNotIn("--logstore", args)
+        self.assertNotIn("--out", args)
+        self.assertNotIn("--full", args)
+        with self.assertRaises(SystemExit):
+            self.cli.resolve_search_safe_args([
+                "--service", "example-api", "--out", str(TEST_TMP_ROOT / "logs.json"),
+            ])
+        with self.assertRaises(SystemExit):
+            self.cli.resolve_search_safe_args([
+                "--service", "example-api", "--minutes", "4321",
+            ])
+
+    def test_agg_safe_requires_single_select_aggregate(self):
+        args = self.cli.resolve_agg_safe_args([
+            "--scope", "overseas",
+            "--service", "agentcc",
+            "--sql", "SELECT count(*) AS c",
+        ])
+        self.assertIn("--sql", args)
+        resolved = self.cli.resolve_agg_args(args)
+        self.assertIn("--psql", resolved)
+        self.assertIn("--redact", resolved)
+        with self.assertRaises(SystemExit):
+            self.cli.resolve_agg_safe_args([
+                "--service", "example-api", "--sql", "SELECT content",
+            ])
+        with self.assertRaises(SystemExit):
+            self.cli.resolve_agg_safe_args([
+                "--service", "example-api", "--sql", "SELECT count(*); SELECT count(*)",
+            ])
+
+    def test_agg_safe_rejects_direct_raw_log_dimensions(self):
+        for sql in (
+            "SELECT content, count(*) AS c GROUP BY content",
+            "SELECT message, max(__time__) GROUP BY message",
+            "SELECT max(__content__) AS latest",
+            'SELECT max(concat(content, "")) AS latest, count(*) AS c',
+            "SELECT count(*) || content AS value",
+            'SELECT regexp_extract(content, "(.*)", 1) AS raw, count(*) AS c '
+            "GROUP BY raw",
+        ):
+            with self.subTest(sql=sql), self.assertRaises(SystemExit):
+                self.cli.resolve_agg_safe_args([
+                    "--service", "example-api", "--sql", sql,
+                ])
+
+    def test_agg_safe_allows_derived_raw_log_dimension(self):
+        sql = (
+            'SELECT regexp_extract(content, "messageId[: ]*([0-9A-F]{20,})", 1) '
+            "AS mid, count(*) AS c GROUP BY mid"
+        )
+        args = self.cli.resolve_agg_safe_args([
+            "--service", "data-center", "--sql", sql,
+        ])
+        self.assertEqual(sql, args[args.index("--sql") + 1])
 
 
 if __name__ == "__main__":
