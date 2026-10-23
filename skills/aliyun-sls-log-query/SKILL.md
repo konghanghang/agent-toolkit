@@ -1,6 +1,6 @@
 ---
 name: aliyun-sls-log-query
-description: 查询阿里云 SLS 日志服务 (Log Service), 用于排查 data-center / AgentCC / work 等微服务的线上日志。自动登录 RAM 用户 (账号+密码+VMFA TOTP 自动), 抓 cookies + 真实 x-csrf-token, 然后用 requests 直接 POST getLogs.json 取日志, 不依赖浏览器。当用户提到 SLS、阿里云日志、lognext、查日志、trace ID、请求链路、线上错误、data-center 服务、AgentccController、ai-admin 等场景, 或需要在没有 JumpServer / kubectl 时查生产日志, 使用本技能。
+description: 查询阿里云 SLS 日志服务，按本机配置选择环境和服务路由，获取并分析日志、trace、异常及请求链路。支持 RAM 登录和 MFA、私有 Session 复用及受限查询；生产查询范围由用户请求和对应操作边界确定，真实资源名与凭证不写入仓库。
 ---
 
 # 阿里云 SLS 日志查询
@@ -24,7 +24,7 @@ python3 "$AGENT_TOOLKIT_ROOT/common/bootstrap_work.py"
 
 初始化后统一使用这些运行时变量：
 
-- `WORK_ROOT`: work 工作区根目录
+- `WORK_ROOT`: 工作区根目录
 - `AGENT_TOOLKIT_ROOT`: 当前共享技能根目录
 - `PYTHON_BIN`: 统一 Python 解释器
 - `TMP_DIR`: 临时目录
@@ -59,9 +59,9 @@ python3 "$AGENT_TOOLKIT_ROOT/scripts/init_work_config.py"
 
 ```bash
 sls login
-sls search-safe --service ai-open-api --size 1
-sls search-safe --scope domestic --service data-center --trace-id 6b62e9b764de5d45
-sls search-safe --scope overseas --service agentcc --keyword ERROR
+sls search-safe --service example-api --size 1
+sls search-safe --scope domestic --service example-data-service --trace-id 6b62e9b764de5d45
+sls search-safe --scope overseas --service example-agent-service --keyword ERROR
 ```
 
 Windows PowerShell 中优先调用初始化生成的公共 `.cmd` 入口，不直接拼接底层 Python 脚本：
@@ -69,7 +69,7 @@ Windows PowerShell 中优先调用初始化生成的公共 `.cmd` 入口，不�
 ```powershell
 $AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
 & "$AgentToolkitRoot\bin\sls.cmd" login
-& "$AgentToolkitRoot\bin\sls.cmd" search-safe --service ai-open-api --size 1
+& "$AgentToolkitRoot\bin\sls.cmd" search-safe --service example-api --size 1
 ```
 
 Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只允许本机配置路由，禁止 `--project`、`--logstore`、`--out`、`--full`，查询窗口最多 3 天、返回最多 100 行；`agg-safe` 还强制使用单条 SELECT 聚合，禁止直接输出或分组原始日志字段，只允许聚合值及有边界的 `regexp_extract(...)` 派生维度。需要完整日志落盘、自选 project/logstore 或非聚合 pSQL 时才使用原始 `query` / `agg`，并保留审批。
@@ -85,7 +85,7 @@ Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只�
   "target_url": "https://sls.console.aliyun.com/lognext/project/<project>/logsearch/<logstore>",
   "project": "<login-project>",
   "logstore": "<login-logstore>",
-  "default_query": "data-center | with_pack_meta"
+  "default_query": "example-data-service | with_pack_meta"
 }
 ```
 
@@ -100,7 +100,7 @@ PYTHON_BIN -m pip install selenium webdriver-manager pyotp requests
 ### 第 1 步：确认 session 是否还有效
 
 ```bash
-sls query --service ai-open-api --size 1
+sls query --service example-api --size 1
 ```
 
 - 拿到日志 → session 有效, 直接进入 Step 3
@@ -130,29 +130,29 @@ sls login --keep
 ### 第 3 步：查日志
 
 ```bash
-# 国内 ai-open-api
-sls query --service ai-open-api
+# 国内 example-api
+sls query --service example-api
 
 # 国内其他服务
-sls query --scope domestic --service data-center --minutes 60 --size 100
+sls query --scope domestic --service example-data-service --minutes 60 --size 100
 
 # 海外服务
-sls query --scope overseas --service agentcc --minutes 60 --size 100
+sls query --scope overseas --service example-agent-service --minutes 60 --size 100
 
 # 按 trace ID
-sls query --scope domestic --service data-center --trace-id 6b62e9b764de5d45
+sls query --scope domestic --service example-data-service --trace-id 6b62e9b764de5d45
 
 # 按关键词
-sls query --scope domestic --service data-center --keyword ERROR
+sls query --scope domestic --service example-data-service --keyword ERROR
 
 # 自定义 SLS 查询语法
-sls query --scope domestic --service data-center --query 'data-center and ERROR and "OrderService" | with_pack_meta'
+sls query --scope domestic --service example-data-service --query 'example-data-service and ERROR and "OrderService" | with_pack_meta'
 
 # 指定时间窗口 (Unix 时间戳)
-sls query --scope overseas --service agentcc --from 1783392000 --to 1783395000
+sls query --scope overseas --service example-agent-service --from 1783392000 --to 1783395000
 
 # 完整内容不截断 + 落盘
-sls query --scope domestic --service data-center --full --out "<TMP_DIR>/logs.json"
+sls query --scope domestic --service example-data-service --full --out "<TMP_DIR>/logs.json"
 ```
 
 命令中的 `<TMP_DIR>` 是运行时配置值的占位符；执行前必须替换成实际路径，不要把占位符原样传给命令。
@@ -194,7 +194,7 @@ sls query --project <other-project> --logstore <other-logstore> --query '*'
 1. 用户提供 trace ID (16 hex 字符)
 2. 先判断路由:
    - 海外 -> sls query --scope overseas --service <service> --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
-   - 国内 ai-open-api -> sls query --service ai-open-api --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
+   - 国内 example-api -> sls query --service example-api --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
    - 国内其他服务 -> sls query --scope domestic --service <service> --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
 3. 解析 `<TMP_DIR>/trace.json`: 按 span 顺序看 SPRING_REQ → OKHTTP_REQ → OKHTTP_RESP → SPRING_RESP
 4. 找 ERROR / Exception / 慢调用 (PerfLog 字段里有耗时)
@@ -217,13 +217,13 @@ sls query --project <other-project> --logstore <other-logstore> --query '*'
 ### 关键词组合
 
 SLS 查询语法 (类似 Kibana KQL, 但有差异):
-- `data-center` — 必含 `data-center` 的日志 (服务名)
+- `example-data-service` — 必含 `example-data-service` 的日志 (服务名)
 - `ERROR and "OrderService"` — ERROR 且包含 OrderService
 - `not DEBUG` — 排除 DEBUG 级别
 - `__tag__:_namespace_ = "default"` — 按 K8S namespace 过滤
 - `* | with_pack_meta` — `*` 是查询, `with_pack_meta` 是把同秒日志合并显示
 
-默认 `default_query` 是 `data-center | with_pack_meta` — 查 work data-center 服务的全部日志。
+默认 `default_query` 是 `example-data-service | with_pack_meta` — 查 work example-data-service 服务的全部日志。
 
 ### 聚合统计与精确总数（pSql）
 
@@ -263,7 +263,7 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 - MFA 为 VMFA, TOTP 标准 6 位 30 秒
 - 登录后可能出现“重置密码”弹窗, 需要点“跳过重置”
 - 查询路由由本机工作配置维护；不要在 Skill、脚本或测试中写入真实 project/logstore。
-- 常见服务名: `data-center`, `ai-admin`, `ai-decision-system`, `company-aggre`, `call-task`, `agentcc`
+- 常见服务名: `example-data-service`, `example-admin`, `ai-decision-system`, `company-aggre`, `example-task-service`, `example-agent-service`
 - 如需保留抓包或请求样例, 统一放共享仓库内的脱敏文件, 不要引用个人机器路径
 
 ## 脚本

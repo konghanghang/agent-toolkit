@@ -33,6 +33,7 @@ CONFIG_TEMPLATE = {
             "services": {},
         },
     },
+    "archery": {"scopes": {"domestic": "", "overseas": ""}, "modules": {"example-module": ""}},
     "tapd_weekly_report": {"workspace_id": "", "members": []},
 }
 

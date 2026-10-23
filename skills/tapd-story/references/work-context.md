@@ -1,12 +1,12 @@
-# work 工作区衔接
+# 工作区衔接
 
-仅在任务属于 work 工作区时读取；通用需求分析、澄清和领域建模不依赖本文件中的路径。
+仅在任务属于 工作区时读取；通用需求分析、澄清和领域建模不依赖本文件中的路径。
 
 ## 交付流程
 
 收到需求 ID 时，先按 [任务恢复顺序](../../work-feature-delivery/references/delivery-workflow.md#11-先恢复任务再补需求与知识) 查找本地主记录，再决定是否读取远端。已有需求的探索和澄清同样按 [交付记录](../../work-feature-delivery/references/delivery-record.md) 及时保存结论，不要求进入编码才记录。
 
-work 业务功能、Fix 及独立性能优化、重构等技术交付，由 [work-feature-delivery](../../work-feature-delivery/SKILL.md) 自动复用通用流程并叠加公司要求；先按 [阶段衔接](../../work-feature-delivery/references/stages.md) 识别需求 ID、讨论、故障、继续任务或已有成果入口，从真实阶段接续。只看需求、澄清、专项审查或记录术语时，完成对应目标，不重走完整开发。
+工作项目业务功能、Fix 及独立性能优化、重构等技术交付，由 [work-feature-delivery](../../work-feature-delivery/SKILL.md) 自动复用通用流程并叠加团队交付要求；先按 [阶段衔接](../../work-feature-delivery/references/stages.md) 识别需求 ID、讨论、故障、继续任务或已有成果入口，从真实阶段接续。只看需求、澄清、专项审查或记录术语时，完成对应目标，不重走完整开发。
 
 交付规则统一维护在 [work-feature-delivery 的交付规则](../../work-feature-delivery/references/delivery-workflow.md)。先读取目标仓库适用的协作规则，再按任务阶段读取对应章节；不再依赖 docs 下的旧 workflow。
 

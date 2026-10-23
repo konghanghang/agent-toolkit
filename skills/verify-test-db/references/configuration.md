@@ -71,8 +71,8 @@ chmod 600 ~/.local/agent-toolkit/work/test-db/profiles.json
 自动发现结果保存在私有的 `database-routes.json` 中，24 小时后过期；profile 地址、账号或数据库范围改变时立即失效。使用 `--refresh-route` 可以强制重新发现。生成写入计划时始终重新发现，不使用缓存。
 
 ```bash
-testdb resolve-safe --database ai_task --table ai_task
-testdb query-safe --database ai_task --sql 'select id, status from ai_task where id = 1'
+testdb resolve-safe --database demo_task --table demo_task
+testdb query-safe --database demo_task --sql 'select id, status from demo_task where id = 1'
 ```
 
 `databases-safe` 因为没有目标数据库，仍需指定 `--profile`。显式传入 profile 的其他命令也保持原行为，不进行自动定位。
@@ -83,7 +83,7 @@ testdb query-safe --database ai_task --sql 'select id, status from ai_task where
 
 ```json
 {
-  "allowed_databases": ["ai", "ai_admin"],
+  "allowed_databases": ["ai", "example_admin"],
   "writable_databases": ["ai"]
 }
 ```
@@ -92,7 +92,7 @@ testdb query-safe --database ai_task --sql 'select id, status from ai_task where
 
 - `allowed_databases: []`：禁止读取任何业务库。
 - `writable_databases: []`：禁止写入，profile 为只读。
-- `["ai", "ai_admin"]`：只允许列出的库。
+- `["ai", "example_admin"]`：只允许列出的库。
 - `["*"]`：允许该测试实例中的所有非系统业务库。
 - `["*", "ai"]`：非法配置，拒绝加载。
 - `writable_databases` 必须是 `allowed_databases` 的子集。

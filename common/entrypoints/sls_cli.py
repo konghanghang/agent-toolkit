@@ -49,10 +49,10 @@ def usage() -> str:
   sls agg-safe --scope domestic --service data-center --sql 'SELECT count(*) as c'
 
 说明:
-  - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 work 运行时配置
+  - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 工作运行时配置
   - 未初始化时请先运行: python3 $AGENT_TOOLKIT_ROOT/common/bootstrap_work.py
   - 底层脚本来自 $AGENT_TOOLKIT_ROOT/skills/aliyun-sls-log-query/scripts
-  - 凭证与 session 目录来自 work 运行时配置里的 sls_dir
+  - 凭证与 session 目录来自 工作运行时配置里的 sls_dir
   - login 默认在抓取 session 后关闭浏览器，仅 --keep 保留窗口
   - query 会在 session 缺失或失效时自动转去登录，再重试一次
   - search-safe/agg-safe 禁止自选 project/logstore、完整输出和落盘，并限制窗口与结果量

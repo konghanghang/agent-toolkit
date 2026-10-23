@@ -11,11 +11,9 @@ if str(COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(COMMON_DIR))
 
 from runtime import load_runtime_or_exit
+from work_config import WorkConfigError, load_work_config
 
 
-INSTANCE_MAIN_DB = "example-main-instance"
-INSTANCE_NEW_BIZ = "example-module-instance"
-INSTANCE_OVERSEAS = "example-overseas-instance"
 SESSION_ERROR_RE = re.compile(r"session 可能已过期|多半 session 已失效|找不到凭证。请先跑:|响应不是 JSON, 多半 session 已失效|找不到 session 文件")
 
 
@@ -25,26 +23,25 @@ def usage() -> str:
   archery list-instances
   archery list-databases --scope domestic
   archery list-databases --scope overseas
-  archery list-databases --module agentcc
+  archery list-databases --module example-module
   archery list-tables --instance <instance> --database <database>
   archery list-instances-safe [--format table|json]
   archery list-databases-safe --scope domestic|overseas
   archery list-tables-safe --instance <instance> --database <database>
   archery query --scope domestic --database <database> --sql '<sql>'
-  archery query --module sms --database <database> --sql '<sql>'
+  archery query --module example-module --database <database> --sql '<sql>'
 
 说明:
-  - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 work 运行时配置
+  - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 工作运行时配置
   - 未初始化时请先运行: python3 $AGENT_TOOLKIT_ROOT/common/bootstrap_work.py
   - 底层脚本来自 $AGENT_TOOLKIT_ROOT/skills/archery-prod-query/scripts
-  - 凭证与 session 目录来自 work 运行时配置里的 archery_dir
+  - 凭证与 session 目录来自 工作运行时配置里的 archery_dir
   - list/query 在 session 缺失或失效时会自动转去登录，再重试一次
   - 三个 *-safe 元数据入口会在需要时自动登录，且仅开放元数据参数，供 Codex Rules 默认放行
   - 轻路由只负责自动补 --instance，不会自动猜数据库名或 SQL
   - --instance 显式指定时优先级最高
-  - --scope overseas -> example-overseas-instance
-  - --scope domestic -> example-main-instance
-  - --module sms|short-link|wa|callback|agentcc|newbiz -> example-module-instance
+  - --scope 与 --module 从私有工作配置的 archery.scopes / archery.modules 读取实例名
+  - 缺少映射时停止；也可用 --instance 显式指定已确认实例
 """
 
 
@@ -84,16 +81,27 @@ def normalize_scope(scope: str) -> str:
 
 
 def normalize_module(module: str) -> str:
-    mapping = {
-        "main": "main", "core": "main", "default": "main", "domestic-main": "main", "主库": "main", "国内主库": "main",
-        "newbiz": "newbiz", "new-business": "newbiz", "new": "newbiz", "sms": "newbiz", "短信": "newbiz",
-        "short-link": "newbiz", "shortlink": "newbiz", "短链": "newbiz", "wa": "newbiz", "callback": "newbiz",
-        "回调": "newbiz", "agentcc": "newbiz", "AgentCC": "newbiz",
-        "overseas": "overseas", "intl": "overseas", "global": "overseas", "海外": "overseas",
-    }
-    if module not in mapping:
-        raise SystemExit(f"[!] 不支持的 --module/--service: {module}\n    常用值: main|newbiz|sms|short-link|wa|callback|agentcc|overseas")
-    return mapping[module]
+    if not module.strip():
+        raise SystemExit("[!] --module/--service 不能为空")
+    return module.strip()
+
+
+def configured_instance(scope: str, module: str) -> str:
+    try:
+        config = load_work_config()
+    except WorkConfigError as exc:
+        raise SystemExit(f"[!] {exc}") from exc
+    section = config.get("archery")
+    if not isinstance(section, dict):
+        raise SystemExit("[!] 工作配置缺少 archery 实例映射。")
+    kind, name = ("scopes", scope) if scope == "overseas" or not module else ("modules", module)
+    values = section.get(kind, {})
+    if not isinstance(values, dict):
+        raise SystemExit(f"[!] archery.{kind} 必须是对象。")
+    instance = values.get(name)
+    if not isinstance(instance, str) or not instance.strip():
+        raise SystemExit(f"[!] archery.{kind} 缺少所选名称的非空实例配置；请填写私有配置或显式指定 --instance。")
+    return instance.strip()
 
 
 def print_route_help(cmd: str) -> None:
@@ -102,7 +110,7 @@ def print_route_help(cmd: str) -> None:
     print(
         "archery 入口额外支持轻路由参数:\n"
         "  --scope domestic|overseas\n"
-        "  --module main|newbiz|sms|short-link|wa|callback|agentcc|overseas\n"
+        "  --module <私有配置中的模块名>\n"
         "  --service <value>\n"
         "说明:\n"
         "  - --service 是 --module 的别名\n"
@@ -133,21 +141,11 @@ def resolve_instance_args(args: list[str]) -> list[str]:
             i += 1
     if cmd == "list-instances" or explicit_instance:
         return pass_args
-    route_instance = ""
-    if scope == "overseas" or module == "overseas":
-        route_instance = INSTANCE_OVERSEAS
-    elif module == "newbiz":
-        route_instance = INSTANCE_NEW_BIZ
-    elif scope == "domestic" or module == "main":
-        route_instance = INSTANCE_MAIN_DB
-    if not route_instance:
+    if not scope and not module:
         raise SystemExit(
-            "[!] 未指定 --instance，且无法根据轻路由确定实例。\n"
-            "    可选方式：\n"
-            "    1. 直接传 --instance <instance>\n"
-            "    2. 传 --scope domestic|overseas\n"
-            "    3. 传 --module sms|short-link|wa|callback|agentcc|newbiz|main"
+            "[!] 请显式指定 --instance，或使用私有配置中的 --scope/--module。"
         )
+    route_instance = configured_instance(scope, module)
     pass_args.extend(["--instance", route_instance])
     print(f"[*] 路由 instance: {route_instance}", file=sys.stderr)
     return pass_args
@@ -162,10 +160,7 @@ def resolve_metadata_safe_args(argv: list[str]) -> list[str]:
         route = parser.add_mutually_exclusive_group(required=True)
         route.add_argument("--instance")
         route.add_argument("--scope", choices=["domestic", "overseas"])
-        route.add_argument(
-            "--module",
-            choices=["main", "newbiz", "sms", "short-link", "wa", "callback", "agentcc", "overseas"],
-        )
+        route.add_argument("--module")
     if raw_cmd == "list-tables":
         parser.add_argument("--database", required=True)
     args = parser.parse_args(argv[1:])
@@ -204,6 +199,7 @@ def run_data_command(args: list[str]) -> int:
         result = run_subprocess([runtime["python_bin"], str(query_script), *args])
         print_output(result)
         return result.returncode
+    resolved_args = resolve_instance_args(args)
     require_credentials(runtime)
     session_file = Path(runtime["archery_dir"]) / "archery_session.json"
     if not session_file.exists():
@@ -211,7 +207,6 @@ def run_data_command(args: list[str]) -> int:
         code = run_login_auto()
         if code != 0:
             return code
-    resolved_args = resolve_instance_args(args)
     result = run_subprocess([runtime["python_bin"], str(query_script), *resolved_args])
     if SESSION_ERROR_RE.search(result.stdout + result.stderr):
         print_output(result)

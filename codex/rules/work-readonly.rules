@@ -26,11 +26,11 @@ prefix_rule(
         "archery login --no-keep",
         "archery list-instances-safe",
         "archery list-databases-safe --scope domestic",
-        "/Users/konghang/.agent-toolkit/bin/archery list-tables-safe --instance example-main-instance --database ai",
+        "/Users/konghang/.agent-toolkit/bin/archery list-tables-safe --instance example-instance --database demo_db",
     ],
     not_match = [
         "archery list-instances",
-        "archery query --instance example-main-instance --database ai --sql 'select 1'",
+        "archery query --instance example-instance --database demo_db --sql 'select 1'",
     ],
 )
 
@@ -55,10 +55,10 @@ prefix_rule(
     justification = "允许测试库元数据、受限只读查询、脱敏快照对比、断言验证和不执行 SQL 的写入计划",
     match = [
         "testdb profiles-safe",
-        "testdb resolve-safe --database ai --table ai_task",
-        "testdb query-safe --database ai --sql 'select id, status from ai_task where id = 1'",
-        "/Users/konghang/.agent-toolkit/bin/testdb snapshot-safe --database ai --sql 'select id, status from ai_task where id = 1' --key id",
-        "testdb write-plan-safe --database ai --sql 'insert into test_fixture(id) values (1)' --rollback-sql 'delete from test_fixture where id = 1' --reason '接口测试'",
+        "testdb resolve-safe --database demo_db --table ai_task",
+        "testdb query-safe --database demo_db --sql 'select id, status from ai_task where id = 1'",
+        "/Users/konghang/.agent-toolkit/bin/testdb snapshot-safe --database demo_db --sql 'select id, status from ai_task where id = 1' --key id",
+        "testdb write-plan-safe --database demo_db --sql 'insert into test_fixture(id) values (1)' --rollback-sql 'delete from test_fixture where id = 1' --reason '接口测试'",
     ],
     not_match = [
         "testdb write-apply --plan write-20260817T000000Z-12345678 --confirm write-20260817T000000Z-12345678:abcdef1234567890",

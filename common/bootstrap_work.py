@@ -165,11 +165,11 @@ def main() -> int:
         else:
             guessed_work_root = Path.cwd()
 
-    print("work 运行时初始化")
+    print("工作运行时初始化")
     print(f"  AGENT_TOOLKIT_ROOT: {toolkit_root}")
     print(f"  配置文件: {CONFIG_FILE}")
 
-    work_root = prompt_path("work 工作区根目录 WORK_ROOT", str(guessed_work_root))
+    work_root = prompt_path("工作区根目录 WORK_ROOT", str(guessed_work_root))
     tmp_dir_default = existing.get("tmp_dir") or tempfile.gettempdir()
     tmp_dir = prompt_path("临时目录 TMP_DIR", tmp_dir_default)
     prometheus_base_url = prompt_url(
@@ -234,7 +234,7 @@ def main() -> int:
     initialize_test_db_profile(toolkit_root, python_bin, test_db_dir)
     initialize_gitlab_credentials(toolkit_root, python_bin, gitlab_dir)
 
-    print("\n[+] work 运行时配置已写入:")
+    print("\n[+] 工作运行时配置已写入:")
     print(f"    {CONFIG_FILE}")
     if prometheus_base_url:
         print("[+] Prometheus 地址已写入本机运行时配置")

@@ -285,7 +285,7 @@ def dump_session(driver) -> dict | None:
             "saved_at": time.time(),
         }
         atomic_write_private_json(session_file, session)
-        print(f"[+] Session 已保存: {session_file} (cookies={len(cookies_dict)}, csrf={csrf[:20]!r})")
+        print(f"[+] Session 已保存: {session_file} (cookies={len(cookies_dict)}, csrf_present={bool(csrf)})")
         return session
     except Exception as e:
         print(f"[!] 保存 session 失败: {e}")
@@ -308,7 +308,7 @@ def capture_xhr_csrf(driver) -> str:
                 continue
             for k, v in req.get("headers", {}).items():
                 if k.lower() == "x-csrf-token" and v:
-                    print(f"[+] 从 XHR 抓到真实 x-csrf-token: {v!r} (来自 {url[:80]})")
+                    print("[+] 从 XHR 抓到 x-csrf-token")
                     return v
     except Exception as e:
         print(f"[!] performance log 读取失败: {e}")
@@ -420,7 +420,7 @@ def main() -> int:
                 if 30 - int(time.time()) % 30 < 3:
                     time.sleep(3)
                     code = pyotp.TOTP(mfa_secret).now()
-                print(f"[+] 生成 MFA 码: {code} (有效 {30 - int(time.time()) % 30}s)")
+                print(f"[+] MFA 码已生成 (有效 {30 - int(time.time()) % 30}s)")
 
                 def _type(el, c=code):
                     el.click()
@@ -428,7 +428,7 @@ def main() -> int:
                     return el.get_attribute("value") or ""
 
                 entered = with_element(driver, SELECTORS["mfa_code"], _type, attempts=6)
-                print(f"[*] 输入 value = {entered!r}")
+                print(f"[*] 输入 MFA: matched={entered == code}")
                 time.sleep(0.6)
 
                 if entered != code:
@@ -445,7 +445,7 @@ def main() -> int:
                         return el.get_attribute("value") or ""
 
                     entered = with_element(driver, SELECTORS["mfa_code"], _js_set)
-                    print(f"[*] JS 兜底后 value = {entered!r}")
+                    print(f"[*] JS 兜底后 MFA: matched={entered == code}")
                     time.sleep(1.0)
 
                 ok = find_first(driver, SELECTORS["mfa_submit"], timeout=5) or \

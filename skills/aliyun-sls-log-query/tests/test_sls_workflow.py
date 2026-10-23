@@ -137,11 +137,12 @@ class SlsWorkflowTest(ConfiguredSlsTest):
                 "agent" if "navigator.userAgent" in script else "csrf-token"
             )
 
+            output = io.StringIO()
             with patch.object(
                 self.login,
                 "storage_paths",
                 return_value=(credentials, session_path),
-            ), patch.object(self.login.time, "sleep"):
+            ), patch.object(self.login.time, "sleep"), contextlib.redirect_stdout(output):
                 session = self.login.dump_session(driver)
 
             self.assertEqual("csrf-token", session["csrf"])
@@ -150,6 +151,30 @@ class SlsWorkflowTest(ConfiguredSlsTest):
                 json.loads(session_path.read_text(encoding="utf-8")),
             )
             self.assertEqual([], list(Path(tmp_dir).glob(".aliyun_session.json.*.tmp")))
+            self.assertNotIn("csrf-token", output.getvalue())
+            self.assertNotIn("value", output.getvalue())
+
+            driver.get_log.return_value = [{
+                "message": json.dumps({
+                    "message": {
+                        "method": "Network.requestWillBeSent",
+                        "params": {"request": {
+                            "url": "https://sls.console.aliyun.com/console/logs/getLogs.json",
+                            "headers": {"x-csrf-token": "captured-private-csrf"},
+                        }},
+                    },
+                }),
+            }]
+            with contextlib.redirect_stdout(output):
+                captured = self.login.capture_xhr_csrf(driver)
+            self.assertEqual("captured-private-csrf", captured)
+            self.assertNotIn(captured, output.getvalue())
+
+    def test_direct_query_requires_target_before_network(self):
+        with patch.object(self.query.requests, "post") as request:
+            with self.assertRaisesRegex(SystemExit, "project/logstore"):
+                self.query.query_logs({}, {})
+        request.assert_not_called()
 
     def test_query_returns_nonzero_for_expired_session(self):
         response = {

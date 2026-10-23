@@ -22,12 +22,12 @@
 
 ```bash
 # 精确去重总数（无 GROUP BY）
-sls agg --service call-task-number \
+sls agg --service example-task-service-number \
         --sql 'SELECT count(distinct case when content like "%普通消息消费失败%" and content like "%606332%" then regexp_extract(content,"messageId[: ]*([0-9A-F]{20,})",1) end) as c' \
         --from 1785254400 --to 1785297600
 
 # 分组统计（--index 限定日志子集再 GROUP BY）
-sls agg --service call-task-number --index 'call-task-number and "普通消息消费失败"' \
+sls agg --service example-task-service-number --index 'example-task-service-number and "普通消息消费失败"' \
         --sql 'SELECT regexp_extract(content,"messageId[: ]*([0-9A-F]{20,})",1) as mid, count(*) as c GROUP BY mid HAVING max(case when content like "%606332%" then 1 else 0 end)=1' \
         --from 1785286800 --to 1785304800 --size 100 --out "<TMP_DIR>/agg.json"
 ```
@@ -47,7 +47,7 @@ import aliyun_sls_query as Q
 creds = Q.load_creds(); sess = Q.load_session()
 URL = "https://sls.console.aliyun.com/console/logs/getLogs.json"
 
-def agg(sql_select, frm, to, size=100, index_q="call-task-number"):
+def agg(sql_select, frm, to, size=100, index_q="example-task-service-number"):
     """index_q 是 SLS index 查询（管子前），sql_select 是 | 后的 SQL"""
     q = f'{index_q} | {sql_select}'
     b3, tp, ub = Q.gen_trace_ids()
@@ -67,7 +67,7 @@ def agg(sql_select, frm, to, size=100, index_q="call-task-number"):
     return r.json()
 
 # 例：统计某关键词次数
-print(agg('SELECT count(*) as c', 1785254400, 1785297600, index_q='call-task-number and "ERROR"'))
+print(agg('SELECT count(*) as c', 1785254400, 1785297600, index_q='example-task-service-number and "ERROR"'))
 ```
 
 > 时间戳是秒级 Unix。北京时间 CST=UTC+8，换算：
@@ -96,7 +96,7 @@ content like '%606332%'       -- 纯数字也用 like
 
 ### 3. 分组：先 index 限定子集，再 GROUP BY + HAVING
 ```sql
--- q = 'call-task-number and "普通消息消费失败" | SELECT ... GROUP BY ... HAVING ...'
+-- q = 'example-task-service-number and "普通消息消费失败" | SELECT ... GROUP BY ... HAVING ...'
 SELECT regexp_extract(content,'messageId[: ]*([0-9A-F]+)',1) as mid, count(*) as c
 GROUP BY mid
 HAVING max(case when content like '%606332%' then 1 else 0 end) = 1

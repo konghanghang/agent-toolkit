@@ -1,6 +1,6 @@
 # ADR Format
 
-沿用目标项目的 ADR 或设计文档目录，区分现行事实和未落地方案。文件名和 frontmatter 遵守目标项目规则；work 的目录映射见 SKILL.md 链接的工作区约定。
+沿用目标项目的 ADR 或设计文档目录，区分现行事实和未落地方案。文件名和 frontmatter 遵守目标项目规则；工作环境的目录映射见 SKILL.md 链接的工作区约定。
 
 ## Template
 

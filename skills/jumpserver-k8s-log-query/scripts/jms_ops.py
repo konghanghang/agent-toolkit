@@ -35,10 +35,9 @@ from private_files import (
     secure_private_directory,
     secure_private_file,
 )
-from runtime import load_runtime_or_exit
+from runtime import RuntimeConfigError, load_runtime_or_exit, normalize_http_base_url
 
 DEFAULT_ORG = "00000000-0000-0000-0000-000000000002"
-DEFAULT_MASTER = "example-master"
 DEFAULT_NAMESPACE = "test"
 DEFAULT_LOG_ROOT = "/data/logs/{namespace}"
 DEFAULT_SYSTEM_USER = "root"
@@ -135,17 +134,34 @@ def load_creds(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
     except PrivatePathError as exc:
         raise JmsError(f"无法保护 JumpServer 凭证文件: {path} ({exc})") from exc
     data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise JmsError("JumpServer 凭证必须是 JSON 对象")
     required = ("base_url", "username", "password")
-    missing = [key for key in required if not data.get(key)]
+    missing = [
+        key for key in required
+        if not isinstance(data.get(key), str) or not data[key].strip()
+    ]
     if missing:
         raise JmsError(f"凭证缺少字段: {', '.join(missing)}")
+    try:
+        data["base_url"] = normalize_http_base_url(data["base_url"], "JumpServer base_url")
+    except RuntimeConfigError as exc:
+        raise JmsError(str(exc)) from exc
     data.setdefault("org_id", DEFAULT_ORG)
-    data.setdefault("master_asset", DEFAULT_MASTER)
     data.setdefault("master_system_user", DEFAULT_SYSTEM_USER)
     data.setdefault("worker_system_user", DEFAULT_SYSTEM_USER)
     data.setdefault("default_namespace", DEFAULT_NAMESPACE)
     data.setdefault("log_root", DEFAULT_LOG_ROOT)
     return data
+
+
+def master_asset_hint(creds: dict[str, Any]) -> str:
+    hint = creds.get("master_asset")
+    if not isinstance(hint, str) or not hint.strip():
+        raise JmsError(
+            "JumpServer 凭证缺少 master_asset；请填写当前环境的 master 资产名或 ID"
+        )
+    return hint.strip()
 
 
 def load_session(runtime: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -1055,7 +1071,7 @@ def kubectl_on_master(
     assets: list[dict[str, Any]],
     inner: str,
 ) -> str:
-    master = resolve_asset(assets, creds.get("master_asset") or DEFAULT_MASTER)
+    master = resolve_asset(assets, master_asset_hint(creds))
     output = run_remote(
         creds,
         token,
@@ -1242,6 +1258,7 @@ def cmd_login(_args: argparse.Namespace) -> int:
 def cmd_nodes(_args: argparse.Namespace) -> int:
     runtime = load_runtime_or_exit(__file__)
     creds = load_creds(runtime)
+    master_asset_hint(creds)
     session = ensure_session(creds, runtime)
     assets = list_assets(creds, session["token"])
     mapping = node_ip_map(creds, session["token"], assets)
@@ -1260,6 +1277,7 @@ def cmd_pods(args: argparse.Namespace) -> int:
     service = validate_remote_component(args.service, "service")
     runtime = load_runtime_or_exit(__file__)
     creds = load_creds(runtime)
+    master_asset_hint(creds)
     session = ensure_session(creds, runtime)
     assets = list_assets(creds, session["token"])
     namespace = validate_remote_component(
@@ -1278,6 +1296,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
     )
     runtime = load_runtime_or_exit(__file__)
     creds = load_creds(runtime)
+    master_asset_hint(creds)
     session = ensure_session(creds, runtime)
     assets = list_assets(creds, session["token"])
     namespace = validate_remote_component(
@@ -1300,13 +1319,15 @@ def cmd_logs(args: argparse.Namespace) -> int:
 def cmd_exec(args: argparse.Namespace) -> int:
     if not is_read_only_command(args.command):
         raise JmsError(f"拒绝执行非只读命令: {args.command}")
-    runtime = load_runtime_or_exit(__file__)
-    creds = load_creds(runtime)
-    session = ensure_session(creds, runtime)
-    assets = list_assets(creds, session["token"])
     hint = args.asset or args.node
     if not hint:
         raise JmsError("请指定 --asset 或 --node")
+    runtime = load_runtime_or_exit(__file__)
+    creds = load_creds(runtime)
+    if args.node and not args.asset:
+        master_asset_hint(creds)
+    session = ensure_session(creds, runtime)
+    assets = list_assets(creds, session["token"])
     if args.node and not args.asset:
         mapping = node_ip_map(creds, session["token"], assets)
         asset = resolve_node_asset(assets, args.node, mapping)

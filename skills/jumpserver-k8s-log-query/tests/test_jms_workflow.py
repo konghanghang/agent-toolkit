@@ -110,44 +110,44 @@ class JmsWorkflowTest(unittest.TestCase):
 
     def test_match_pods_prefers_replica_suffix_over_other_prefix(self):
         rows = [
-            {"name": "ai-admin-7d9c8f6b5-abc12", "app_name": "", "app": ""},
-            {"name": "ai-admin-ui-6f5d4c3b2-def34", "app_name": "", "app": ""},
-            {"name": "ai-admin", "app_name": "", "app": ""},
+            {"name": "demo-api-7d9c8f6b5-abc12", "app_name": "", "app": ""},
+            {"name": "demo-api-ui-6f5d4c3b2-def34", "app_name": "", "app": ""},
+            {"name": "demo-api", "app_name": "", "app": ""},
         ]
-        matched = self.ops.match_pods(rows, "ai-admin")
+        matched = self.ops.match_pods(rows, "demo-api")
         self.assertEqual(
-            ["ai-admin-7d9c8f6b5-abc12", "ai-admin"],
+            ["demo-api-7d9c8f6b5-abc12", "demo-api"],
             [row["name"] for row in matched],
         )
 
     def test_safe_commands_fix_namespace_and_reject_unsafe_arguments(self):
         self.assertEqual(
-            ["pods", "--service", "ai-flow-server", "--namespace", "test"],
-            self.cli.resolve_safe_args(["pods-safe", "--service", "ai-flow-server"]),
+            ["pods", "--service", "demo-flow-api", "--namespace", "test"],
+            self.cli.resolve_safe_args(["pods-safe", "--service", "demo-flow-api"]),
         )
         self.assertEqual(
-            ["logs", "--service", "data-center", "--namespace", "test", "--tail", "120"],
-            self.cli.resolve_safe_args(["logs-safe", "--service", "data-center", "--tail", "120"]),
+            ["logs", "--service", "demo-api", "--namespace", "test", "--tail", "120"],
+            self.cli.resolve_safe_args(["logs-safe", "--service", "demo-api", "--tail", "120"]),
         )
         with self.assertRaises(SystemExit):
             self.cli.resolve_safe_args(["pods-safe", "--service", "../../etc"])
         with self.assertRaises(SystemExit):
-            self.cli.resolve_safe_args(["logs-safe", "--service", "data-center", "--file", "app.log"])
+            self.cli.resolve_safe_args(["logs-safe", "--service", "demo-api", "--file", "app.log"])
         with self.assertRaises(SystemExit):
-            self.cli.resolve_safe_args(["logs-safe", "--service", "data-center", "--tail", "501"])
+            self.cli.resolve_safe_args(["logs-safe", "--service", "demo-api", "--tail", "501"])
 
     def test_match_pods_uses_labels_before_name_prefix(self):
         rows = [
-            {"name": "data-center-foo", "app_name": "other", "app": ""},
-            {"name": "dc-7d9c8f6b5-abc12", "app_name": "data-center", "app": ""},
+            {"name": "demo-api-foo", "app_name": "other", "app": ""},
+            {"name": "dc-7d9c8f6b5-abc12", "app_name": "demo-api", "app": ""},
         ]
-        matched = self.ops.match_pods(rows, "data-center")
+        matched = self.ops.match_pods(rows, "demo-api")
         self.assertEqual(["dc-7d9c8f6b5-abc12"], [row["name"] for row in matched])
 
     def test_read_only_command_allows_log_workflow_and_blocks_writes(self):
         self.assertTrue(
             self.ops.is_read_only_command(
-                "find /data/logs/test/data-center -maxdepth 2 -type f | "
+                "find /data/logs/test/demo-api -maxdepth 2 -type f | "
                 "sort -nr | head -n 3"
             )
         )
@@ -180,10 +180,10 @@ class JmsWorkflowTest(unittest.TestCase):
 
     def test_remote_components_reject_paths_and_shell_syntax(self):
         self.assertEqual(
-            "data-center",
-            self.ops.validate_remote_component("data-center", "service"),
+            "demo-api",
+            self.ops.validate_remote_component("demo-api", "service"),
         )
-        for value in ("../test", "data-center;id", "$(id)", "app/log.txt", ".."):
+        for value in ("../test", "demo-api;id", "$(id)", "app/log.txt", ".."):
             with self.subTest(value=value), self.assertRaises(self.ops.JmsError):
                 self.ops.validate_remote_component(value, "service")
 
@@ -206,14 +206,14 @@ class JmsWorkflowTest(unittest.TestCase):
     def test_parse_tables_and_extract_remote(self):
         pods = self.ops.parse_pod_table(
             "___JMS_BEGIN___\n"
-            "data-center-1\tRunning\tk8s-work1\t10.0.0.8\tdata-center\tdata-center\n"
+            "demo-api-1\tRunning\tdemo-node-1\t198.51.100.8\tdemo-api\tdemo-api\n"
             "---\n"
         )
-        self.assertEqual("k8s-work1", pods[0]["node"])
+        self.assertEqual("demo-node-1", pods[0]["node"])
         nodes = self.ops.parse_node_table(
-            "k8s-work1\t192.0.2.101\nexample-worker-a\t192.0.2.181\n"
+            "demo-node-1\t192.0.2.11\ndemo-master\t192.0.2.10\n"
         )
-        self.assertEqual("192.0.2.101", nodes["k8s-work1"])
+        self.assertEqual("192.0.2.11", nodes["demo-node-1"])
         self.assertEqual(
             "hello",
             self.ops.extract_remote(
@@ -223,13 +223,13 @@ class JmsWorkflowTest(unittest.TestCase):
 
     def test_resolve_asset_exact_and_ambiguous(self):
         assets = [
-            {"id": "a1", "hostname": "k8s--w1--101", "ip": "192.0.2.101"},
-            {"id": "a2", "hostname": "k8s--w2--102", "ip": "192.0.2.102"},
+            {"id": "a1", "hostname": "demo-worker-1", "ip": "192.0.2.11"},
+            {"id": "a2", "hostname": "demo-worker-2", "ip": "192.0.2.12"},
         ]
-        self.assertEqual("a1", self.ops.resolve_asset(assets, "192.0.2.101")["id"])
-        self.assertEqual("a2", self.ops.resolve_asset(assets, "k8s--w2--102")["id"])
+        self.assertEqual("a1", self.ops.resolve_asset(assets, "192.0.2.11")["id"])
+        self.assertEqual("a2", self.ops.resolve_asset(assets, "demo-worker-2")["id"])
         with self.assertRaises(self.ops.JmsError):
-            self.ops.resolve_asset(assets, "k8s--w")
+            self.ops.resolve_asset(assets, "demo-worker")
 
     def test_pick_system_user_requires_explicit_root(self):
         users = [
@@ -243,8 +243,8 @@ class JmsWorkflowTest(unittest.TestCase):
     def test_log_dir_uses_namespace_template(self):
         creds = {"log_root": "/data/logs/{namespace}"}
         self.assertEqual(
-            "/data/logs/test/data-center",
-            self.ops.log_dir(creds, "test", "data-center"),
+            "/data/logs/test/demo-api",
+            self.ops.log_dir(creds, "test", "demo-api"),
         )
 
     def test_save_session_is_atomic_and_wraps_permission_error(self):
@@ -638,14 +638,14 @@ class JmsWorkflowTest(unittest.TestCase):
         marker = "__JMS_RESULT_abc__"
         echo_only = self.ops.command_wrapper("hostname", marker)
         self.assertNotIn(marker, echo_only)
-        self.assertIsNone(self.ops.parse_command_result(echo_only + "\nexample-worker-a\n", marker))
+        self.assertIsNone(self.ops.parse_command_result(echo_only + "\ndemo-master\n", marker))
         self.assertIsNone(
-            self.ops.parse_command_result(f"\n{marker}\nexample-worker-a\n{marker}\n", marker)
+            self.ops.parse_command_result(f"\n{marker}\ndemo-master\n{marker}\n", marker)
         )
         self.assertEqual(
-            ("example-worker-a", 0),
+            ("demo-master", 0),
             self.ops.parse_command_result(
-                f"\x1b[32m\n{marker}\r\nexample-worker-a\r\n{marker}:0\r\n", marker
+                f"\x1b[32m\n{marker}\r\ndemo-master\r\n{marker}:0\r\n", marker
             ),
         )
         self.assertEqual(
@@ -659,7 +659,7 @@ class JmsWorkflowTest(unittest.TestCase):
             (0x1, json.dumps({"id": "cid", "type": "CONNECT", "data": ""}).encode()),
             (0x1, json.dumps({"id": "cid", "type": "TERMINAL_SESSION"}).encode()),
             (0x2, b"command echo only\r\n"),
-            (0x2, f"\r\n{marker}\r\nexample-worker-a\r\n{marker}:0\r\n".encode()),
+            (0x2, f"\r\n{marker}\r\ndemo-master\r\n{marker}:0\r\n".encode()),
         ]
         fake = FakeWebSocket(messages)
         asset = {"id": "a1", "hostname": "master"}
@@ -677,7 +677,7 @@ class JmsWorkflowTest(unittest.TestCase):
                 "hostname",
                 cookies={"jms_sessionid": "web"},
             )
-        self.assertEqual("example-worker-a", output)
+        self.assertEqual("demo-master", output)
         self.assertTrue(fake.connected)
         self.assertTrue(fake.closed)
         self.assertEqual("TERMINAL_INIT", fake.sent[0]["type"])
@@ -717,7 +717,7 @@ class JmsWorkflowTest(unittest.TestCase):
                 self.assertTrue(fake.closed)
 
     def test_kubectl_master_and_worker_system_users_are_explicit(self):
-        assets = [{"id": "m", "hostname": "master", "ip": "1.1.1.1"}]
+        assets = [{"id": "m", "hostname": "master", "ip": "192.0.2.10"}]
         captured = {}
 
         def run_remote(*_args, **kwargs):
@@ -735,6 +735,28 @@ class JmsWorkflowTest(unittest.TestCase):
                 ),
             )
         self.assertEqual("root", captured["user"])
+
+    def test_missing_master_configuration_stops_before_login(self):
+        commands = (
+            ["nodes"],
+            ["pods", "--service", "demo-api"],
+            ["logs", "--service", "demo-api"],
+            ["exec", "--node", "demo-node-1", "--command", "hostname"],
+        )
+        for arguments in commands:
+            with self.subTest(arguments=arguments), patch.object(
+                self.ops, "load_runtime_or_exit", return_value={}
+            ), patch.object(
+                self.ops, "load_creds", return_value={}
+            ), patch.object(
+                self.ops, "ensure_session"
+            ) as login, patch.object(
+                self.ops, "list_assets"
+            ) as assets, contextlib.redirect_stderr(io.StringIO()) as error:
+                self.assertEqual(2, self.ops.main(arguments))
+            self.assertIn("master_asset", error.getvalue())
+            login.assert_not_called()
+            assets.assert_not_called()
 
     def test_cli_usage_and_unknown_command(self):
         with contextlib.redirect_stdout(io.StringIO()) as stdout:
@@ -763,7 +785,7 @@ class JmsWorkflowTest(unittest.TestCase):
                     / "skills/jumpserver-k8s-log-query/scripts/jms_ops.py",
                 ),
             ), self.assertRaisesRegex(SystemExit, "找不到凭证文件"):
-                self.cli.run_ops(["logs", "--service", "data-center"])
+                self.cli.run_ops(["logs", "--service", "demo-api"])
 
     def test_cli_lazily_creates_jms_runtime_directory(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -782,7 +804,7 @@ class JmsWorkflowTest(unittest.TestCase):
                     / "skills/jumpserver-k8s-log-query/scripts/jms_ops.py",
                 ),
             ), self.assertRaisesRegex(SystemExit, "找不到凭证文件"):
-                self.cli.run_ops(["logs", "--service", "data-center"])
+                self.cli.run_ops(["logs", "--service", "demo-api"])
 
             self.assertTrue(jms_dir.is_dir())
 

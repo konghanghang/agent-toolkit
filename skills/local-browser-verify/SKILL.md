@@ -7,7 +7,7 @@ description: 在任意支持 MCP 的 Agent 中使用 Playwright MCP，对本机�
 
 用当前 Agent 会话已加载的 Playwright MCP 验证已经启动的网页。宿主可以是 Codex、Claude Code、OpenCode、Kimi、Grok 或其他支持 MCP 的 Agent；只按能力判断，不绑定产品名或固定工具前缀。先明确验收对象和可观察结果，再按真实用户路径操作；不要为单次验收在项目里新建浏览器驱动脚本。
 
-线索信息管理待初审列表的造数和恢复，读 [references/clue-unsubmitted-fixture.md](references/clue-unsubmitted-fixture.md)，并走 `$verify-test-db`。
+待处理列表测试数据的准备和恢复，读 [references/clue-unsubmitted-fixture.md](references/clue-unsubmitted-fixture.md)，并走 `$verify-test-db`。
 
 ## 运行前置
 
@@ -134,5 +134,5 @@ python3 "$SKILL_DIR/scripts/browser_verify.py" finish \
 
 - Playwright MCP 缺失、已配置但未加载或需要安装：[references/playwright-mcp-setup.md](references/playwright-mcp-setup.md)
 - 布局、横向滚动、导航、异步、表单、媒体和 Mermaid 的通用断言：[references/acceptance-patterns.md](references/acceptance-patterns.md)
-- 线索信息管理待初审造数与恢复：[references/clue-unsubmitted-fixture.md](references/clue-unsubmitted-fixture.md)
+- 待处理列表测试夹具与恢复：[references/clue-unsubmitted-fixture.md](references/clue-unsubmitted-fixture.md)
 - 测试库写入计划与确认：`$verify-test-db`

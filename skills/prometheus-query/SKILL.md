@@ -1,6 +1,6 @@
 ---
 name: prometheus-query
-description: '通过 Prometheus 或 VictoriaMetrics 查询和分析 work 生产监控指标。用于查 CPU、内存、JVM、容器、Kubernetes、RocketMQ、Kafka、数据库和业务指标，处理监控告警、延迟或堆积、容量趋势、峰值时刻、PromQL、Grafana 指标取数，以及需要用时序数据验证线上现象的场景。'
+description: '通过 Prometheus 或 VictoriaMetrics 查询和分析 生产环境监控指标。用于查 CPU、内存、JVM、容器、Kubernetes、RocketMQ、Kafka、数据库和业务指标，处理监控告警、延迟或堆积、容量趋势、峰值时刻、PromQL、Grafana 指标取数，以及需要用时序数据验证线上现象的场景。'
 ---
 
 # Prometheus / VictoriaMetrics 查询
@@ -10,7 +10,7 @@ description: '通过 Prometheus 或 VictoriaMetrics 查询和分析 work 生产�
 ## 安全边界
 
 - 只调用 `scripts/prometheus_query.py` 暴露的 Prometheus 只读 GET API；禁止调用写入、删除、管理或快照接口。
-- 从本机 work 运行时配置读取 `prometheus_base_url`，不要在 Skill、脚本、参考资料、测试或最终答复中写入生产域名。
+- 从本机工作运行时配置读取 `prometheus_base_url`，不要在 Skill、脚本、参考资料、测试或最终答复中写入生产域名。
 - 当前流程不需要用户名、密码、Token、Cookie 或 Session。以后增加认证时，把秘密放在本机凭证目录，不得提交到仓库；HTTP 地址不得承载任何认证信息。
 - 把生产监控查询视为可能消耗资源的读取。优先使用精确指标名、精确 label 和最小有效时间窗，避免宽泛正则、高基数全量 series 和不必要的小 step。
 - 脚本将 range 限制为最多 3 天、每条 series 最多 1440 个点，将指标和 series 探索限制为最多 24 小时并设置服务端扫描上限，同时限制响应体和展示条数。任何 `scan_truncated` 或 `truncated` 都必须作为证据限制报告。

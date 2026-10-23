@@ -138,6 +138,8 @@ def query_logs(
     project = project or creds.get("project", "")
     logstore = logstore or creds.get("logstore", "")
     query = query or creds.get("default_query", "*")
+    if not all(isinstance(value, str) and value.strip() for value in (project, logstore)):
+        raise SystemExit("[!] 缺少 SLS project/logstore；请在私有配置中填写或显式指定")
 
     now = int(time.time())
     body = {

@@ -7,7 +7,7 @@
 凭证从运行时配置里的 ARCHERY_DIR/archery-credentials.json 读取, 不进 git。
 
 流程:
-1. Selenium 打开 Chrome, 自动填账号/密码到 archery.example.invalid
+1. Selenium 打开私有配置中的 Archery 地址，自动填写账号和密码
 2. 如果启用 2FA, TOTP 自动算 6 位 MFA 码并填入
 3. 跳到 /sqlquery/ 主页
 4. 抓 cookies (csrftoken + sessionid) 写到 ARCHERY_DIR/archery_session.json
@@ -41,7 +41,7 @@ from private_files import (
     secure_private_directory,
     secure_private_file,
 )
-from runtime import load_runtime_or_exit
+from runtime import RuntimeConfigError, load_runtime_or_exit, normalize_http_base_url
 
 
 def storage_paths() -> tuple[Path, Path]:
@@ -71,6 +71,32 @@ def load_creds() -> dict:
     except PrivatePathError as exc:
         sys.exit(f"[!] 无法保护凭证文件: {exc}")
     return json.loads(cred_file.read_text(encoding="utf-8"))
+
+
+def login_config(creds: object) -> dict:
+    if not isinstance(creds, dict):
+        raise SystemExit("[!] Archery 凭证必须是 JSON 对象")
+    required = ("username", "password", "mfa_secret", "base_url")
+    missing = [
+        key for key in required
+        if not isinstance(creds.get(key), str) or not creds[key].strip()
+    ]
+    if missing:
+        raise SystemExit(f"[!] Archery 凭证缺少字段: {', '.join(missing)}")
+    try:
+        base_url = normalize_http_base_url(creds["base_url"], "Archery base_url")
+    except RuntimeConfigError as exc:
+        raise SystemExit(f"[!] {exc}") from exc
+    login_path = creds.get("login_path", "/login/")
+    if not isinstance(login_path, str) or not login_path.startswith("/") or login_path.startswith("//"):
+        raise SystemExit("[!] Archery login_path 必须为站内绝对路径")
+    target_url = creds.get("target_url", f"{base_url}/sqlquery/")
+    if not isinstance(target_url, str):
+        raise SystemExit("[!] Archery target_url 必须是完整的 http 或 https URL")
+    target = urlparse(target_url)
+    if target.scheme not in {"http", "https"} or not target.netloc or target.username or target.password:
+        raise SystemExit("[!] Archery target_url 必须是不含账号密码的 http 或 https URL")
+    return {**creds, "base_url": base_url, "login_path": login_path, "target_url": target_url}
 
 
 # Archery (Django) 登录页 selector, 多 fallback 兜底
@@ -276,7 +302,7 @@ def dump_session(driver, base_url: str) -> dict | None:
         atomic_write_private_json(session_file, session)
         print(
             f"[+] Session 已保存: {session_file} "
-            f"(cookies={len(cookies_dict)}, csrftoken={csrf[:12]!r})"
+            f"(cookies={len(cookies_dict)}, csrftoken_present={bool(csrf)})"
         )
         return session
     except Exception as e:
@@ -341,13 +367,13 @@ def main() -> int:
     args = parser.parse_args()
     load_runtime_or_exit(__file__)
 
-    creds = load_creds()
+    creds = login_config(load_creds())
     username = creds["username"]
     password = creds["password"]
     mfa_secret = creds["mfa_secret"]
-    base_url = creds.get("base_url", "https://archery.example.invalid").rstrip("/")
-    login_path = creds.get("login_path", "/login/")
-    target_url = creds.get("target_url", f"{base_url}/sqlquery/")
+    base_url = creds["base_url"]
+    login_path = creds["login_path"]
+    target_url = creds["target_url"]
     login_url = f"{base_url}{login_path}"
 
     options = Options()
@@ -421,7 +447,7 @@ def main() -> int:
                         time.sleep(remain + 1)
                     code = pyotp.TOTP(mfa_secret).now()
                     remain = 30 - int(time.time()) % 30
-                    print(f"[+] 生成 MFA 码: {code} (有效 {remain}s)")
+                    print(f"[+] MFA 码已生成 (有效 {remain}s)")
 
                     def _js_set(el, c=code):
                         driver.execute_script(
@@ -438,7 +464,7 @@ def main() -> int:
                         return el.get_attribute("value") or ""
 
                     entered = with_element(driver, SELECTORS["mfa_code"], _js_set, attempts=6)
-                    print(f"[*] JS 填入 value = {entered!r}")
+                    print(f"[*] JS 填入 MFA: matched={entered == code}")
                     time.sleep(1.0)
 
                     if entered != code:
@@ -448,7 +474,7 @@ def main() -> int:
                             return el.get_attribute("value") or ""
 
                         entered = with_element(driver, SELECTORS["mfa_code"], _type, attempts=4)
-                        print(f"[*] send_keys 兜底 value = {entered!r}")
+                        print(f"[*] send_keys 兜底 MFA: matched={entered == code}")
                         time.sleep(0.8)
 
                     ok = None
@@ -581,7 +607,7 @@ def main() -> int:
             print(f"[*] driver.get_cookies() keys: {list(driver_cookies.keys())}")
             for k, v in driver_cookies.items():
                 if k.lower() in ("sessionid", "csrftoken", "acw_tc"):
-                    print(f"    {k} = {v[:30]}... (len={len(v)})")
+                    print(f"    {k}: present={bool(v)}, length={len(v)}")
         except Exception as e:
             pass
 

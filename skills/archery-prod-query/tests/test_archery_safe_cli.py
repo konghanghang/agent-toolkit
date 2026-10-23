@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -105,11 +108,12 @@ class ArcherySafeCliTest(unittest.TestCase):
             driver.get_cookies.return_value = []
             driver.execute_script.return_value = "agent"
 
+            output = io.StringIO()
             with patch.object(
                 self.login,
                 "storage_paths",
                 return_value=(credentials, session_path),
-            ), patch.object(self.login.time, "sleep"):
+            ), patch.object(self.login.time, "sleep"), contextlib.redirect_stdout(output):
                 session = self.login.dump_session(driver, "https://archery.example")
 
             self.assertEqual("csrf-token", session["csrf_token"])
@@ -118,6 +122,40 @@ class ArcherySafeCliTest(unittest.TestCase):
                 json.loads(session_path.read_text(encoding="utf-8")),
             )
             self.assertEqual([], list(Path(tmp_dir).glob(".archery_session.json.*.tmp")))
+            self.assertNotIn("csrf-token", output.getvalue())
+            self.assertNotIn("session-value", output.getvalue())
+
+    def test_login_requires_private_endpoint_before_starting_browser(self):
+        for endpoint in (None, "ftp://archery.example.invalid"):
+            credentials = {
+                "username": "tester",
+                "password": "test-password",
+                "mfa_secret": "test-seed",
+            }
+            if endpoint is not None:
+                credentials["base_url"] = endpoint
+            with self.subTest(endpoint=endpoint), patch.object(
+                sys, "argv", ["archery_login.py"]
+            ), patch.object(self.login, "load_runtime_or_exit"), patch.object(
+                self.login, "load_creds", return_value=credentials
+            ), patch.object(self.login, "ChromeDriverManager") as manager, patch.object(
+                self.login.webdriver, "Chrome"
+            ) as chrome, self.assertRaisesRegex(SystemExit, "base_url"):
+                self.login.main()
+            manager.assert_not_called()
+            chrome.assert_not_called()
+
+        configured = self.login.login_config({
+            "username": "tester",
+            "password": "test-password",
+            "mfa_secret": "test-seed",
+            "base_url": "https://archery.example.invalid/",
+        })
+        self.assertEqual("https://archery.example.invalid", configured["base_url"])
+        self.assertEqual("/login/", configured["login_path"])
+        self.assertEqual(
+            "https://archery.example.invalid/sqlquery/", configured["target_url"]
+        )
 
     def test_metadata_safe_commands_only_map_metadata_arguments(self):
         self.assertEqual(
@@ -125,14 +163,14 @@ class ArcherySafeCliTest(unittest.TestCase):
             self.cli.resolve_metadata_safe_args(["list-instances-safe", "--format", "json"]),
         )
         self.assertEqual(
-            ["list-tables", "--format", "table", "--scope", "domestic", "--database", "ai"],
+            ["list-tables", "--format", "table", "--scope", "domestic", "--database", "example_db"],
             self.cli.resolve_metadata_safe_args([
-                "list-tables-safe", "--scope", "domestic", "--database", "ai",
+                "list-tables-safe", "--scope", "domestic", "--database", "example_db",
             ]),
         )
         with self.assertRaises(SystemExit):
             self.cli.resolve_metadata_safe_args([
-                "list-tables-safe", "--instance", "example-main-instance", "--database", "ai", "--sql", "select 1",
+                "list-tables-safe", "--instance", "example-instance", "--database", "example_db", "--sql", "select 1",
             ])
 
     def test_usage_describes_safe_metadata_auto_login(self):

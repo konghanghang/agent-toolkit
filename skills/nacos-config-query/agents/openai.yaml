@@ -1,4 +1,4 @@
 interface:
   display_name: "Nacos 配置查询"
-  short_description: "按服务名只读查询 work 国内或海外 Nacos 配置"
+  short_description: "按服务名只读查询 工作环境国内或海外 Nacos 配置"
   default_prompt: "使用 $nacos-config-query 按服务名读取国内或海外 Nacos 配置。"

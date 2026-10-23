@@ -20,7 +20,7 @@
 
 ## 安装器管理范围
 
-`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，以及 Codex MCP 配置的安全合并；它不创建公共虚拟环境，也不安装 Python 包。需要使用工作组的 work 公共入口或依赖公共运行时的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
+`scripts/install.py` 只负责 Skill、Agent 和 Rule 的链接或复制，以及 Codex MCP 配置的安全合并；它不创建公共虚拟环境，也不安装 Python 包。需要使用工作组的 工作公共入口或依赖公共运行时的 Skill 时，再运行 `common/bootstrap_work.py`；它会创建 `.venv` 并从 `requirements.txt` 安装 Python 依赖。
 
 以下以通用安装为例；工作电脑改为 `--profile work`。安装脚本会：
 
@@ -173,9 +173,9 @@ Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文�
 
 Codex 会为新会话加载 Agents、Rules 和 MCP 配置。Agent 源文件通过目录链接立即更新，Rule 或 Playwright 配置变更后需要重新安装；完成后应新开会话或重启客户端。
 
-## work 公共运行时
+## 工作公共运行时
 
-仅工作环境需要初始化；通用安装不运行 bootstrap，也不创建 work 运行时。Windows 命令见 [Windows 指南](windows.md#安装)。
+仅工作环境需要初始化；通用安装不运行 bootstrap，也不创建 工作运行时。Windows 命令见 [Windows 指南](windows.md#安装)。
 
 初始化：
 
@@ -214,7 +214,7 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 
 ## 工作环境私有配置
 
-SLS 的 project/logstore、服务路由，以及 TAPD 周报的工作区和成员列表，放在本机 `~/.local/agent-toolkit/work/config.json`。这些值不写入源码、测试或公共文档；仓库只保存空模板和虚构示例。
+SLS 的 project/logstore、服务路由、Archery 实例路由，以及 TAPD 周报的工作区和成员列表，放在本机 `~/.local/agent-toolkit/work/config.json`。这些值不写入源码、测试或公共文档；仓库只保存空模板和虚构示例。
 
 在仓库根目录预览并创建模板：
 
@@ -259,6 +259,15 @@ python3 scripts/init_work_config.py
       "services": {}
     }
   },
+  "archery": {
+    "scopes": {
+      "domestic": "example-domestic-instance",
+      "overseas": "example-overseas-instance"
+    },
+    "modules": {
+      "example-module": "example-module-instance"
+    }
+  },
   "tapd_weekly_report": {
     "workspace_id": "example-workspace",
     "members": ["成员甲", "成员乙", "成员丙"]
@@ -267,19 +276,21 @@ python3 scripts/init_work_config.py
 ```
 
 - SLS 按 scope 和 service 选路由；`services` 中的键是服务名，匹配时优先于该 scope 的 `default`。普通查询、聚合和受限查询使用同一配置。完整显式指定 `--project` 和 `--logstore` 时无需路由配置；受限入口继续禁止自选目标。
+- Archery 的 `--scope` 和 `--module` 分别读取 `archery.scopes` 和 `archery.modules`，只选择已配置实例；显式 `--instance` 无需路由配置。服务地址仍放在现有私有凭证的 `base_url` 字段中，缺失时不会使用公共示例地址登录。
 - 周报的 `members` 决定展示顺序和多人需求归属优先级：取需求负责人中第一个出现在此列表的人。可以调整人数和顺序，无须修改脚本。`--workspace-id`、`TAPD_WORKSPACE_ID` 优先于配置中的工作区。
 - 每次执行重新读取配置；修改后下一次命令生效。所用功能缺少必要配置时，在请求外部系统前报错，不回退到源码中的公司环境值。周报 `--dry-run` 仅推导版本日期和路径，无需真实配置。
+- JumpServer 的控制节点资产在其私有凭证的 `master_asset` 中配置；`exec --asset` 可直接指定独立执行目标，不覆盖 Kubernetes 控制节点配置。公共文档不记录本机资产拓扑。
 - `TAPD_TOKEN` 继续通过环境变量提供；SLS 凭证和 Session 继续由现有私有目录管理，不放进模板。使用 SLS 前仍需准备公共运行时及登录配置。
 
 现有机器升级时，应先把原来的实际路由、工作区和成员优先顺序填入私有配置，再使用新入口；初始化空模板不会自动恢复旧值。
 
-## work 全局协作规则
+## 工作环境协作规则
 
 规则原文件保存在 [`codex/instructions/work.md`](../codex/instructions/work.md)，由本仓库统一维护版本。
 源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载。
-这份规则适用于 `~/data/work` 的 work 环境，引用的工作区文档和 Skills 需要在使用环境中另行准备。
+这份规则适用于 `~/data/work` 的工作环境，引用的工作区文档和 Skills 需要在使用环境中另行准备。
 
-当前本机通过软链接保留原加载入口：
+以下以该工作区为例，通过软链接保留加载入口：
 
 ```text
 ~/data/work/.codex/AGENTS.md

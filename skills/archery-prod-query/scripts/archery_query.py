@@ -123,7 +123,7 @@ def resolve_credentials() -> dict:
 
     print(
         f"[*] 凭证来源: {source} | cookies={len(cookies_dict)} | "
-        f"csrftoken={(csrf_token or '')[:12]!r}{age_hint}",
+        f"csrftoken_present={bool(csrf_token)}{age_hint}",
         file=sys.stderr,
     )
     return {

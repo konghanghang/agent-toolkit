@@ -37,7 +37,7 @@
   "workspace_id": "YOUR_WORKSPACE_ID",
   "stories": [
     {
-      "id": "1110000000001000001",
+      "id": "1000000000000000001",
       "description_html": "<h3>背景</h3><p>补充后的需求背景。</p>"
     }
   ]

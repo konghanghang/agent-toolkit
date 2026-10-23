@@ -5,7 +5,7 @@
 本文说明如何使用这些 Skills 完成开发任务。流程由主 Agent 根据任务目标、项目规则和已有授权衔接，从当前阶段继续；已有方案、代码和有效验证结果直接复用。
 
 - 通用项目、脚本、Skill、配置和文档维护，使用 [feature-delivery](../skills/feature-delivery/SKILL.md)。
-- work 业务开发，使用 [work-feature-delivery](../skills/work-feature-delivery/SKILL.md)。它自动复用通用主线，并在各阶段执行前叠加公司要求。
+- 工作项目开发，使用 [work-feature-delivery](../skills/work-feature-delivery/SKILL.md)。它自动复用通用主线，并在各阶段执行前叠加公司要求。
 - 纯问答、只读分析、单独审查或提交，完成本次要求的范围即可；专项任务直接使用对应 Skill。纯问答、只读排查且无已有记录时不自动建档。
 
 通用流程不依赖工作工具或凭证；实际构建、分支及记录约定由目标项目规则提供。
@@ -41,9 +41,9 @@ flowchart TD
 
 已要求实施且前置条件满足时，连续完成实现、本地验证、审查和结果汇报。提交、推送、合并、部署及数据库写入分别依据明确授权，已有有效授权不重复询问。必要验证失败先修复；缺少条件或无法继续时，报告具体阻塞和未验证边界，继续独立可做的部分。
 
-## work 业务开发扩展
+## 工作项目开发扩展
 
-下图展开公司要求及后续交付阶段，与通用主线共同执行。五类任务入口、阶段前置条件和证据要求见 [阶段衔接](../skills/work-feature-delivery/references/stages.md)，具体规则以 [work 交付规则](../skills/work-feature-delivery/references/delivery-workflow.md) 及目标仓库约定为准。
+下图展开公司要求及后续交付阶段，与通用主线共同执行。五类任务入口、阶段前置条件和证据要求见 [阶段衔接](../skills/work-feature-delivery/references/stages.md)，具体规则以 [工作项目交付规则](../skills/work-feature-delivery/references/delivery-workflow.md) 及目标仓库约定为准。
 
 ```mermaid
 flowchart TD

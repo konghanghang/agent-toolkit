@@ -38,9 +38,9 @@ description: '安全查询和受控修改一个或多个测试环境 MySQL 实�
 ```bash
 testdb profiles-safe
 testdb databases-safe --profile test-main
-testdb resolve-safe --database ai --table ai_task
+testdb resolve-safe --database ai --table demo_task
 testdb tables-safe --database ai
-testdb describe-safe --database ai --table ai_task
+testdb describe-safe --database ai --table demo_task
 ```
 
 Windows PowerShell 中优先调用初始化生成的公共 `.cmd` 入口，不直接拼接底层 Python 脚本：
@@ -48,7 +48,7 @@ Windows PowerShell 中优先调用初始化生成的公共 `.cmd` 入口，不�
 ```powershell
 $AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
 & "$AgentToolkitRoot\bin\testdb.cmd" profiles-safe
-& "$AgentToolkitRoot\bin\testdb.cmd" describe-safe --database ai --table ai_task
+& "$AgentToolkitRoot\bin\testdb.cmd" describe-safe --database ai --table demo_task
 ```
 
 通常省略 `--profile`，让工具自动定位实例；多个实例同时存在同名库和同名表时，再显式指定 `--profile`。`databases-safe` 没有目标库可用于定位，因此仍要求 profile。
@@ -58,7 +58,7 @@ $AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
 ```bash
 testdb query-safe \
   --database ai \
-  --sql 'select id, status, update_time from ai_task where id = 12345' \
+  --sql 'select id, status, update_time from demo_task where id = 12345' \
   --limit 10 \
   --format json
 ```
@@ -70,7 +70,7 @@ testdb query-safe \
 ```bash
 testdb snapshot-safe \
   --database ai \
-  --sql 'select id, status, update_time from ai_task where id = 12345' \
+  --sql 'select id, status, update_time from demo_task where id = 12345' \
   --key id \
   --label before-update
 ```
@@ -102,7 +102,7 @@ testdb verify-safe \
 ```bash
 testdb verify-safe \
   --database ai \
-  --sql 'select id, status from ai_task where id = 12345' \
+  --sql 'select id, status from demo_task where id = 12345' \
   --expect 'status=2' \
   --expect-row-count 1
 ```

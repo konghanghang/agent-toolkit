@@ -31,10 +31,10 @@ def usage() -> str:
   jms exec --node k8s-work1 --command 'ls -lah /data/logs/test'
 
 说明:
-  - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 work 运行时配置
+  - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 工作运行时配置
   - 未初始化时请先运行: python3 $AGENT_TOOLKIT_ROOT/common/bootstrap_work.py
   - 底层脚本来自 $AGENT_TOOLKIT_ROOT/skills/jumpserver-k8s-log-query/scripts
-  - 凭证与 session 目录来自 work 运行时配置里的 jms_dir
+  - 凭证与 session 目录来自 工作运行时配置里的 jms_dir
   - 标准路径: 先上 master 用 kubectl 定位 NODE，再只去对应 worker 读 /data/logs/<ns>/<svc>
   - pods-safe/logs-safe 固定 test namespace，并限制服务名和 tail，供 Codex Rules 默认放行
   - 测试环境不要遍历全部 worker；应用 trace / ERROR 也继续走 JMS，不切换 SLS

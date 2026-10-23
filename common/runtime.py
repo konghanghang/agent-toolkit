@@ -82,7 +82,7 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
     current_file = str(Path(current_file).resolve())
     if not CONFIG_FILE.exists():
         raise RuntimeConfigError(
-            f"[!] 未找到 work 运行时配置: {CONFIG_FILE}\n"
+            f"[!] 未找到 工作运行时配置: {CONFIG_FILE}\n"
             f"    请先初始化: {init_hint(current_file)}"
         )
 
@@ -90,7 +90,7 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except Exception as exc:
         raise RuntimeConfigError(
-            f"[!] work 运行时配置解析失败 ({exc}): {CONFIG_FILE}\n"
+            f"[!] 工作运行时配置解析失败 ({exc}): {CONFIG_FILE}\n"
             f"    请重新初始化: {init_hint(current_file)}"
         ) from exc
 
@@ -105,7 +105,7 @@ def load_runtime(current_file: str | Path) -> Dict[str, Any]:
         missing.append("agent_toolkit_root")
     if missing:
         raise RuntimeConfigError(
-            f"[!] work 运行时配置缺少字段: {', '.join(missing)}\n"
+            f"[!] 工作运行时配置缺少字段: {', '.join(missing)}\n"
             f"    请重新初始化: {init_hint(current_file)}"
         )
 

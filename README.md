@@ -34,7 +34,7 @@ python3 scripts/install.py --profile general --dry-run
 python3 scripts/install.py --profile general
 ```
 
-工作电脑改用以下步骤，并初始化 work 公共运行时；通用安装无需 bootstrap：
+工作电脑改用以下步骤，并初始化 工作公共运行时；通用安装无需 bootstrap：
 
 ```bash
 python3 scripts/install.py --profile work --dry-run
@@ -71,7 +71,7 @@ SLS 路由、TAPD 周报工作区和成员通过 [工作环境私有配置](docs
 
 | Skill | 用途 |
 |---|---|
-| [work-feature-delivery](skills/work-feature-delivery/SKILL.md) | 复用通用开发流程，叠加 work 需求记录、分支、提测与上线要求 |
+| [work-feature-delivery](skills/work-feature-delivery/SKILL.md) | 复用通用开发流程，叠加工作项目的需求记录、分支、提测与上线要求 |
 | [work-url-permission-sql](skills/work-url-permission-sql/SKILL.md) | 为新增接口生成 URL 权限登记及核对 SQL，不执行数据库写入 |
 | [online-issue-triage](skills/online-issue-triage/SKILL.md) | 串联日志、代码与数据证据排查线上和测试环境问题 |
 | [aliyun-sls-log-query](skills/aliyun-sls-log-query/SKILL.md) | 查询阿里云 SLS 生产日志 |
@@ -94,7 +94,7 @@ Rules 的允许规则不替代用户授权或 Skill 的操作边界。具体范�
 
 ### 开发工作流
 
-通用开发从 `feature-delivery` 进入，work 业务开发从 `work-feature-delivery` 进入并复用通用主线。根据任务目标、项目规则和已有授权，从当前阶段继续。
+通用开发从 `feature-delivery` 进入，工作项目开发从 `work-feature-delivery` 进入并复用通用主线。根据任务目标、项目规则和已有授权，从当前阶段继续。
 
 完整流程图、专项 Skill 配合与 Agent 分工见 [开发工作流](docs/workflows.md)。
 
@@ -118,7 +118,7 @@ python3 ~/.agent-toolkit/scripts/install.py
 |---|---|
 | [安装指南](docs/installation.md) | 安装范围与参数、迁移、自定义 Home、配置保护、工作运行时与可选依赖 |
 | [Windows 指南](docs/windows.md) | 前置条件、PowerShell 安装、junction、命令入口与 ExecutionPolicy |
-| [开发工作流](docs/workflows.md) | 通用与 work 交付流程图、专项 Skill 配合、Agent 分工 |
+| [开发工作流](docs/workflows.md) | 通用与工作 交付流程图、专项 Skill 配合、Agent 分工 |
 | [维护指南](docs/maintenance.md) | 目录职责、兼容契约、新增组件、更新机制与验证清单 |
 | [工作流行为评估](evals/workflow/README.md) | 离线样例准备、真实模型任务执行与证据边界 |
 
