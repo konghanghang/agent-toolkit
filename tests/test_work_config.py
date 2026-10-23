@@ -63,6 +63,8 @@ class WorkConfigTest(unittest.TestCase):
             self.assertTrue(initializer.initialize_config(path))
             data = json.loads(path.read_text())
             self.assertEqual([], data["tapd_weekly_report"]["members"])
+            self.assertIsNone(data["sls"]["retention_days"])
+            self.assertEqual({"project": "", "logstore": ""}, data["sls"]["default"])
             if os.name != "nt":
                 self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
                 self.assertEqual(0o700, stat.S_IMODE(path.parent.stat().st_mode))

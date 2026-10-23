@@ -214,7 +214,7 @@ GitLab 的实际域名和 Token 保存在 `GITLAB_DIR/gitlab-credentials.json`�
 
 ## 工作环境私有配置
 
-SLS 的 project/logstore、服务路由、Archery 实例路由，以及 TAPD 周报的工作区和成员列表，放在本机 `~/.local/agent-toolkit/work/config.json`。这些值不写入源码、测试或公共文档；仓库只保存空模板和虚构示例。
+SLS 的 project/logstore、环境与服务路由、日志保留天数、Archery 实例路由，以及 TAPD 周报的工作区和成员列表，放在本机 `~/.local/agent-toolkit/work/config.json`。真实资源和人员信息不写入源码、测试或公共文档；仓库只保存空模板和虚构示例。
 
 在仓库根目录预览并创建模板：
 
@@ -233,31 +233,18 @@ python3 scripts/init_work_config.py --dry-run
 python3 scripts/init_work_config.py
 ```
 
-填充后格式如下，示例中的名称和 ID 均需替换为本机实际值：
+填充后格式如下，示例中的名称和 ID 均需替换为本机实际值。SLS 初始化模板使用单目标格式，`retention_days` 初始为 `null`（未知）；确认日志库实际保留天数后填写，以下 `3` 仅为示例：
 
 ```json
 {
   "schema_version": 1,
   "sls": {
-    "domestic": {
-      "default": {
-        "project": "example-cn-project",
-        "logstore": "example-cn-logstore"
-      },
-      "services": {
-        "example-service": {
-          "project": "example-api-project",
-          "logstore": "example-api-logstore"
-        }
-      }
+    "retention_days": 3,
+    "default": {
+      "project": "example-project",
+      "logstore": "example-logstore"
     },
-    "overseas": {
-      "default": {
-        "project": "example-overseas-project",
-        "logstore": "example-overseas-logstore"
-      },
-      "services": {}
-    }
+    "services": {}
   },
   "archery": {
     "scopes": {
@@ -270,14 +257,15 @@ python3 scripts/init_work_config.py
   },
   "tapd_weekly_report": {
     "workspace_id": "example-workspace",
-    "members": ["成员甲", "成员乙", "成员丙"]
+    "members": ["组员甲", "组员乙", "组长"]
   }
 }
 ```
 
-- SLS 按 scope 和 service 选路由；`services` 中的键是服务名，匹配时优先于该 scope 的 `default`。普通查询、聚合和受限查询使用同一配置。完整显式指定 `--project` 和 `--logstore` 时无需路由配置；受限入口继续禁止自选目标。
+- SLS 单目标无需填写环境；多环境放在 `sls.scopes`，可用国内/海外或自定义名称，并用 `default_scope` 显式选择默认环境。`services` 按服务名覆盖目标，未覆盖时使用所选范围的 `default`。旧 `sls.domestic` / `sls.overseas` 继续兼容。完整示例与迁移方式见 [SLS 目标与日志保留期配置](../skills/aliyun-sls-log-query/references/configuration.md)。
+- `retention_days` 是对应范围的实际日志保留天数，服务覆盖可单独配置；缺省或 `null` 表示未知，不默认 3 天。入口会裁剪部分过期的窗口，整段已过期时在登录和查询前停止。受限入口单次最多 3 天的窗口限制独立保留。完整显式指定 `--project` 和 `--logstore` 时不读路由配置，保留期未知；受限入口继续禁止自选目标。
 - Archery 的 `--scope` 和 `--module` 分别读取 `archery.scopes` 和 `archery.modules`，只选择已配置实例；显式 `--instance` 无需路由配置。服务地址仍放在现有私有凭证的 `base_url` 字段中，缺失时不会使用公共示例地址登录。
-- 周报的 `members` 决定展示顺序和多人需求归属优先级：取需求负责人中第一个出现在此列表的人。可以调整人数和顺序，无须修改脚本。`--workspace-id`、`TAPD_WORKSPACE_ID` 优先于配置中的工作区。
+- 周报的 `members` 同时决定展示顺序和多人需求归属优先级：取需求负责人中第一个出现在此列表的人。需要组员优先时，把所有组员排在组长之前，并使用 TAPD 中的实际名称；多名组员共同负责时取数组中靠前的一人。不要为了把组长先展示而将其移到首位。新增组员也要加入组长之前，漏配的人不参与归类。完整归属表见 [组长与组员如何配置](../skills/tapd-weekly-report/SKILL.md#组长与组员如何配置)。`--workspace-id`、`TAPD_WORKSPACE_ID` 优先于配置中的工作区。
 - 每次执行重新读取配置；修改后下一次命令生效。所用功能缺少必要配置时，在请求外部系统前报错，不回退到源码中的公司环境值。周报 `--dry-run` 仅推导版本日期和路径，无需真实配置。
 - JumpServer 的控制节点资产在其私有凭证的 `master_asset` 中配置；`exec --asset` 可直接指定独立执行目标，不覆盖 Kubernetes 控制节点配置。公共文档不记录本机资产拓扑。
 - `TAPD_TOKEN` 继续通过环境变量提供；SLS 凭证和 Session 继续由现有私有目录管理，不放进模板。使用 SLS 前仍需准备公共运行时及登录配置。

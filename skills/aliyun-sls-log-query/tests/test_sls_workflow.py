@@ -377,8 +377,9 @@ class SlsRoutingTest(ConfiguredSlsTest):
         }
         with self.assertRaisesRegex(SystemExit, "多个已配置服务"):
             self.cli.resolve_route_args(["--query", "example-api or another-api"])
-        with self.assertRaisesRegex(SystemExit, "无法确定"):
-            self.cli.resolve_route_args(["--trace-id", "example-trace"])
+        # The legacy format retains its domestic default for all query types.
+        trace = self.cli.resolve_route_args(["--trace-id", "example-trace"])
+        self.assertEqual("cn-project", trace[trace.index("--project") + 1])
 
     def test_missing_or_invalid_routes_stop_before_login_or_query(self):
         with patch.object(

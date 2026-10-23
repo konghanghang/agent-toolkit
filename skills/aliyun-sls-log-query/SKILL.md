@@ -39,7 +39,9 @@ python3 "$AGENT_TOOLKIT_ROOT/scripts/init_work_config.py" --dry-run
 python3 "$AGENT_TOOLKIT_ROOT/scripts/init_work_config.py"
 ```
 
-默认路径为 `~/.local/agent-toolkit/work/config.json`；可用 `AGENT_TOOLKIT_WORK_CONFIG` 指向其他私有文件。`sls.domestic` 和 `sls.overseas` 各自支持 `default`（非空 `project`、`logstore`）与 `services`（按服务名覆盖）。路由更新后，下次运行直接读取，无需修改源码或重启服务。配置不完整时在登录、查询前停止。
+默认路径为 `~/.local/agent-toolkit/work/config.json`；可用 `AGENT_TOOLKIT_WORK_CONFIG` 指向其他私有文件。单目标使用 `sls.default`，无需区分国内/海外；多环境使用 `sls.scopes.<环境名>`，可配置 `default_scope`。每个范围支持 `default`（非空 `project`、`logstore`）、`services`（按服务名覆盖）及 `retention_days`（实际日志保留天数）。旧 `sls.domestic` / `sls.overseas` 格式继续兼容。
+
+使用前读取 [SLS 目标与日志保留期配置](references/configuration.md)，按单目标或多环境示例填写。国内/海外都保留 3 天的环境应在两节分别填写 `"retention_days": 3`；其他环境填写各自实际天数。缺省或 `null` 表示未知，不默认 3 天。服务覆盖可单独指定保留期，未指定时继承所在范围。路由和保留期修改后，下次命令直接读取；配置无效时在登录、查询前停止。
 
 脚本在读取凭证和写入 session 前会收紧本机权限：macOS/Linux 使用 `0600` 文件与 `0700` 目录，Windows 使用关闭继承的受保护 ACL，只保留当前用户、`SYSTEM` 和内置管理员。
 
@@ -72,7 +74,7 @@ $AgentToolkitRoot = (Resolve-Path (Join-Path $HOME ".agent-toolkit")).Path
 & "$AgentToolkitRoot\bin\sls.cmd" search-safe --service example-api --size 1
 ```
 
-Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只允许本机配置路由，禁止 `--project`、`--logstore`、`--out`、`--full`，查询窗口最多 3 天、返回最多 100 行；`agg-safe` 还强制使用单条 SELECT 聚合，禁止直接输出或分组原始日志字段，只允许聚合值及有边界的 `regexp_extract(...)` 派生维度。需要完整日志落盘、自选 project/logstore 或非聚合 pSQL 时才使用原始 `query` / `agg`，并保留审批。
+Codex 日常排查优先使用 `search-safe` / `agg-safe`。这两个入口只允许本机配置路由，禁止 `--project`、`--logstore`、`--out`、`--full`，单次查询窗口最多 3 天、返回最多 100 行；这是查询范围限制，与配置中的日志保留天数独立。例如日志保留 7 天时，可以查询第 5 天内的一小时。`agg-safe` 还强制使用单条 SELECT 聚合，禁止直接输出或分组原始日志字段，只允许聚合值及有边界的 `regexp_extract(...)` 派生维度。需要完整日志落盘、自选 project/logstore 或非聚合 pSQL 时才使用原始 `query` / `agg`，并保留审批。
 
 底层 Python 脚本仍然保留，方便排查或单独调试。
 
@@ -159,7 +161,7 @@ sls query --scope domestic --service example-data-service --full --out "<TMP_DIR
 
 `sls` 入口支持自动路由参数:
 
-- `--scope domestic|overseas`
+- `--scope <已配置环境名>`，例如 `domestic`、`overseas` 或自定义名称
 - `--service <service>`
 - `--project <project>` / `--logstore <logstore>` 直接指定
 
@@ -169,14 +171,14 @@ sls query --scope domestic --service example-data-service --full --out "<TMP_DIR
 
 路由由本机 `sls` 配置决定：
 
-- `--scope overseas` → `sls.overseas.services.<service>`，未配置该服务时使用 `sls.overseas.default`。
-- 国内已配置服务 → `sls.domestic.services.<service>`；可省略 `--scope domestic`。
-- `--scope domestic --service <service>` → 服务覆盖或 `sls.domestic.default`。
-- 无路由提示的查询（如仅 `--minutes`）和省略 scope 的聚合查询使用 `sls.domestic.default`。
-- 普通 `query` 的 `--query` / `--keyword` 在所选 scope（省略时为国内）只匹配一个已配置服务时推断服务；多匹配时须显式指定 `--service`。
+- 单目标 `sls.default` 或唯一具名环境 → 直接选择，无需填写 `--scope`。
+- `--scope <环境名>` → 使用 `sls.scopes.<环境名>.services.<service>`，未配置该服务时使用该环境的 `default`。
+- 多环境省略 `--scope` → 使用配置的 `default_scope`；没有默认环境时，只有服务路由能唯一确定目标才自动选择，否则提示补充环境。
+- 普通 `query` 的 `--query` / `--keyword` 只匹配一个已配置服务时可推断服务；多匹配时须显式指定 `--service`。
+- 旧 `sls.domestic` / `sls.overseas` 继续兼容，已有国内配置保留其默认选择行为；迁移说明见[配置参考](references/configuration.md#旧配置兼容)。
 - 完整显式 `--project` / `--logstore` 不依赖路由配置。仅给 project 时，只有配置中存在唯一 logstore 才自动补齐。
 
-如果信息不足以确定是“海外”还是“国内其他服务”，必须先追问确认，再查日志。
+只有多目标且无法唯一确定目标时才确认环境；单目标不额外询问国内/海外。所有入口使用相同的配置选择规则。
 
 要手工指定别的 project / logstore:
 
@@ -191,8 +193,8 @@ sls query --project <other-project> --logstore <other-logstore> --query '*'
 ### 按 Trace ID 排查
 
 ```
-1. 用户提供 trace ID (16 hex 字符)
-2. 先判断路由:
+1. 用户提供 trace ID
+2. 根据本机配置判断路由；单目标直接使用，多环境按明确范围、默认环境或唯一服务路由选择。例如:
    - 海外 -> sls query --scope overseas --service <service> --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
    - 国内 example-api -> sls query --service example-api --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
    - 国内其他服务 -> sls query --scope domestic --service <service> --trace-id <id> --minutes 60 --size 50 --full --out "<TMP_DIR>/trace.json"
@@ -201,17 +203,18 @@ sls query --project <other-project> --logstore <other-logstore> --query '*'
 5. 跨服务: 同一 trace ID 在不同服务里的 span, 拼出完整调用链
 ```
 
-### 日志保留期硬门禁
+### 日志保留期门禁
 
-- 当前国内 SLS 日志仅保留最近 3 天。每次查询前必须按当前时间核对请求窗口和实际可查询区间。
-- 查询开始时间早于保留边界时，只查询仍在保留期内的部分，并明确说明无法覆盖的历史区间。
-- 超出保留期的区间返回 0 条，不代表历史上没有日志；禁止据此排除接口调用、异常、状态变更或操作行为。
-- 需要追查 3 天以前的事实时，改用 ClickHouse 操作日志、数据库审计、MySQL binlog 或其他长期存储，不能继续扩大 SLS 时间窗口。
+- 每次查询读取所选目标的 `retention_days`，按当前时间核对可查询区间；以 3 天为例，最早边界为当前时间减去 3 天，其他天数按配置计算。
+- 入口在登录和查询前裁剪部分过期的窗口，并说明无法覆盖的历史区间；整个窗口已过期时直接停止。
+- 保留天数缺省或为 `null` 时会提示未知；先确认实际 logstore 设置并填写配置，不擅自当作 3 天。配置更新不会修改阿里云服务端的保留设置。
+- 超出保留期或保留期未知时返回 0 条，不代表历史上没有日志；禁止据此排除接口调用、异常、状态变更或操作行为。
+- 需要追查早于所选目标保留边界的事实时，使用该环境实际提供的长期存储或审计渠道，不继续扩大 SLS 时间窗口。
 
 ### 时间窗口策略
 
 - 不知道时间: 先 `--minutes 60 --size 20` 探一次, 看日志最新时间戳
-- 知道大致时间: 先确认时间位于最近 3 天保留期内，再用 `--from`/`--to` 精确窗口, 避免漏掉
+- 知道大致时间: 先按目标的保留天数确认仍可查询，再用 `--from`/`--to` 精确窗口, 避免漏掉
 - 排查偶发问题: `--minutes 1440 --size 500 --out "<TMP_DIR>/day.json"` 拉全天再筛选
 
 ### 关键词组合
@@ -237,12 +240,12 @@ SLS 查询语法 (类似 Kibana KQL, 但有差异):
 
 ## 查询路由判断
 
-对话先确认环境，再使用本机配置：
+对话按本机配置选择目标：
 
-1. 用户明确说“海外”“国际”等海外语义 → `--scope overseas --service <service>`。
-2. 用户明确要查已配置的国内服务 → 对应 `sls.domestic.services` 覆盖或国内默认路由。
-3. 用户明确是国内其他服务 → `--scope domestic --service <service>`。
-4. 如果只有 trace ID / 关键词 / 报错片段，无法确定路由时必须先确认环境与服务；不要猜测 project。
+1. 只有单目标或唯一具名环境 → 直接使用，不额外追问国内/海外。
+2. 用户明确给出已配置环境 → 使用对应 `--scope <环境名>`；配置了 `domestic` / `overseas` 时，可分别对应国内/海外语义。
+3. 未给环境时 → 使用明确配置的默认环境，或能唯一确定目标的服务路由。
+4. 多个目标仍无法确定时 → 确认环境与服务，不猜测 project；配置了多个目标且没有默认环境时，不能随意选择第一个。
 
 凭证文件里的 `project` / `logstore` 用于登录落点和直接调用底层脚本；`sls query` / `sls agg` 的自动路由以工作配置为准，不回退到凭证默认目标。
 

@@ -22,16 +22,9 @@ from work_config import WorkConfigError, work_config_path
 CONFIG_TEMPLATE = {
     "schema_version": 1,
     "sls": {
-        "domestic": {
-            "default": {"project": "", "logstore": ""},
-            "services": {
-                "example-service": {"project": "", "logstore": ""},
-            },
-        },
-        "overseas": {
-            "default": {"project": "", "logstore": ""},
-            "services": {},
-        },
+        "retention_days": None,
+        "default": {"project": "", "logstore": ""},
+        "services": {},
     },
     "archery": {"scopes": {"domestic": "", "overseas": ""}, "modules": {"example-module": ""}},
     "tapd_weekly_report": {"workspace_id": "", "members": []},

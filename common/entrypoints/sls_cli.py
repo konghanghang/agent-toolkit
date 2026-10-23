@@ -12,6 +12,7 @@ if str(COMMON_DIR) not in sys.path:
 
 from runtime import load_runtime_or_exit
 from work_config import WorkConfigError, load_work_config
+from sls_config import SlsRoute, constrain_window, infer_project_route, select_route
 
 
 SESSION_ERROR_RE = re.compile(r"ConsoleNeedLogin|Invalid CSRF token|找不到 session 文件")
@@ -40,13 +41,13 @@ DIRECT_RAW_LOG_FIELD_RE = re.compile(
 def usage() -> str:
     return """用法:
   sls login [--keep]
-  sls query --service ai-open-api [--size 100]
-  sls query --scope domestic --service data-center --keyword ERROR
-  sls query --scope overseas --service agentcc --minutes 60
+  sls query --service example-api [--size 100]
+  sls query --scope domestic --service example-data-service --keyword ERROR
+  sls query --scope overseas --service example-agent-service --minutes 60
   sls query --project <project> [--logstore <logstore>] --query '*'
   sls agg --service <svc> --sql 'SELECT count(*) as c' [--minutes 60|--from F --to T] [--size 100] [--out FILE]
-  sls search-safe --scope domestic --service data-center --trace-id <id>
-  sls agg-safe --scope domestic --service data-center --sql 'SELECT count(*) as c'
+  sls search-safe --scope domestic --service example-data-service --trace-id <id>
+  sls agg-safe --scope domestic --service example-data-service --sql 'SELECT count(*) as c'
 
 说明:
   - Python / AGENT_TOOLKIT_ROOT / TMP_DIR 来自 工作运行时配置
@@ -57,7 +58,10 @@ def usage() -> str:
   - query 会在 session 缺失或失效时自动转去登录，再重试一次
   - search-safe/agg-safe 禁止自选 project/logstore、完整输出和落盘，并限制窗口与结果量
   - agg 走 pSql 聚合(count / GROUP BY / 精确去重总数), 使用 --index + --sql, 避坑见 references/advanced-query.md
-  - project/logstore 路由从本机工作配置的 sls 节读取，支持国内/海外默认目标和服务覆盖
+  - project/logstore 路由从本机工作配置的 sls 节读取，支持单目标、具名环境、服务覆盖和可配置日志保留期
+  - --scope 接受已配置的环境名称；单目标或唯一环境可省略，多环境使用 default_scope 或明确选择
+  - retention_days 为正整数天数或 null（未知）；过早窗口裁剪并提示，全过期窗口在登录前停止
+  - search-safe/agg-safe 的单次窗口最多 3 天，独立于目标实际日志保留期
   - 默认配置: ~/.local/agent-toolkit/work/config.json，可用 AGENT_TOOLKIT_WORK_CONFIG 覆盖路径
   - 初始化空模板: python3 $AGENT_TOOLKIT_ROOT/scripts/init_work_config.py
 """
@@ -91,13 +95,6 @@ def print_output(result: subprocess.CompletedProcess[str]) -> None:
         print(result.stderr, end="", file=sys.stderr)
 
 
-def normalize_scope(scope: str) -> str:
-    mapping = {"domestic": "domestic", "cn": "domestic", "overseas": "overseas", "intl": "overseas", "global": "overseas"}
-    if scope not in mapping:
-        raise SystemExit(f"[!] 不支持的 --scope: {scope}\n    可选值: domestic|cn|overseas|intl|global")
-    return mapping[scope]
-
-
 def load_sls_config(*, required: bool = True) -> dict:
     try:
         config = load_work_config(required=required)
@@ -109,150 +106,101 @@ def load_sls_config(*, required: bool = True) -> dict:
     return sls
 
 
-def scope_routes(config: dict, scope: str) -> tuple[dict, dict]:
-    scope_config = config.get(scope, {})
-    if not isinstance(scope_config, dict):
-        raise SystemExit(f"[!] 工作配置 sls.{scope} 必须是对象。")
-    services = scope_config.get("services", {})
-    if not isinstance(services, dict):
-        raise SystemExit(f"[!] 工作配置 sls.{scope}.services 必须是对象。")
-    return scope_config, services
-
-
-def route_target(route: object, label: str, *, required: bool = True) -> tuple[str, str] | None:
-    if not isinstance(route, dict):
-        raise SystemExit(f"[!] 工作配置 {label} 必须是包含 project/logstore 的对象。")
-    values = [route.get(name, "") for name in ("project", "logstore")]
-    if not all(isinstance(value, str) for value in values):
-        raise SystemExit(f"[!] 工作配置 {label} 的 project/logstore 必须是字符串。")
-    project, logstore = (value.strip() for value in values)
-    if not project or not logstore:
-        if required:
-            raise SystemExit(f"[!] 工作配置 {label} 需要非空 project 和 logstore。")
-        return None
-    return project, logstore
-
-
-def configured_route(config: dict, scope: str, service: str = "") -> tuple[str, str]:
-    scope_config, services = scope_routes(config, scope)
-    label = f"sls.{scope}"
-    if service in services:
-        route = route_target(services[service], f"{label}.services.{service}")
-    else:
-        route = route_target(scope_config.get("default", {}), f"{label}.default")
-    assert route is not None
-    return route
-
-
 def infer_logstore_by_project(project: str) -> str | None:
-    logstores = set()
     config = load_sls_config(required=False)
-    for scope in ("domestic", "overseas"):
-        scope_config, services = scope_routes(config, scope)
-        routes = [("default", scope_config.get("default", {})), *services.items()]
-        for name, route in routes:
-            target = route_target(route, f"sls.{scope}.{name}", required=False)
-            if target is not None and target[0] == project:
-                logstores.add(target[1])
-    return next(iter(logstores)) if len(logstores) == 1 else None
+    try:
+        route = infer_project_route(config, project) if config else None
+    except WorkConfigError as exc:
+        raise SystemExit(f"[!] {exc}") from exc
+    return route.logstore if route else None
 
 
-def infer_service_from_text(text: str, config: dict, scope: str) -> str | None:
-    _, services = scope_routes(config, scope)
-    matches = [name for name in services if name and name in text]
-    if len(matches) > 1:
-        raise SystemExit("[!] 查询包含多个已配置服务；请显式指定 --service。")
-    return matches[0] if matches else None
+def resolved_target(parsed: argparse.Namespace, query_text: str = "") -> SlsRoute:
+    try:
+        if parsed.scope is not None and not parsed.scope.strip():
+            raise WorkConfigError("--scope 不得为空")
+        for name in ("project", "logstore"):
+            value = getattr(parsed, name)
+            if value is not None and not value.strip():
+                raise WorkConfigError(f"--{name} 不得为空")
+        if parsed.project:
+            if parsed.logstore:
+                # An explicitly selected target deliberately does not read private routes.
+                route = SlsRoute(parsed.project.strip(), parsed.logstore.strip())
+            else:
+                config = load_sls_config(required=False)
+                route = infer_project_route(config, parsed.project.strip()) if config else None
+                if route is None:
+                    raise WorkConfigError(
+                        f"已指定 --project={parsed.project}，但无法自动推断 logstore。\\n    请补充 --logstore。"
+                    )
+            # Resource inference must never supply or replace the query's service filter.
+            route = route._replace(service=parsed.service)
+        else:
+            route = select_route(
+                load_sls_config(), parsed.scope or "", parsed.service, query_text
+            )
+            if parsed.logstore and parsed.logstore.strip() != route.logstore:
+                # A different logstore can have a different retention period.
+                route = route._replace(logstore=parsed.logstore.strip(), retention_days=None)
+        return route
+    except WorkConfigError as exc:
+        raise SystemExit(f"[!] {exc}") from exc
+
+
+def resolved_window_args(route: SlsRoute, parsed: argparse.Namespace) -> list[str]:
+    try:
+        start, end, messages = constrain_window(
+            route, from_ts=parsed.from_ts, to_ts=parsed.to_ts, minutes=parsed.minutes
+        )
+    except WorkConfigError as exc:
+        raise SystemExit(f"[!] {exc}") from exc
+    for message in messages:
+        print(message, file=sys.stderr)
+    return ["--from", str(start), "--to", str(end)]
 
 
 def resolve_route_args(args: list[str]) -> list[str]:
-    scope = ""
-    service = ""
-    explicit_project = ""
-    explicit_logstore = ""
-    query_text = ""
-    keyword_text = ""
-    pass_args: list[str] = []
-    route_hint_present = query_present = keyword_present = trace_present = service_present = False
-
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg == "--scope":
-            scope = normalize_scope(args[i + 1])
-            route_hint_present = True
-            i += 2
-        elif arg == "--service":
-            service = args[i + 1]
-            service_present = True
-            route_hint_present = True
-            i += 2
-        elif arg == "--project":
-            explicit_project = args[i + 1]
-            route_hint_present = True
-            pass_args.extend([arg, args[i + 1]])
-            i += 2
-        elif arg == "--logstore":
-            explicit_logstore = args[i + 1]
-            pass_args.extend([arg, args[i + 1]])
-            i += 2
-        elif arg == "--query":
-            query_text = args[i + 1]
-            query_present = True
-            pass_args.extend([arg, args[i + 1]])
-            i += 2
-        elif arg == "--keyword":
-            keyword_text = args[i + 1]
-            keyword_present = True
-            pass_args.extend([arg, args[i + 1]])
-            i += 2
-        elif arg == "--trace-id":
-            trace_present = True
-            pass_args.extend([arg, args[i + 1]])
-            i += 2
-        else:
-            pass_args.append(arg)
-            i += 1
-
-    if explicit_project:
-        if not explicit_logstore:
-            logstore = infer_logstore_by_project(explicit_project)
-            if not logstore:
-                raise SystemExit(f"[!] 已指定 --project={explicit_project}，但无法自动推断 logstore。\n    请补充 --logstore。")
-            pass_args.extend(["--logstore", logstore])
-        return pass_args
-
-    config = load_sls_config()
-    if not service:
-        inferred_service = infer_service_from_text(
-            f"{query_text} {keyword_text}", config, scope or "domestic"
-        )
-        if inferred_service:
-            service = inferred_service
-            service_present = True
-
-    _, services = scope_routes(config, scope or "domestic")
-    if scope == "overseas":
-        route_project, route_logstore = configured_route(config, scope, service)
-    elif (scope == "domestic" and service) or service in services:
-        route_project, route_logstore = configured_route(config, "domestic", service)
-    elif not route_hint_present and not query_present and not keyword_present and not trace_present:
-        route_project, route_logstore = configured_route(config, "domestic")
-    else:
-        raise SystemExit(
-            "[!] 无法确定要查询的 SLS project。\n"
-            "    请补充 --scope domestic|overseas、--service <service>，或直接指定 --project/--logstore。"
-        )
-
-    if service_present and not query_present:
-        pass_args.extend(["--query", f"{service} | with_pack_meta"])
-    pass_args.extend(["--project", route_project, "--logstore", route_logstore])
-    print(f"[*] 路由 project/logstore: {route_project} / {route_logstore}", file=sys.stderr)
-    return pass_args
+    parser = argparse.ArgumentParser(prog="sls query", add_help=False, allow_abbrev=False)
+    parser.add_argument("--scope")
+    parser.add_argument("--service", default="")
+    parser.add_argument("--project")
+    parser.add_argument("--logstore")
+    parser.add_argument("--query")
+    parser.add_argument("--keyword")
+    parser.add_argument("--trace-id")
+    parser.add_argument("--minutes", type=int, default=15)
+    parser.add_argument("--from", dest="from_ts", type=int)
+    parser.add_argument("--to", dest="to_ts", type=int)
+    parser.add_argument("--size", type=int, default=20)
+    parser.add_argument("--out")
+    parser.add_argument("--full", action="store_true")
+    parser.add_argument("--psql", action="store_true")
+    parser.add_argument("--redact", action="store_true")
+    parsed = parser.parse_args(args)
+    route = resolved_target(parsed, f"{parsed.query or ''} {parsed.keyword or ''}")
+    out_args = [
+        "--project", route.project, "--logstore", route.logstore,
+        "--size", str(parsed.size), *resolved_window_args(route, parsed),
+    ]
+    query = parsed.query
+    if query is None and route.service:
+        query = f"{route.service} | with_pack_meta"
+    for name, value in (
+        ("query", query), ("keyword", parsed.keyword),
+        ("trace-id", parsed.trace_id), ("out", parsed.out),
+    ):
+        if value is not None:
+            out_args.extend(["--" + name, value])
+    for name in ("full", "psql", "redact"):
+        if getattr(parsed, name):
+            out_args.append("--" + name)
+    print(f"[*] 路由 project/logstore: {route.project} / {route.logstore}", file=sys.stderr)
+    return out_args
 
 
 def add_safe_route_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--scope", choices=["domestic", "overseas"])
+    parser.add_argument("--scope", help="本机配置的环境名称；单目标可省略")
     parser.add_argument("--service", required=True)
     parser.add_argument("--minutes", type=int, default=60)
     parser.add_argument("--from", dest="from_ts", type=int)
@@ -509,18 +457,21 @@ def run_query(args: list[str]) -> int:
 AGG_USAGE = """sls agg — pSql 聚合统计 (count / GROUP BY / HAVING / 精确去重总数)
 
   sls agg --service <svc> --sql 'SELECT ...' [--index '*'] [--minutes 60|--from F --to T] [--size 100] [--out FILE]
-  sls agg --scope domestic --service call-task-number --sql 'SELECT count(*) as c' --minutes 60
+  sls agg --scope domestic --service example-task-service --sql 'SELECT count(*) as c' --minutes 60
   sls agg --project P --logstore L --index 'svc and "ERR"' --sql 'SELECT count(*) as c' --from F --to T
 
 参数:
   --sql     必选, 管道后的 SQL (不要带 index 查询部分)
   --index   管道前的 SLS 查询, 默认取 --service 名, 再不然 *
-  --scope   domestic|overseas (路由 project/logstore)
+  --scope   本机配置的环境名称，单目标可省略
   --service 服务名 (路由 + 默认 index)
   --project/--logstore  直接指定, 覆盖 scope/service 推断
   --from/--to  Unix 秒; 不带则用 --minutes (默认 60)
   --size    聚合结果行数, 1-100, 默认 100 (SLS 服务端硬上限 100)
   --out     落盘 JSON
+
+路由: 单目标/唯一环境自动选择；多环境使用 default_scope 或 --scope，旧国内/海外结构继续兼容。
+保留期: retention_days 为正整数或 null（未知）；按所选目标裁剪窗口，全过期时不查询。
 
 避坑 (详见 references/advanced-query.md):
   - 中文/纯数字过滤写进 SQL 的 like, 别塞 --index 的 "中文"/"606332"
@@ -551,32 +502,13 @@ def resolve_agg_args(args: list[str]) -> list[str]:
     if not 1 <= parsed.size <= 100:
         raise SystemExit("[!] sls agg 的 --size 必须在 1-100 之间；超过 100 请分时段查询后合并去重")
 
-    scope = normalize_scope(parsed.scope) if parsed.scope else ""
-    project = parsed.project
-    logstore = parsed.logstore
-
-    if project:
-        if not logstore:
-            logstore = infer_logstore_by_project(project)
-            if not logstore:
-                raise SystemExit(
-                    f"[!] 已指定 --project={project}，但无法自动推断 logstore。\n"
-                    "    请补充 --logstore。"
-                )
-    else:
-        project, configured_logstore = configured_route(load_sls_config(), scope or "domestic", parsed.service)
-        logstore = logstore or configured_logstore
-
-    index = parsed.index if parsed.index is not None else parsed.service or "*"
-
-    out_args = ["--psql", "--query", f"{index} | {parsed.sql}", "--size", str(parsed.size)]
-    if parsed.from_ts is not None:
-        out_args += ["--from", str(parsed.from_ts)]
-    if parsed.to_ts is not None:
-        out_args += ["--to", str(parsed.to_ts)]
-    if parsed.from_ts is None and parsed.to_ts is None:
-        out_args += ["--minutes", str(parsed.minutes)]
-    out_args += ["--project", project, "--logstore", logstore]
+    route = resolved_target(parsed, parsed.index or "")
+    index = parsed.index if parsed.index is not None else route.service or "*"
+    out_args = [
+        "--psql", "--query", f"{index} | {parsed.sql}", "--size", str(parsed.size),
+        *resolved_window_args(route, parsed),
+        "--project", route.project, "--logstore", route.logstore,
+    ]
     if parsed.out:
         out_args += ["--out", parsed.out]
     if parsed.redact:
@@ -585,12 +517,12 @@ def resolve_agg_args(args: list[str]) -> list[str]:
 
 
 def run_agg(args: list[str]) -> int:
-    runtime, _, query_script = runtime_and_paths()
     if wants_help(args) or not args:
         print(AGG_USAGE, end="")
         return 0
 
     resolved_args = resolve_agg_args(args)
+    runtime, _, query_script = runtime_and_paths()
     require_credentials(runtime)
     session_file = Path(runtime["sls_dir"]) / "aliyun_session.json"
     if not session_file.exists():
