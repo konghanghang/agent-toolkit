@@ -15,7 +15,7 @@
 | `--profile general` | “安装通用的”“家庭电脑安装” | 通用与个人用途组件 |
 | `--profile work` | “安装工作用的”“工作新机安装” | **通用组件 + 工作扩展** |
 
-首次安装必须显式选择；成功后记录在本检出的 `.local/install-profile.json`，后续安装沿用。dry-run 不保存选择，切换分类不自动卸载已有组件。
+首次安装必须显式选择；成功后记录在 `~/.local/agent-toolkit/install-profile.json`，同一用户的不同检出共用。新记录不存在时兼容读取本检出的 `.local/install-profile.json`，成功安装后迁移到新位置并保留旧记录。dry-run 不保存选择，切换分类不自动卸载已有组件。
 
 ### macOS / Linux
 
@@ -100,7 +100,7 @@ Rules 的允许规则不替代用户授权或 Skill 的操作边界。具体范�
 
 ## 日常更新
 
-拉取仓库后，先预览，再按本检出已记录的 profile 更新安装：
+拉取仓库后，先预览，再按本机已记录的 profile 更新安装：
 
 ```bash
 git -C ~/.agent-toolkit pull

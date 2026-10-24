@@ -29,7 +29,11 @@ class InstallTest(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         state = Path(temporary.name) / "profile.json"
         state.write_text(json.dumps({"schema_version": 1, "profile": "work"}))
-        patcher = mock.patch.object(install, "PROFILE_STATE", state)
+        patcher = mock.patch.multiple(
+            install,
+            PROFILE_STATE=state,
+            LEGACY_PROFILE_STATE=Path(temporary.name) / "legacy-profile.json",
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -993,8 +997,11 @@ class ProfileTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        self.state = self.directory / "local" / "profile.json"
-        patcher = mock.patch.object(install, "PROFILE_STATE", self.state)
+        self.state = self.directory / "machine" / "install-profile.json"
+        self.legacy = self.directory / "checkout" / ".local" / "install-profile.json"
+        patcher = mock.patch.multiple(
+            install, PROFILE_STATE=self.state, LEGACY_PROFILE_STATE=self.legacy
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -1070,11 +1077,65 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual("general", install.resolve_profile(install.parse_args([])))
         self.assertEqual("work", install.resolve_profile(install.parse_args(["--profile", "work"])))
 
+    def test_legacy_profile_is_read_without_writing_machine_record(self):
+        self.legacy.parent.mkdir(parents=True)
+        original = '{"schema_version":1,"profile":"general"}\n'
+        self.legacy.write_text(original)
+
+        self.assertEqual("general", install.resolve_profile(install.parse_args([])))
+        self.assertFalse(self.state.parent.exists())
+        self.assertEqual(original, self.legacy.read_text())
+
+    def test_machine_profile_wins_over_different_checkout_records(self):
+        install.save_profile("general")
+        for checkout in ("checkout-a", "checkout-b"):
+            with self.subTest(checkout=checkout):
+                legacy = self.directory / checkout / ".local" / "install-profile.json"
+                legacy.parent.mkdir(parents=True)
+                legacy.write_text('{"schema_version":1,"profile":"work"}')
+                with mock.patch.object(install, "LEGACY_PROFILE_STATE", legacy):
+                    self.assertEqual("general", install.resolve_profile(install.parse_args([])))
+                    self.assertEqual("work", install.resolve_profile(install.parse_args(["--profile", "work"])))
+
     def test_corrupt_state_fails_closed(self):
+        self.legacy.parent.mkdir(parents=True)
+        self.legacy.write_text('{"schema_version":1,"profile":"work"}')
         self.state.parent.mkdir()
-        self.state.write_text('{"schema_version":1,"profile":"typo"}')
-        with self.assertRaisesRegex(SystemExit, "invalid saved profile"):
+        for content in (
+            "not-json", "[]", '{"schema_version":true,"profile":"general"}',
+            '{"schema_version":2,"profile":"general"}',
+            '{"schema_version":1,"profile":"typo"}',
+        ):
+            with self.subTest(content=content):
+                self.state.write_text(content)
+                with self.assertRaises(SystemExit) as raised:
+                    install.resolve_profile(install.parse_args([]))
+                self.assertIn(str(self.state), str(raised.exception))
+                self.assertEqual("general", install.resolve_profile(install.parse_args(["--profile", "general"])))
+
+    def test_corrupt_legacy_record_is_reported_when_machine_record_missing(self):
+        self.legacy.parent.mkdir(parents=True)
+        self.legacy.write_text('{"schema_version":1,"profile":"typo"}')
+        with self.assertRaisesRegex(SystemExit, "invalid saved profile") as raised:
             install.resolve_profile(install.parse_args([]))
+        self.assertIn(str(self.legacy), str(raised.exception))
+        self.assertFalse(self.state.exists())
+
+    def test_machine_record_access_errors_do_not_fall_back_to_legacy(self):
+        self.legacy.parent.mkdir(parents=True)
+        self.legacy.write_text('{"schema_version":1,"profile":"work"}')
+        original_lstat = Path.lstat
+        for error in (PermissionError("permission denied"), OSError("I/O failure")):
+            def lstat(path, *args, **kwargs):
+                if path == self.state:
+                    raise error
+                return original_lstat(path, *args, **kwargs)
+
+            with self.subTest(error=type(error).__name__), mock.patch.object(Path, "lstat", lstat):
+                with self.assertRaises(SystemExit) as raised:
+                    install.resolve_profile(install.parse_args([]))
+                self.assertIn(str(self.state), str(raised.exception))
+                self.assertIn(str(error), str(raised.exception))
 
     def test_unclassified_skill_rejected_even_for_rules_only(self):
         skills = self.directory / "skills"
@@ -1089,6 +1150,35 @@ class ProfileTest(unittest.TestCase):
         with mock.patch.object(sys, "argv", ["install.py", "--profile", "general", "--dry-run"]), mock.patch.object(install, "install_spec", return_value=("OK", True)), mock.patch("sys.stdout", new=io.StringIO()):
             self.assertEqual(0, install.main())
         self.assertFalse(self.state.exists())
+
+    def test_legacy_dry_run_does_not_migrate_or_modify_records(self):
+        self.legacy.parent.mkdir(parents=True)
+        original = '{"schema_version":1,"profile":"general"}\n'
+        self.legacy.write_text(original)
+        with mock.patch.object(sys, "argv", ["install.py", "--dry-run"]), mock.patch.object(install, "install_spec", return_value=("OK", True)), mock.patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(0, install.main())
+        self.assertFalse(self.state.parent.exists())
+        self.assertEqual(original, self.legacy.read_text())
+
+    def test_legacy_record_migrates_only_after_success(self):
+        self.legacy.parent.mkdir(parents=True)
+        original = '{"schema_version":1,"profile":"general"}\n'
+        self.legacy.write_text(original)
+        for success in (False, True):
+            with self.subTest(success=success), mock.patch.object(sys, "argv", ["install.py"]), mock.patch.object(install, "install_spec", return_value=("OK" if success else "CONFLICT", success)), mock.patch("sys.stdout", new=io.StringIO()), mock.patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(0 if success else 1, install.main())
+                self.assertEqual(success, self.state.exists())
+                self.assertEqual(original, self.legacy.read_text())
+        self.assertEqual({"schema_version": 1, "profile": "general"}, json.loads(self.state.read_text()))
+        with mock.patch.object(install, "LEGACY_PROFILE_STATE", self.directory / "another-checkout" / "profile.json"):
+            self.assertEqual("general", install.resolve_profile(install.parse_args([])))
+
+    def test_existing_machine_record_is_unchanged_by_dry_run(self):
+        install.save_profile("general")
+        original = self.state.read_bytes()
+        with mock.patch.object(sys, "argv", ["install.py", "--profile", "work", "--dry-run"]), mock.patch.object(install, "install_spec", return_value=("OK", True)), mock.patch.object(install, "run_skill_initializer", return_value=True), mock.patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(0, install.main())
+        self.assertEqual(original, self.state.read_bytes())
 
     def test_failure_does_not_replace_saved_profile(self):
         install.save_profile("general")

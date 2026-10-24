@@ -10,13 +10,38 @@
 
 通用组同时安装全部通用 Agents、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
 
-首次安装必须显式选择 profile；未选择时只给出提示并退出，不默认安装全量。成功安装后，选择保存在本检出的 `.local/install-profile.json`（Git 忽略），后续无 `--profile` 的安装或更新沿用它。显式指定可覆盖选择；dry-run 和失败安装不会修改记录。记录供本检出的所有安装目标共用，不跟随 `--codex-home` 单独变化。切换 profile 不自动卸载已有组件。
+首次安装必须显式选择 profile；未选择时只给出提示并退出，不默认安装全量。成功安装后，选择保存在 `~/.local/agent-toolkit/install-profile.json`，后续无 `--profile` 的安装或更新沿用它。记录属于本机当前用户，由不同仓库检出和安装目标共用，不跟随 `--codex-home` 单独变化，也不进入 Git。切换 profile 不自动卸载已有组件。
+
+选择顺序为：显式 `--profile` → 机器级记录 → 当前检出的旧记录 `.local/install-profile.json`。只有新位置不存在时才读取旧位置；高优先级记录损坏或无效时直接报错，不能回退后静默改变安装范围。显式指定 profile 可覆盖保存值。使用旧记录成功安装后，只向机器级新位置保存，旧文件保留；dry-run 和失败安装都不会迁移或修改记录。
 
 `--skill` 只在当前 profile 内进一步筛选；例如 `--profile general --skill verify-test-db` 会报错，不会越过分类安装工作内容。Rules 也按 profile 过滤，因此不再因选择一个通用 Skill 而附带工作 Rules。
 
 完整 `work` profile 包含 `feature-delivery` 和 `work-feature-delivery`；使用 `--skill` 手动筛选公司交付技能时，需同时选择 `feature-delivery`。两者的配合方式见 [开发工作流](workflows.md)。
 
 外部 `ui-ux-pro-max` 未还原时，安装器会明确提示缺失并安装其余可用内容；新检出应先运行 `scripts/update_ui_ux_pro_max.py --from-lock`，安装器不隐式联网下载。工作运行时初始化是独立步骤，需要本机工作区等信息；服务凭证按需填写。
+
+### 后续如何识别本机用途
+
+本机用途保存在 `~/.local/agent-toolkit/install-profile.json`。例如，家庭电脑的记录为：
+
+```json
+{
+  "schema_version": 1,
+  "profile": "general"
+}
+```
+
+后续在本项目内检查安装、更新、修复、迁移或清理时，先读取这份记录；新位置不存在时兼容读取当前检出的旧记录。沿用其中的 profile：`general` 只处理通用组件，`work` 处理通用组件和工作扩展。用户当前明确指定的用途优先；两个位置均无记录或选中的记录无效时，需要明确选择用途，不能根据仓库内存在工作 Skills 或历史备份推断本机应安装工作内容。
+
+安装器会自动读取保存值，因此日常预览可直接运行：
+
+```bash
+python3 scripts/install.py --dry-run
+```
+
+检查输出的 `Installation profile` 是否符合本机用途，再按预览处理。安装范围的识别不代表安装或清理授权，切换 profile 也不会自动卸载已有组件。
+
+这项约定的维护范围是本仓库的安装说明与本机记录；客户端的用户级全局指令由用户独立管理。
 
 ## 安装器管理范围
 

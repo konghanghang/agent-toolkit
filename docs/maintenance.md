@@ -145,6 +145,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 - EasyImage、PicGo 的真实凭证
 - 数据库和生产环境凭证
 - Prometheus、Nacos 等通过 `runtime.json` 管理的内部服务地址
+- `~/.local/agent-toolkit/install-profile.json`
 - `~/.local/agent-toolkit/work/runtime.json`
 - 工作区绝对路径
 

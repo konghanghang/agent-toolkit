@@ -29,7 +29,8 @@ from private_files import (
 
 
 PROFILE_MANIFEST = TOOLKIT_ROOT / "install-profiles.json"
-PROFILE_STATE = TOOLKIT_ROOT / ".local" / "install-profile.json"
+PROFILE_STATE = Path.home() / ".local" / "agent-toolkit" / "install-profile.json"
+LEGACY_PROFILE_STATE = TOOLKIT_ROOT / ".local" / "install-profile.json"
 SKILLS_DIR = TOOLKIT_ROOT / "skills"
 CODEX_AGENTS_SOURCE = TOOLKIT_ROOT / "codex" / "agents"
 CODEX_RULES_SOURCE = TOOLKIT_ROOT / "codex" / "rules"
@@ -149,17 +150,27 @@ def available_skills() -> dict[str, Path]:
 def resolve_profile(args: argparse.Namespace) -> str:
     if args.profile is not None:
         return args.profile
-    if not PROFILE_STATE.exists():
-        raise SystemExit("Choose an installation profile: --profile general or --profile work")
     try:
-        state = json.loads(PROFILE_STATE.read_text(encoding="utf-8"))
-        if not isinstance(state, dict) or state.get("schema_version") != 1:
+        for state_path in (PROFILE_STATE, LEGACY_PROFILE_STATE):
+            try:
+                state_path.lstat()
+            except FileNotFoundError:
+                continue
+            break
+        else:
+            raise SystemExit("Choose an installation profile: --profile general or --profile work")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(state, dict)
+            or type(state.get("schema_version")) is not int
+            or state["schema_version"] != 1
+        ):
             raise ValueError("invalid profile state")
         profile = state.get("profile")
         if profile not in ("general", "work"):
             raise ValueError("invalid saved profile")
     except (OSError, ValueError) as error:
-        raise SystemExit(f"Unable to read {PROFILE_STATE}: {error}") from error
+        raise SystemExit(f"Unable to read {state_path}: {error}") from error
     args.profile = profile
     return profile
 
@@ -187,16 +198,10 @@ def read_profile_manifest() -> dict:
 
 
 def save_profile(profile: str) -> None:
-    PROFILE_STATE.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=".install-profile-", dir=PROFILE_STATE.parent)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            json.dump({"schema_version": 1, "profile": profile}, output, indent=2)
-            output.write("\n")
-        os.replace(temporary, PROFILE_STATE)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    atomic_write_text(
+        PROFILE_STATE,
+        json.dumps({"schema_version": 1, "profile": profile}, indent=2) + "\n",
+    )
 
 
 def selected_skills(args: argparse.Namespace) -> dict[str, Path]:

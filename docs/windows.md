@@ -25,7 +25,7 @@ powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'
 
 ## 安装
 
-先按用途选择 profile：家庭电脑使用 `general`；工作电脑使用 `work`，其中已包含通用组件。首次必须显式选择，后续安装沿用本检出的记录；切换分类不会自动卸载。
+先按用途选择 profile：家庭电脑使用 `general`；工作电脑使用 `work`，其中已包含通用组件。首次必须显式选择，成功后保存到 `$HOME\.local\agent-toolkit\install-profile.json`，同一用户的不同检出共用。新记录不存在时兼容读取当前检出的 `.local\install-profile.json`，成功安装后只向新位置保存并保留旧文件；dry-run 和失败安装不迁移记录，切换分类不会自动卸载。
 
 克隆并还原锁定的外部 Skill：
 
@@ -92,7 +92,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 ## 更新
 
-拉取仓库后，按本检出已记录的 profile 预览和更新安装：
+拉取仓库后，按本机已记录的 profile 预览和更新安装：
 
 ```powershell
 git -C "$HOME\.agent-toolkit" pull
