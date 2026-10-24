@@ -155,13 +155,15 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 git config --global iminling.repoPath /absolute/path/to/iminling-pages
 ```
 
-OpenCode 的网关和密钥来自运行 OpenCode 服务的进程环境：`NEWAPI_BASE_URL`、`GROK_API_KEY`、`NEWAPI_GEMINI_API_KEY`、`NEWAPI_CODEX_API_KEY`、`NEWAPI_ZAI_API_KEY`。变量缺失时 `{env:NAME}` 会原样保留，请求不会改用另一台机器的地址。修改这些变量后需要重启 OpenCode 服务。
+OpenCode 的网关和密钥来自运行 OpenCode 服务的进程环境：`NEWAPI_BASE_URL`、`NEWAPI_GEMINI_BASE_URL`、`GROK_API_KEY`、`NEWAPI_GEMINI_API_KEY`、`NEWAPI_CODEX_API_KEY`、`NEWAPI_ZAI_API_KEY`。Gemini 原生 provider 的地址路径为 `/v1beta`，其余 provider 的地址路径为 `/v1`。本机 OpenCode 2.1.4 观察到缺失变量会被替换为空字符串，配置加载成功不能证明地址和密钥可用。
+
+私有 Shell 文件中的变量需要 `export`；zsh 的 `typeset -g` 只声明全局变量，不会导出给子进程。Gemini 地址还可通过 `opencode service set env` 同步到本机私有 `service.json`。变更时按 [本机环境变量](opencode.md#本机环境变量)的完整步骤处理；旧界面可能在后台服务重启时抢先用旧环境自动拉起服务，不能仅凭重启成功判断新环境已生效。`opencode reload` 也无法更新已有进程的环境。
 
 ## 更新受管组件
 
 先按 [日常更新](../README.md#日常更新)拉取仓库，再处理需要重新安装的组件。
 
-Skill、Codex Agent 和 OpenCode 的目录或文件链接会立即读取仓库内更新。Windows 的 OpenCode 配置副本和 Rules 都需要拉取后重新运行安装器才能更新。OpenCode 配置变更后需要 `opencode reload` 或重启服务。更新 Rules：
+Skill、Codex Agent 和 OpenCode 的目录或文件链接会立即读取仓库内更新。Windows 的 OpenCode 配置副本和 Rules 都需要拉取后重新运行安装器才能更新。OpenCode 配置变更后需要 `opencode reload` 或重启服务；涉及环境变量时，按 [本机环境变量](opencode.md#本机环境变量)处理地址覆盖及启动入口，并复核生效情况。更新 Rules：
 
 ```bash
 python3 ~/.agent-toolkit/scripts/install.py --rules-only

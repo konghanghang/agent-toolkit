@@ -194,6 +194,8 @@ OpenCode：
 
 网关地址和 API Key 只通过 `{env:NAME}` 引用，不写入仓库。`cli.json`、`tui.json`、`service.json` 和本机依赖仍留在 `~/.config/opencode/`，不由安装器管理。目标已经指向仓库时跳过；接管内容一致的普通文件或目录、更新 Windows 配置副本时，原路径先移到 `.local/backups/opencode/`；目录里有额外文件时拒绝覆盖。目录比较包含隐藏文件，文件路径和内容均须一致。
 
+安装后按 [OpenCode 使用说明](opencode.md#本机环境变量)配置本机环境变量、同步服务地址并重启服务。Gemini 原生接入单独使用 `NEWAPI_GEMINI_BASE_URL`，地址路径为 `/v1beta`；其他 provider 使用的 `NEWAPI_BASE_URL` 路径为 `/v1`。
+
 Codex 的 Rules 扫描器只加载 `rules/` 下的真实 `.rules` 文件，文件软链不会进入加载列表，因此 Rules 使用受管复制而不是目录链接。安装器通过文件头标记识别受管 Rule，安全更新已有副本，并保留本机 `default.rules`。Skill 和 Agent 目录链接不受影响。
 
 Codex 会为新会话加载 Agents、Rules 和 MCP 配置。Agent 源文件通过目录链接立即更新，Rule 或 Playwright 配置变更后需要重新安装；完成后应新开会话或重启客户端。
@@ -329,7 +331,7 @@ ln -s ~/.agent-toolkit/codex/instructions/work.md ~/data/work/.codex/AGENTS.md
 
 - 测试库：[多实例 profiles 配置](../skills/verify-test-db/references/configuration.md)。
 - EasyImage：[PicGo web-uploader 配置](../skills/upload-to-easyimage/references/picgo-config.md)与[线上图文教程](https://www.iminling.com/2025/typora-how-to-use-picgo-upload-image-to-easyimage/)。
-- OpenCode：网关和密钥变量见 [机器相关配置](maintenance.md#机器相关配置)。
+- OpenCode：网关、密钥导出、模型档位和服务重启见 [OpenCode 使用说明](opencode.md)。
 
 ## 按能力准备外部依赖
 

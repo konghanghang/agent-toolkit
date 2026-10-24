@@ -90,6 +90,8 @@ Codex 与 OpenCode 成对维护五类通用 Agent：`evidence_explorer`、`revie
 
 通用组包含这些 Agents、OpenCode 配置、Codex Playwright MCP 配置，以及 `git-commit.rules`、`github-readonly.rules`。工作组额外包含 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建私有配置模板。平台和组件仍可通过安装参数筛选；Claude-only 不写 Codex 配置。
 
+OpenCode 的 Gemini 使用 Google 原生 provider，通过 NewAPI 的 `/v1beta` 接入；本机变量、模型档位与服务重启步骤见 [OpenCode 使用说明](docs/opencode.md)。
+
 Rules 的允许规则不替代用户授权或 Skill 的操作边界。具体范围见 [Rules 说明](docs/maintenance.md#codex-rules)，安装路径与配置保护见 [安装结果](docs/installation.md#安装结果与配置保护)。
 
 ### 开发工作流
@@ -108,7 +110,7 @@ python3 ~/.agent-toolkit/scripts/install.py --dry-run
 python3 ~/.agent-toolkit/scripts/install.py
 ```
 
-目录链接中的 Skill 和 Agent 源文件随仓库更新；Rules、受管 Playwright 配置和 Windows 的 OpenCode 配置副本需重新安装。完成后新开 Agent 会话或重启客户端；OpenCode 配置变更后执行 `opencode reload` 或重启服务。
+目录链接中的 Skill 和 Agent 源文件随仓库更新；Rules、受管 Playwright 配置和 Windows 的 OpenCode 配置副本需重新安装。完成后新开 Agent 会话或重启客户端；OpenCode 配置变更后执行 `opencode reload` 或重启服务。环境变量变更需按 [OpenCode 使用说明](docs/opencode.md#本机环境变量)加载私有配置、同步服务地址并处理旧界面的自动启动，重启成功本身不能证明新环境已生效。
 
 外部 UI/UX Skill 的更新与锁文件还原见 [维护指南](docs/maintenance.md#外部-skill-更新)。
 
@@ -118,6 +120,7 @@ python3 ~/.agent-toolkit/scripts/install.py
 |---|---|
 | [安装指南](docs/installation.md) | 安装范围与参数、迁移、自定义 Home、配置保护、工作运行时与可选依赖 |
 | [Windows 指南](docs/windows.md) | 前置条件、PowerShell 安装、junction、命令入口与 ExecutionPolicy |
+| [OpenCode 使用说明](docs/opencode.md) | NewAPI 原生 Gemini、环境变量、模型档位、服务重启与流式工具调用排查 |
 | [开发工作流](docs/workflows.md) | 通用与工作 交付流程图、专项 Skill 配合、Agent 分工 |
 | [维护指南](docs/maintenance.md) | 目录职责、兼容契约、新增组件、更新机制与验证清单 |
 | [工作流行为评估](evals/workflow/README.md) | 离线样例准备、真实模型任务执行与证据边界 |

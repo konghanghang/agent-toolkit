@@ -88,9 +88,9 @@
     },
     "gemini": {
       "name": "Gemini (NewAPI)",
-      "package": "@opencode/ai/providers/openai-compatible",
+      "package": "@opencode/ai/providers/google",
       "settings": {
-        "baseURL": "{env:NEWAPI_BASE_URL}",
+        "baseURL": "{env:NEWAPI_GEMINI_BASE_URL}",
         "apiKey": "{env:NEWAPI_GEMINI_API_KEY}"
       },
       "models": {
@@ -99,9 +99,9 @@
           "limit": { "context": 1048576, "output": 65536 },
           "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
           "variants": [
-            { "id": "low", "settings": { "reasoningEffort": "low" } },
-            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
-            { "id": "high", "settings": { "reasoningEffort": "high" } }
+            { "id": "low", "settings": { "thinkingConfig": { "thinkingLevel": "low" } } },
+            { "id": "medium", "settings": { "thinkingConfig": { "thinkingLevel": "medium" } } },
+            { "id": "high", "settings": { "thinkingConfig": { "thinkingLevel": "high" } } }
           ]
         },
         "gemini-3.8-flash": {
@@ -109,9 +109,9 @@
           "limit": { "context": 1048576, "output": 65536 },
           "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
           "variants": [
-            { "id": "low", "settings": { "reasoningEffort": "low" } },
-            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
-            { "id": "high", "settings": { "reasoningEffort": "high" } }
+            { "id": "low", "settings": { "thinkingConfig": { "thinkingLevel": "low" } } },
+            { "id": "medium", "settings": { "thinkingConfig": { "thinkingLevel": "medium" } } },
+            { "id": "high", "settings": { "thinkingConfig": { "thinkingLevel": "high" } } }
           ]
         }
       }
