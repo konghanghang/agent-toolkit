@@ -94,6 +94,16 @@
         "apiKey": "{env:NEWAPI_GEMINI_API_KEY}"
       },
       "models": {
+        "gemini-4-argon": {
+          "name": "Gemini 4 Argon",
+          "limit": { "context": 1048576, "output": 65536 },
+          "capabilities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": [
+            { "id": "low", "settings": { "reasoningEffort": "low" } },
+            { "id": "medium", "settings": { "reasoningEffort": "medium" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } }
+          ]
+        },
         "gemini-3.8-flash": {
           "name": "Gemini 3.8 Flash",
           "limit": { "context": 1048576, "output": 65536 },
