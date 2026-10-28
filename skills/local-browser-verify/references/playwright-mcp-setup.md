@@ -17,7 +17,7 @@
 Playwright MCP 的 STDIO Server 启动命令是：
 
 ```bash
-npx -y @playwright/mcp@latest \
+npx -y @playwright/mcp@0.0.83 \
   --user-data-dir "$HOME/.local/share/playwright-profile"
 ```
 
@@ -25,7 +25,7 @@ npx -y @playwright/mcp@latest \
 
 本机约定统一使用 `~/.local/share/playwright-profile` 持久化登录态。宿主直接传递 MCP 参数而不经过 shell 时，配置中必须使用该路径解析后的绝对值，不能写字面量 `~`；不要同时使用 `--isolated`。该 profile 可被不同 Codex Home 依次复用，但不要让多个浏览器实例并发占用。
 
-如果团队要求可复现版本，先让用户确认具体版本，再将 `@latest` 替换为该版本；不要擅自固定或升级。
+本机标准版本是 `@playwright/mcp@0.0.83`。新配置使用这个版本，不要改回 `@latest`，也不要自行升级。用户明确要求更换版本时再改。
 
 ## Codex 示例
 
@@ -42,7 +42,7 @@ codex mcp list
 用户明确同意后配置：
 
 ```bash
-codex mcp add playwright -- npx -y @playwright/mcp@latest \
+codex mcp add playwright -- npx -y @playwright/mcp@0.0.83 \
   --user-data-dir "$HOME/.local/share/playwright-profile"
 ```
 

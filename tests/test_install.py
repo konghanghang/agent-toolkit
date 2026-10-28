@@ -151,6 +151,7 @@ class InstallTest(unittest.TestCase):
                 f'"--user-data-dir", {json.dumps(str(profile_path))}',
                 content,
             )
+            self.assertIn('"@playwright/mcp@0.0.83"', content)
             self.assertIn('default_tools_approval_mode = "approve"', content)
             self.assertIn(
                 'disabled_tools = ["browser_run_code_unsafe"]',
