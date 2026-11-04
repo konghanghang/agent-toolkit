@@ -126,3 +126,7 @@ python3 ~/.agent-toolkit/scripts/install.py
 | [工作流行为评估](evals/workflow/README.md) | 离线样例准备、真实模型任务执行与证据边界 |
 
 维护仓库前阅读 [AGENTS.md](AGENTS.md)，提交前按 [验证与提交检查](docs/maintenance.md#验证与提交检查)核对影响范围。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。外部 Skills 及第三方组件遵循各自的许可证。
