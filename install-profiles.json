@@ -31,5 +31,9 @@
   "instructions": {
     "general.md": "general",
     "work.md": "work"
+  },
+  "claude_settings": {
+    "settings.json": "general",
+    "settings.work.json": "work"
   }
 }

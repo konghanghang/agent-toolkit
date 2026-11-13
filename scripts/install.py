@@ -51,12 +51,9 @@ CCLINE_SOURCE = TOOLKIT_ROOT / "claude" / "ccline"
 CCLINE_HOME = CLAUDE_HOME / "ccline"
 CCLINE_VERSION = "2.0.1"
 CCLINE_INSTALL_COMMAND = f"npm install -g @cometix/ccline@{CCLINE_VERSION}"
-CCLINE_COMMAND = "~/.claude/ccline/ccline"
-# Only these keys are managed; every other Claude Code setting stays untouched.
-CCLINE_STATUS_LINE_SETTINGS = {
-    "statusLine": {"type": "command", "command": CCLINE_COMMAND, "padding": 0},
-    "subagentStatusLine": {"type": "command", "command": CCLINE_COMMAND},
-}
+# Keys from claude/settings*.json that point at the ccline binary.
+CCLINE_STATUS_LINE_KEYS = ("statusLine", "subagentStatusLine")
+CLAUDE_SETTINGS_SOURCE = TOOLKIT_ROOT / "claude"
 DEFAULT_CODEX_HOME = Path.home() / ".codex"
 OPENCODE_SOURCE = TOOLKIT_ROOT / "opencode"
 OPENCODE_AGENTS_SOURCE = OPENCODE_SOURCE / "agents"
@@ -213,6 +210,7 @@ def read_profile_manifest() -> dict:
             ("skills", set(available_skills())),
             ("rules", {p.name for p in CODEX_RULES_SOURCE.glob("*.rules")}),
             ("instructions", {p.name for p in INSTRUCTIONS_SOURCE.glob("*.md")}),
+            ("claude_settings", {p.name for p in CLAUDE_SETTINGS_SOURCE.glob("settings*.json")}),
         ):
             entries = data.get(section)
             if not isinstance(entries, dict) or any(
@@ -525,17 +523,23 @@ def installs_codex_instructions(args: argparse.Namespace) -> bool:
     )
 
 
-def selected_instructions(profile: str, categories: dict[str, str]) -> tuple[Path, ...]:
-    """General instructions come first; work extends them and never replaces them."""
+def selected_profile_files(
+    profile: str, categories: dict[str, str], root: Path, label: str
+) -> tuple[Path, ...]:
+    """General files come first; work files extend them and never replace them."""
     names = sorted(
         (name for name, category in categories.items()
          if profile == "work" or category == "general"),
         key=lambda name: (categories[name] != "general", name),
     )
-    missing = [name for name in names if not (INSTRUCTIONS_SOURCE / name).is_file()]
+    missing = [name for name in names if not (root / name).is_file()]
     if missing:
-        raise SystemExit(f"Codex instructions do not exist: {', '.join(missing)}")
-    return tuple(INSTRUCTIONS_SOURCE / name for name in names)
+        raise SystemExit(f"{label} do not exist: {', '.join(missing)}")
+    return tuple(root / name for name in names)
+
+
+def selected_instructions(profile: str, categories: dict[str, str]) -> tuple[Path, ...]:
+    return selected_profile_files(profile, categories, INSTRUCTIONS_SOURCE, "Codex instructions")
 
 
 def installs_codex_playwright_config(args: argparse.Namespace) -> bool:
@@ -705,10 +709,14 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
         )
         specs.append(
             InstallSpec(
-                CCLINE_SOURCE,
+                CLAUDE_SETTINGS_SOURCE,
                 CLAUDE_SETTINGS,
-                "Claude Code status line",
+                "Claude Code settings",
                 JSON_SETTINGS_MERGE_STRATEGY,
+                selected_profile_files(
+                    profile, categories["claude_settings"], CLAUDE_SETTINGS_SOURCE,
+                    "Claude Code settings fragments",
+                ),
             )
         )
 
@@ -1291,20 +1299,67 @@ def ccline_version(binary: Path) -> Optional[str]:
     return match.group(1) if match else None
 
 
+class SettingsMergeError(RuntimeError):
+    pass
+
+
+def load_settings_fragment(sources: tuple[Path, ...]) -> dict:
+    fragment: dict = {}
+    for source in sources:
+        data = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise SettingsMergeError(f"{source.name} must contain a JSON object")
+        conflicts: list[str] = []
+        merge_settings(fragment, data, [], conflicts)
+        if conflicts:
+            raise SettingsMergeError(f"{source.name} contradicts earlier fragments: {', '.join(conflicts)}")
+    return fragment
+
+
+def merge_settings(
+    target: dict, fragment: dict, added: list[str], conflicts: list[str], prefix: str = ""
+) -> None:
+    """Add fragment entries to target in place: lists gain missing items, objects
+    recurse, other values are added only when absent and otherwise must match."""
+    for key, value in fragment.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if key not in target:
+            target[key] = json.loads(json.dumps(value))
+            added.append(path)
+        elif isinstance(target[key], dict) and isinstance(value, dict):
+            merge_settings(target[key], value, added, conflicts, path)
+        elif isinstance(target[key], list) and isinstance(value, list):
+            missing = [item for item in value if item not in target[key]]
+            if missing:
+                target[key].extend(missing)
+                added.append(f"{path} +{len(missing)}")
+        elif target[key] != value:
+            conflicts.append(path)
+
+
 def install_json_settings_merge(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     target = spec.target
-    if is_windows():
-        # The ccline command path has not been verified on Windows yet.
-        return f"SKIP     {spec.label}: not managed on Windows; configure statusLine manually", True
+    names = " + ".join(source.name for source in spec.sources)
+    try:
+        fragment = load_settings_fragment(spec.sources)
+    except (OSError, UnicodeError, ValueError, SettingsMergeError) as error:
+        return f"CONFLICT {spec.label}: invalid fragment {names} ({error})", False
+
+    notes = []
     binary = ccline_binary()
-    if not binary.is_file():
-        # A status line pointing at a missing binary would only show errors.
-        return (
-            f"SKIP     {spec.label}: {binary} not found; run `{CCLINE_INSTALL_COMMAND}`, then reinstall",
-            True,
+    if is_windows() or not binary.is_file():
+        # A status line pointing at a missing (or unverified) binary only shows errors.
+        for key in CCLINE_STATUS_LINE_KEYS:
+            fragment.pop(key, None)
+        notes.append(
+            "status line not managed on Windows" if is_windows()
+            else f"status line skipped: {binary} not found; run `{CCLINE_INSTALL_COMMAND}`, then reinstall"
         )
-    version = ccline_version(binary)
-    note = "" if version == CCLINE_VERSION else f" (NOTE: ccline {version or 'unknown'} != pinned {CCLINE_VERSION})"
+    else:
+        version = ccline_version(binary)
+        if version != CCLINE_VERSION:
+            notes.append(f"ccline {version or 'unknown'} != pinned {CCLINE_VERSION}")
+    note = f" (NOTE: {'; '.join(notes)})" if notes else ""
 
     if os.path.lexists(target) and (target.is_symlink() or not target.is_file()):
         return f"CONFLICT {spec.label}: {target} is not a regular file", False
@@ -1315,27 +1370,23 @@ def install_json_settings_merge(spec: InstallSpec, args: argparse.Namespace) -> 
     if not isinstance(existing, dict):
         return f"CONFLICT {spec.label}: {target} must contain a JSON object", False
 
-    conflicts = [
-        key for key, value in CCLINE_STATUS_LINE_SETTINGS.items()
-        if key in existing and existing[key] != value
-    ]
+    merged = json.loads(json.dumps(existing))
+    added: list[str] = []
+    conflicts: list[str] = []
+    merge_settings(merged, fragment, added, conflicts)
     if conflicts:
         return (
-            f"CONFLICT {spec.label}: {target} already sets {', '.join(conflicts)} to a different value",
+            f"CONFLICT {spec.label}: {target} already sets {', '.join(conflicts)} "
+            "to a different value; nothing was written",
             False,
         )
-    missing = [key for key in CCLINE_STATUS_LINE_SETTINGS if key not in existing]
-    if not missing:
-        return f"OK       {spec.label}: {target} already uses ccline{note}", True
+    if not added:
+        return f"OK       {spec.label}: {target} contains {names}{note}", True
 
     action = "UPDATE " if target.exists() else "CREATE "
-    message = f"{action} {spec.label}: add {', '.join(missing)} to {target}{note}"
+    message = f"{action} {spec.label}: add {', '.join(added)} from {names} to {target}{note}"
     if args.dry_run:
         return message, True
-
-    merged = dict(existing)
-    for key in missing:
-        merged[key] = CCLINE_STATUS_LINE_SETTINGS[key]
     try:
         atomic_write_text(target, json.dumps(merged, indent=2, ensure_ascii=False) + "\n")
     except OSError as error:

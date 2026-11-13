@@ -197,20 +197,23 @@ Claude Code Agents：
   → ~/.agent-toolkit/claude/agents
 ```
 
-目录内的 `hooks/bash_guard.py` 随链接一起安装，供各角色的 `PreToolUse` hook 调用，限制只读角色和执行角色的 Bash 范围，见 [维护指南](maintenance.md#功能一致性)。官方文档未说明 Agent 目录链接的加载行为，安装后需在新会话中用 `/agents` 确认；目标已是真实目录或未知链接时拒绝覆盖。
+目录内的 `hooks/bash_guard.py` 随链接一起安装，供各角色的 `PreToolUse` hook 调用，限制只读角色和执行角色的 Bash 范围，见 [维护指南](maintenance.md#功能一致性)。官方文档未说明 Agent 目录链接的加载行为，本机 2.1.323 已验证可以加载；当前版本已移除 `/agents` 向导，可在新会话中让 Claude 列出可用子 Agent 来确认；目标已是真实目录或未知链接时拒绝覆盖。
 
-Claude Code 状态栏（ccline）：
+Claude Code 设置与状态栏（ccline）：
 
 ```text
+~/.agent-toolkit/claude/settings.json               # general：只读 Git 权限、敏感文件与 Git 写出拒绝规则、ccline 状态栏
+~/.agent-toolkit/claude/settings.work.json          # work：工作工具的权限
+  --按键合并--> ~/.claude/settings.json
 ~/.claude/ccline/config.toml
   → ~/.agent-toolkit/claude/ccline/config.toml      # Windows 为受管副本
-~/.claude/settings.json
-  --按键合并--> statusLine、subagentStatusLine → ~/.claude/ccline/ccline
 ```
+
+`settings.json` 由 Claude Code 自身持续写入，且含本机路径、主题、插件等个人状态，因此仓库只保存通用片段并按键合并，不链接或替换整个文件。片段分类登记在 `install-profiles.json` 的 `claude_settings`：general 只合并 `settings.json`，work 依次合并两个片段。带本机路径的规则和个人选择留在本机文件中。
 
 ccline 二进制不由安装器下载，仓库固定版本为 `2.0.1`。新机器先执行 `npm install -g @cometix/ccline@2.0.1`，npm 安装脚本会把二进制放到 `~/.claude/ccline/ccline`，再运行安装器。配置使用 `glyphs = "nerd"`，终端需要 Nerd Font，否则图标显示为 `?`；macOS 可用 `brew install --cask font-jetbrains-mono-nerd-font`，再在终端设置中选择 JetBrainsMono Nerd Font（VS Code 内置终端设置 `terminal.integrated.fontFamily`）。
 
-安装器只管理 `settings.json` 中的 `statusLine` 和 `subagentStatusLine`：缺少时添加，值一致时跳过，已设为其他值时报告冲突，不覆盖；其他设置原样保留。文件必须是合法 JSON 对象，链接或解析失败时拒绝写入；写入使用原子替换并保留原权限。二进制不存在时跳过这两个键，避免状态栏指向不存在的程序；已安装版本与固定版本不同时只提示。Windows 尚未验证 ccline 命令路径，安装器不写这两个键，需手动配置。`models.toml` 使用 ccline 默认值，`state/` 是运行缓存，`themes/` 为 v1 遗留，均不纳入仓库。
+合并规则：列表（如 `permissions.allow`、`deny`）只追加缺少的条目，保留本机已有条目及顺序；对象逐层合并；其他值缺少时添加、一致时跳过，不同则报告冲突且整个文件不写入；片段之外的键原样保留。从片段删除的条目不会自动从本机移除，需要时手动删除。文件必须是合法 JSON 对象，链接或解析失败时拒绝写入；写入使用原子替换并保留原权限。ccline 二进制不存在时跳过 `statusLine` 和 `subagentStatusLine`，避免状态栏指向不存在的程序，其余设置照常合并；已安装版本与固定版本不同时只提示。Windows 尚未验证 ccline 命令路径，不写这两个键，需手动配置。`models.toml` 使用 ccline 默认值，`state/` 是运行缓存，`themes/` 为 v1 遗留，均不纳入仓库。
 
 Codex Agents 使用目录链接，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。macOS/Linux 使用软链接，Windows 使用 directory junction。目标 `agents/` 已经是真实目录或未知目录链接时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
 
