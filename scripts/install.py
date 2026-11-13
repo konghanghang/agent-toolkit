@@ -1303,6 +1303,11 @@ class SettingsMergeError(RuntimeError):
     pass
 
 
+def is_settings_defaults(source: Path) -> bool:
+    """`*.defaults.json` fragments only fill keys the machine has not set yet."""
+    return source.name.endswith(".defaults.json")
+
+
 def load_settings_fragment(sources: tuple[Path, ...]) -> dict:
     fragment: dict = {}
     for source in sources:
@@ -1316,18 +1321,37 @@ def load_settings_fragment(sources: tuple[Path, ...]) -> dict:
     return fragment
 
 
+def load_settings_fragments(sources: tuple[Path, ...]) -> tuple[dict, dict]:
+    """Return (required, defaults); defaults may not contradict required values."""
+    required = load_settings_fragment(tuple(s for s in sources if not is_settings_defaults(s)))
+    defaults = load_settings_fragment(tuple(s for s in sources if is_settings_defaults(s)))
+    conflicts: list[str] = []
+    merge_settings(json.loads(json.dumps(required)), defaults, [], conflicts)
+    if conflicts:
+        raise SettingsMergeError(f"defaults contradict required fragments: {', '.join(conflicts)}")
+    return required, defaults
+
+
 def merge_settings(
-    target: dict, fragment: dict, added: list[str], conflicts: list[str], prefix: str = ""
+    target: dict,
+    fragment: dict,
+    added: list[str],
+    conflicts: list[str],
+    prefix: str = "",
+    fill_only: bool = False,
 ) -> None:
     """Add fragment entries to target in place: lists gain missing items, objects
-    recurse, other values are added only when absent and otherwise must match."""
+    recurse, other values are added only when absent and otherwise must match.
+    With fill_only, existing values (including lists) are kept and never conflict."""
     for key, value in fragment.items():
         path = f"{prefix}.{key}" if prefix else key
         if key not in target:
             target[key] = json.loads(json.dumps(value))
             added.append(path)
         elif isinstance(target[key], dict) and isinstance(value, dict):
-            merge_settings(target[key], value, added, conflicts, path)
+            merge_settings(target[key], value, added, conflicts, path, fill_only)
+        elif fill_only:
+            continue
         elif isinstance(target[key], list) and isinstance(value, list):
             missing = [item for item in value if item not in target[key]]
             if missing:
@@ -1341,7 +1365,7 @@ def install_json_settings_merge(spec: InstallSpec, args: argparse.Namespace) -> 
     target = spec.target
     names = " + ".join(source.name for source in spec.sources)
     try:
-        fragment = load_settings_fragment(spec.sources)
+        fragment, defaults = load_settings_fragments(spec.sources)
     except (OSError, UnicodeError, ValueError, SettingsMergeError) as error:
         return f"CONFLICT {spec.label}: invalid fragment {names} ({error})", False
 
@@ -1380,6 +1404,7 @@ def install_json_settings_merge(spec: InstallSpec, args: argparse.Namespace) -> 
             "to a different value; nothing was written",
             False,
         )
+    merge_settings(merged, defaults, added, conflicts, fill_only=True)
     if not added:
         return f"OK       {spec.label}: {target} contains {names}{note}", True
 

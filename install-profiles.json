@@ -33,6 +33,7 @@
     "work.md": "work"
   },
   "claude_settings": {
+    "settings.defaults.json": "general",
     "settings.json": "general",
     "settings.work.json": "work"
   }

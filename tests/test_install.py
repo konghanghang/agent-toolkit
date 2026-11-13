@@ -1214,8 +1214,8 @@ class ClaudeSettingsInstallTest(unittest.TestCase):
 
     def test_profiles_select_fragments(self):
         for profile, expected in (
-            ("general", ["settings.json"]),
-            ("work", ["settings.json", "settings.work.json"]),
+            ("general", ["settings.defaults.json", "settings.json"]),
+            ("work", ["settings.defaults.json", "settings.json", "settings.work.json"]),
         ):
             with self.subTest(profile=profile):
                 specs = install.plan_installs(install.parse_args(["--profile", profile, "--claude-only"]))
@@ -1230,6 +1230,47 @@ class ClaudeSettingsInstallTest(unittest.TestCase):
         self.assertFalse(set(install.CCLINE_STATUS_LINE_KEYS) & set(merged))
         self.assertEqual(self.general_fragment["permissions"]["allow"], merged["permissions"]["allow"])
         self.assertEqual(0o600, self.settings.stat().st_mode & 0o777)
+
+    def test_defaults_fill_only_missing_keys(self):
+        self.install_binary()
+        root = install.CLAUDE_SETTINGS_SOURCE
+        defaults = json.loads((root / "settings.defaults.json").read_text(encoding="utf-8"))
+        spec = self.make_spec(root / "settings.defaults.json", root / "settings.json")
+        local_attribution = {"commit": "local"}
+        self.settings.write_text(
+            json.dumps({"theme": "dark", "effortLevel": "low", "attribution": local_attribution}),
+            encoding="utf-8",
+        )
+        message, success = self.run_spec(spec)
+        self.assertTrue(success, message)
+        merged = self.read()
+        self.assertEqual("dark", merged["theme"])
+        self.assertEqual("low", merged["effortLevel"])
+        self.assertEqual("local", merged["attribution"]["commit"])
+        self.assertEqual(defaults["attribution"]["pr"], merged["attribution"]["pr"])
+        for key in set(defaults) - {"theme", "effortLevel", "attribution"}:
+            self.assertEqual(defaults[key], merged[key], key)
+        self.assertTrue(set(self.general_fragment["permissions"]["allow"]) <= set(merged["permissions"]["allow"]))
+        message, success = self.run_spec(spec)
+        self.assertTrue(success)
+        self.assertIn("OK", message)
+
+    def test_defaults_fill_empty_settings(self):
+        root = install.CLAUDE_SETTINGS_SOURCE
+        defaults = json.loads((root / "settings.defaults.json").read_text(encoding="utf-8"))
+        message, success = self.run_spec(self.make_spec(root / "settings.defaults.json"))
+        self.assertTrue(success, message)
+        self.assertEqual(defaults, self.read())
+
+    def test_defaults_contradicting_required_are_rejected(self):
+        required = self.home / "fragment.json"
+        defaults = self.home / "fragment.defaults.json"
+        required.write_text(json.dumps({"theme": "dark"}), encoding="utf-8")
+        defaults.write_text(json.dumps({"theme": "light"}), encoding="utf-8")
+        message, success = self.run_spec(self.make_spec(defaults, required))
+        self.assertFalse(success)
+        self.assertIn("defaults contradict", message)
+        self.assertFalse(self.settings.exists())
 
     def test_conflicting_value_writes_nothing(self):
         self.install_binary()

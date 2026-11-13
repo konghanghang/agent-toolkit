@@ -126,7 +126,7 @@ Rules 的 `allow` 只处理命令越过沙箱的权限，不替代 Skill、`AGEN
 
 - 在 `install-profiles.json` 的 `skills` 中登记 `general` 或 `work`，并同步 [README 分类索引](../README.md#能力索引)。通用/个人项目能力归 general，内部服务、工作凭证、工作流程专用能力归 work；通用 Skill 对工作场景的可选说明不构成工作运行时依赖。
 - 未登记分类或分类值无效时，安装器拒绝继续。外部 Skill 也必须登记；暂未还原的已登记外部 Skill 可以缺席。
-- 新 Rule 同样登记到清单的 `rules`；`claude/settings*.json` 片段登记到 `claude_settings`，片段只放通用、不含本机路径的设置，工作工具放 `settings.work.json`；`instructions/` 下的协作规则登记到 `instructions`，general 规则不得依赖工作环境，work 规则只写追加在通用规则之后的工作扩展。当前 Agent 目录、OpenCode 配置和 Playwright 配置为通用共享组件；工作专属 Agent/MCP 不能直接加入共享目录或模板，须先扩展安装器隔离机制。
+- 新 Rule 同样登记到清单的 `rules`；`claude/settings*.json` 片段登记到 `claude_settings`，片段只放通用、不含本机路径的设置，必须一致的值放 `settings.json`，仅作新机器初始值、允许各机器自行修改的放 `settings.defaults.json`（`*.defaults.json` 按文件名识别为仅补缺），工作工具放 `settings.work.json`；`instructions/` 下的协作规则登记到 `instructions`，general 规则不得依赖工作环境，work 规则只写追加在通用规则之后的工作扩展。当前 Agent 目录、OpenCode 配置和 Playwright 配置为通用共享组件；工作专属 Agent/MCP 不能直接加入共享目录或模板，须先扩展安装器隔离机制。
 
 1. 放入 `skills/<skill-name>/`。
 2. 同时兼容 Codex 和 Claude Code。
