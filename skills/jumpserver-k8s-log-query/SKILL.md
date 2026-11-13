@@ -141,7 +141,7 @@ jms exec --asset <已授权资产> --system-user <已授权系统用户> --comma
 | Web Terminal 断开或缺结果标记 | 按连接失败处理，不输出 `matches=0` |
 | 找不到资产或 `UNMAPPED` | 用 `jms nodes` 检查授权资产与节点映射 |
 | `MISSING_DIR` | 以 kubectl NODE 为准；该节点当前无对应目录 |
-| 拒绝非只读命令 | 改用 `ls`、`tail`、`grep`、`kubectl get/describe` |
+| 拒绝非只读命令 | 改用 `ls`、`tail`、`grep`、`zcat`、`zgrep`、`kubectl get/describe`。压缩日志用 `zcat` 或 `zgrep`，不要用会解压写文件的 `gzip -d`。命令中不能出现 `&`（含 grep 模式），awk 不能使用 `-i`、`-f`、`-E`、`-l` 等加载脚本或原地改写的参数 |
 
 环境对照与能力确认方法见 [references/cluster.md](references/cluster.md)。
 

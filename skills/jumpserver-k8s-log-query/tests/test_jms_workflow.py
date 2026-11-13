@@ -152,6 +152,16 @@ class JmsWorkflowTest(unittest.TestCase):
             )
         )
         self.assertTrue(self.ops.is_read_only_command("kubectl get pods -n test"))
+        self.assertTrue(
+            self.ops.is_read_only_command(
+                "zcat /data/logs/test/demo-api/app.log.gz | grep 13098"
+            )
+        )
+        self.assertTrue(
+            self.ops.is_read_only_command(
+                "zgrep -e 13098 /data/logs/test/demo-api/app.log.gz"
+            )
+        )
         self.assertFalse(self.ops.is_read_only_command("rm -rf /data/logs/test"))
         self.assertFalse(self.ops.is_read_only_command("kubectl delete pod x -n test"))
         self.assertFalse(self.ops.is_read_only_command("kubectl exec -it pod -- bash"))
@@ -160,6 +170,30 @@ class JmsWorkflowTest(unittest.TestCase):
         self.assertFalse(self.ops.is_read_only_command("if rm -rf /data/logs/test; then true; fi"))
         self.assertFalse(self.ops.is_read_only_command("hostname > /tmp/result"))
         self.assertFalse(self.ops.is_read_only_command("find /data/logs/test -delete"))
+        self.assertFalse(
+            self.ops.is_read_only_command("find /data/logs/test -fprint0 /tmp/out")
+        )
+        self.assertFalse(
+            self.ops.is_read_only_command(
+                "ls & python3 -c 'open(\"/tmp/x\", \"w\")'"
+            )
+        )
+        self.assertFalse(self.ops.is_read_only_command("ls /data/logs/test &"))
+        for awk_command in (
+            "awk -i inplace '{print}' /data/logs/test/app.log",
+            "awk -iinplace '{print}' /data/logs/test/app.log",
+            "awk --include=inplace '{print}' /data/logs/test/app.log",
+            "awk -f /tmp/script.awk /data/logs/test/app.log",
+            "awk --file=/tmp/script.awk /data/logs/test/app.log",
+            "awk -E /tmp/script.awk /data/logs/test/app.log",
+            "awk -l inplace '{print}' /data/logs/test/app.log",
+        ):
+            self.assertFalse(self.ops.is_read_only_command(awk_command), awk_command)
+        self.assertTrue(
+            self.ops.is_read_only_command(
+                "awk -F, -v n=3 '{print $n}' /data/logs/test/demo-api/app.log"
+            )
+        )
         self.assertFalse(self.ops.is_read_only_command("hostnamectl set-hostname changed"))
         self.assertFalse(self.ops.is_read_only_command("hostname changed"))
         self.assertFalse(self.ops.is_read_only_command("mount -o remount,rw /"))

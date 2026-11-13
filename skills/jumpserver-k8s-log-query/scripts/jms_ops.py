@@ -58,6 +58,8 @@ READ_ONLY_COMMANDS = {
     "grep",
     "egrep",
     "fgrep",
+    "zgrep",
+    "zcat",
     "wc",
     "sort",
     "awk",
@@ -89,7 +91,7 @@ FORBIDDEN_RE = re.compile(
     re.I,
 )
 UNSAFE_FIND_ACTION_RE = re.compile(
-    r"(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fls)(?:\s|$)"
+    r"(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)(?:\s|$)"
 )
 SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$")
 SENSITIVE_HEADER_RE = re.compile(
@@ -598,7 +600,7 @@ def is_read_only_command(command: str) -> bool:
         return False
     if FORBIDDEN_RE.search(stripped) or UNSAFE_FIND_ACTION_RE.search(stripped):
         return False
-    if any(token in stripped for token in ("\n", "\r", ";", "&&", "||", "`", "$(", "<", ">")):
+    if any(token in stripped for token in ("\n", "\r", ";", "&", "||", "`", "$(", "<", ">")):
         return False
     if re.search(r"\b(system|getline)\s*\(", stripped, re.I):
         return False
@@ -633,6 +635,13 @@ def is_read_only_command(command: str) -> bool:
         ):
             return False
         if executable == "awk" and re.search(r"\b(system|getline)\b|\|&", " ".join(argv[1:]), re.I):
+            return False
+        if executable == "awk" and any(
+            "inplace" in arg.lower()
+            or re.match(r"-[ifEl]", arg)
+            or re.match(r"--(?:include|file|exec|load)(?:=|$)", arg)
+            for arg in argv[1:]
+        ):
             return False
     return True
 
