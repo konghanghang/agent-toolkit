@@ -199,6 +199,19 @@ Claude Code Agents：
 
 目录内的 `hooks/bash_guard.py` 随链接一起安装，供各角色的 `PreToolUse` hook 调用，限制只读角色和执行角色的 Bash 范围，见 [维护指南](maintenance.md#功能一致性)。官方文档未说明 Agent 目录链接的加载行为，安装后需在新会话中用 `/agents` 确认；目标已是真实目录或未知链接时拒绝覆盖。
 
+Claude Code 状态栏（ccline）：
+
+```text
+~/.claude/ccline/config.toml
+  → ~/.agent-toolkit/claude/ccline/config.toml      # Windows 为受管副本
+~/.claude/settings.json
+  --按键合并--> statusLine、subagentStatusLine → ~/.claude/ccline/ccline
+```
+
+ccline 二进制不由安装器下载，仓库固定版本为 `2.0.1`。新机器先执行 `npm install -g @cometix/ccline@2.0.1`，npm 安装脚本会把二进制放到 `~/.claude/ccline/ccline`，再运行安装器。配置使用 `glyphs = "nerd"`，终端需要 Nerd Font，否则图标显示为 `?`；macOS 可用 `brew install --cask font-jetbrains-mono-nerd-font`，再在终端设置中选择 JetBrainsMono Nerd Font（VS Code 内置终端设置 `terminal.integrated.fontFamily`）。
+
+安装器只管理 `settings.json` 中的 `statusLine` 和 `subagentStatusLine`：缺少时添加，值一致时跳过，已设为其他值时报告冲突，不覆盖；其他设置原样保留。文件必须是合法 JSON 对象，链接或解析失败时拒绝写入；写入使用原子替换并保留原权限。二进制不存在时跳过这两个键，避免状态栏指向不存在的程序；已安装版本与固定版本不同时只提示。Windows 尚未验证 ccline 命令路径，安装器不写这两个键，需手动配置。`models.toml` 使用 ccline 默认值，`state/` 是运行缓存，`themes/` 为 v1 遗留，均不纳入仓库。
+
 Codex Agents 使用目录链接，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。macOS/Linux 使用软链接，Windows 使用 directory junction。目标 `agents/` 已经是真实目录或未知目录链接时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
 
 OpenCode：
@@ -362,5 +375,6 @@ Claude Code 存在 `CLAUDE.md` 时不再读取同目录的 `AGENTS.md`，因此�
 - Node.js（含 `npm` / `npx`）：运行 `local-browser-verify` 所需的 Playwright MCP、首次安装 PicGo Core 与 `web-uploader` 插件，以及维护 `ui-ux-pro-max` 外部 Skill；已有 PicGo 配置的日常上传不需要启动 Node.js 或 PicGo。
 - Playwright MCP：`local-browser-verify` 的浏览器驱动；Codex 安装会写入标准 MCP 配置，首次启动时 `npx` 可能联网下载 npm 包。其他 Agent 仍由 Skill 在运行时检查，缺失时先提示并等待用户授权。
 - PicGo Core 与 `web-uploader` 插件：仅在首次生成或重建 EasyImage 上传配置时需要；上传脚本日常只读取已生成的配置文件。
+- ccline 与 Nerd Font：Claude Code 状态栏；未安装时安装器跳过状态栏设置，见 [安装结果](#安装结果与配置保护)。
 - Hugo：`capture-iminling-draft` 的草稿构建验证。
 - `rsvg-convert`（librsvg）：`upload-to-easyimage --convert-svg`；不转换 SVG 时不需要。

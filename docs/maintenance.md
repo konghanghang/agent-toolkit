@@ -10,7 +10,7 @@
 | `instructions/` | 各 Agent 共用的全局协作规则源文件，由安装器生成到各平台入口 |
 | `codex/` | Codex custom Agents、MCP 模板与全局 Rules |
 | `opencode/` | OpenCode 配置与 custom Agents；网关和密钥使用 `{env:NAME}` 引用 |
-| `claude/` | Claude Code custom Agents 及其 Bash 守卫 hook |
+| `claude/` | Claude Code custom Agents、Bash 守卫 hook 与 ccline 状态栏配置 |
 | `common/` | 工作公共运行时、入口脚本和命令模板，不作为 Skill 安装 |
 | `scripts/` | 工具箱安装、校验和维护脚本 |
 | `tests/` | 工具箱回归测试 |
@@ -173,6 +173,8 @@ python3 ~/.agent-toolkit/scripts/install.py --rules-only
 Windows 的配置副本更新命令见 [Windows 指南](windows.md#更新)。
 
 Agent 或 Rule 更新后，新开会话或重启客户端使其生效。
+
+ccline 配置在 macOS/Linux 是指向 `claude/ccline/config.toml` 的链接，直接编辑或用 `~/.claude/ccline/ccline -c` 调整后检查仓库差异并提交。若保存后链接被替换为普通文件，重新安装会报告冲突；把改动复制回仓库后删除本机文件再安装。升级 ccline 时同时修改 `scripts/install.py` 的 `CCLINE_VERSION` 和安装文档中的版本，执行对应版本的 `npm install -g`，并用 `ccline preview` 确认现有配置仍能解析。
 
 ## 外部 Skill 更新
 

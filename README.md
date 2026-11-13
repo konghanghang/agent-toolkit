@@ -88,7 +88,7 @@ SLS 路由、TAPD 周报工作区和成员通过 [工作环境私有配置](docs
 
 Codex、OpenCode 与 Claude Code 配套维护五类通用 Agent：`evidence_explorer`、`reviewer`、`implementer`、`verifier` 和 `design_challenger`。职责与权限差异见 [维护指南](docs/maintenance.md#通用-agents)。
 
-通用组包含这些 Agents、OpenCode 配置、Codex Playwright MCP 配置、通用协作规则 `instructions/general.md`，以及 `git-commit.rules`、`github-readonly.rules`。工作组额外包含 `work-readonly.rules`、`gitlab-pipeline.rules`，安装到 `--codex-home` 指定的工作专用 Codex Home 时在通用协作规则后追加 `instructions/work.md`，并按所选 Skills 创建私有配置模板。协作规则生成到 Codex Home 的 `AGENTS.md` 和 `~/.claude/CLAUDE.md`，默认 Home 只含通用规则，见 [安装结果](docs/installation.md#安装结果与配置保护)。平台和组件仍可通过安装参数筛选；Claude-only 不写 Codex 配置。
+通用组包含这些 Agents、OpenCode 配置、Codex Playwright MCP 配置、Claude Code 的 ccline 状态栏配置（二进制需先用 npm 安装，见 [安装结果](docs/installation.md#安装结果与配置保护)）、通用协作规则 `instructions/general.md`，以及 `git-commit.rules`、`github-readonly.rules`。工作组额外包含 `work-readonly.rules`、`gitlab-pipeline.rules`，安装到 `--codex-home` 指定的工作专用 Codex Home 时在通用协作规则后追加 `instructions/work.md`，并按所选 Skills 创建私有配置模板。协作规则生成到 Codex Home 的 `AGENTS.md` 和 `~/.claude/CLAUDE.md`，默认 Home 只含通用规则，见 [安装结果](docs/installation.md#安装结果与配置保护)。平台和组件仍可通过安装参数筛选；Claude-only 不写 Codex 配置。
 
 OpenCode 的 Gemini 使用 Google 原生 provider，通过 NewAPI 的 `/v1beta` 接入；本机变量、模型档位与服务重启步骤见 [OpenCode 使用说明](docs/opencode.md)。
 

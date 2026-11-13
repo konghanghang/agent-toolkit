@@ -1141,6 +1141,130 @@ class InstructionsInstallTest(unittest.TestCase):
         self.assertTrue(spec.target.is_symlink())
 
 
+@unittest.skipIf(os.name == "nt", "status line settings are not managed on Windows")
+class CclineInstallTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name) / ".claude"
+        self.ccline_home = self.home / "ccline"
+        self.ccline_home.mkdir(parents=True)
+        self.settings = self.home / "settings.json"
+        patcher = mock.patch.multiple(
+            install, CLAUDE_HOME=self.home, CCLINE_HOME=self.ccline_home, CLAUDE_SETTINGS=self.settings
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.spec = install.InstallSpec(
+            install.CCLINE_SOURCE, self.settings, "Claude Code status line",
+            install.JSON_SETTINGS_MERGE_STRATEGY,
+        )
+
+    def install_binary(self, version: str = install.CCLINE_VERSION) -> None:
+        binary = self.ccline_home / "ccline"
+        binary.write_text(f"#!/bin/sh\necho 'ccline {version}'\n", encoding="utf-8")
+        binary.chmod(0o755)
+
+    def run_spec(self, *extra: str):
+        return install.install_spec(self.spec, install.parse_args(["--profile", "general", *extra]))
+
+    def test_missing_binary_skips_without_writing(self):
+        message, success = self.run_spec()
+        self.assertTrue(success)
+        self.assertIn("SKIP", message)
+        self.assertIn(install.CCLINE_INSTALL_COMMAND, message)
+        self.assertFalse(self.settings.exists())
+
+    def test_adds_status_lines_and_preserves_other_settings(self):
+        self.install_binary()
+        original = {"$schema": "x", "permissions": {"allow": ["Bash(git status:*)"]}, "theme": "dark"}
+        self.settings.write_text(json.dumps(original), encoding="utf-8")
+        self.settings.chmod(0o644)
+        message, success = self.run_spec()
+        self.assertTrue(success, message)
+        self.assertIn("UPDATE", message)
+        merged = json.loads(self.settings.read_text(encoding="utf-8"))
+        self.assertEqual({**original, **install.CCLINE_STATUS_LINE_SETTINGS}, merged)
+        self.assertEqual(0o644, self.settings.stat().st_mode & 0o777)
+        message, success = self.run_spec()
+        self.assertTrue(success)
+        self.assertIn("OK", message)
+
+    def test_creates_private_settings_when_missing(self):
+        self.install_binary()
+        message, success = self.run_spec()
+        self.assertTrue(success, message)
+        self.assertIn("CREATE", message)
+        self.assertEqual(install.CCLINE_STATUS_LINE_SETTINGS, json.loads(self.settings.read_text()))
+        self.assertEqual(0o600, self.settings.stat().st_mode & 0o777)
+
+    def test_different_status_line_is_a_conflict(self):
+        self.install_binary()
+        original = json.dumps({"statusLine": {"type": "command", "command": "other"}})
+        self.settings.write_text(original, encoding="utf-8")
+        message, success = self.run_spec()
+        self.assertFalse(success)
+        self.assertIn("statusLine", message)
+        self.assertEqual(original, self.settings.read_text(encoding="utf-8"))
+
+    def test_invalid_json_or_non_object_is_a_conflict(self):
+        self.install_binary()
+        for content in ('{"theme": "dark",}', "[]"):
+            with self.subTest(content=content):
+                self.settings.write_text(content, encoding="utf-8")
+                message, success = self.run_spec()
+                self.assertFalse(success)
+                self.assertIn("CONFLICT", message)
+                self.assertEqual(content, self.settings.read_text(encoding="utf-8"))
+
+    def test_symlinked_settings_is_a_conflict(self):
+        self.install_binary()
+        real = self.home / "real-settings.json"
+        real.write_text("{}", encoding="utf-8")
+        self.settings.symlink_to(real)
+        message, success = self.run_spec()
+        self.assertFalse(success)
+        self.assertIn("not a regular file", message)
+        self.assertEqual("{}", real.read_text(encoding="utf-8"))
+
+    def test_dry_run_does_not_write(self):
+        self.install_binary()
+        message, success = self.run_spec("--dry-run")
+        self.assertTrue(success)
+        self.assertIn("CREATE", message)
+        self.assertFalse(self.settings.exists())
+
+    def test_version_mismatch_is_reported_but_not_fatal(self):
+        self.install_binary("1.9.0")
+        message, success = self.run_spec()
+        self.assertTrue(success, message)
+        self.assertIn("1.9.0 != pinned", message)
+
+    def test_config_is_linked_and_adoption_backs_up_under_ccline(self):
+        specs = install.plan_installs(install.parse_args(["--profile", "general", "--claude-only"]))
+        spec = next(s for s in specs if s.label == "ccline config")
+        self.assertEqual(install.CCLINE_SOURCE / "config.toml", spec.source)
+        self.assertEqual(self.ccline_home / "config.toml", spec.target)
+        self.assertEqual(install.FILE_LINK_STRATEGY, spec.strategy)
+        spec.target.write_bytes(spec.source.read_bytes())
+        backups = Path(self.home.parent) / "backups"
+        with mock.patch.dict(os.environ, {"AGENT_TOOLKIT_BACKUP_DIR": str(backups)}):
+            message, success = install.install_spec(spec, install.parse_args(["--profile", "general"]))
+        self.assertTrue(success, message)
+        self.assertIn("ADOPT", message)
+        self.assertTrue(spec.target.is_symlink())
+        self.assertEqual(1, len(list((backups / "ccline").iterdir())))
+
+    def test_ccline_components_follow_claude_scope(self):
+        labels = {"ccline config", "Claude Code status line"}
+        for mode in ([], ["--claude-only"]):
+            specs = install.plan_installs(install.parse_args(["--profile", "general", *mode]))
+            self.assertTrue(labels <= {s.label for s in specs})
+        for mode in ("--codex-only", "--opencode-only", "--rules-only"):
+            specs = install.plan_installs(install.parse_args(["--profile", "general", mode]))
+            self.assertFalse(labels & {s.label for s in specs})
+
+
 class ProfileTest(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -1183,7 +1307,10 @@ class ProfileTest(unittest.TestCase):
         args = install.parse_args(["--profile", "general", "--claude-only"])
         specs = install.plan_installs(args)
         self.assertEqual(
-            {"Claude Code skill", "Claude Code agents", "Claude Code instructions"},
+            {
+                "Claude Code skill", "Claude Code agents", "Claude Code instructions",
+                "ccline config", "Claude Code status line",
+            },
             {s.label for s in specs},
         )
         skills = {spec.source.name for spec in specs if spec.label == "Claude Code skill"}

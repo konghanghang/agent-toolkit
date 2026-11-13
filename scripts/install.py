@@ -46,6 +46,17 @@ CLAUDE_SKILLS_TARGET = CLAUDE_HOME / "skills"
 CLAUDE_AGENTS_SOURCE = TOOLKIT_ROOT / "claude" / "agents"
 CLAUDE_AGENT_GUARD = CLAUDE_AGENTS_SOURCE / "hooks" / "bash_guard.py"
 CLAUDE_AGENT_REQUIRED_KEYS = ("name", "description", "hooks")
+CLAUDE_SETTINGS = CLAUDE_HOME / "settings.json"
+CCLINE_SOURCE = TOOLKIT_ROOT / "claude" / "ccline"
+CCLINE_HOME = CLAUDE_HOME / "ccline"
+CCLINE_VERSION = "2.0.1"
+CCLINE_INSTALL_COMMAND = f"npm install -g @cometix/ccline@{CCLINE_VERSION}"
+CCLINE_COMMAND = "~/.claude/ccline/ccline"
+# Only these keys are managed; every other Claude Code setting stays untouched.
+CCLINE_STATUS_LINE_SETTINGS = {
+    "statusLine": {"type": "command", "command": CCLINE_COMMAND, "padding": 0},
+    "subagentStatusLine": {"type": "command", "command": CCLINE_COMMAND},
+}
 DEFAULT_CODEX_HOME = Path.home() / ".codex"
 OPENCODE_SOURCE = TOOLKIT_ROOT / "opencode"
 OPENCODE_AGENTS_SOURCE = OPENCODE_SOURCE / "agents"
@@ -61,6 +72,7 @@ RULE_MANAGED_MARKER = "# Managed by agent-toolkit."
 DIRECTORY_LINK_STRATEGY = "directory-link"
 COPY_STRATEGY = "copy"
 TOML_MERGE_STRATEGY = "toml-merge"
+JSON_SETTINGS_MERGE_STRATEGY = "json-settings-merge"
 INSTRUCTIONS_STRATEGY = "instructions"
 INSTRUCTIONS_MARKER_PATTERN = re.compile(
     r"^<!-- Managed by agent-toolkit\. .* sha256=([0-9a-f]{64}) -->$"
@@ -94,6 +106,7 @@ class InstallSpec:
     label: str
     strategy: str
     sources: tuple[Path, ...] = ()
+    backup_group: str = "opencode"
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -109,7 +122,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     mode.add_argument(
         "--claude-only",
         action="store_true",
-        help="Install only Claude Code skills, agents, and instructions",
+        help="Install only Claude Code skills, agents, instructions, and ccline status line",
     )
     mode.add_argument("--rules-only", action="store_true", help="Install only Codex rules")
     mode.add_argument("--agents-only", action="store_true", help="Install only Codex agents")
@@ -679,6 +692,25 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                     sources,
                 )
             )
+        if not (CCLINE_SOURCE / "config.toml").is_file():
+            raise SystemExit(f"ccline config does not exist: {CCLINE_SOURCE / 'config.toml'}")
+        specs.append(
+            InstallSpec(
+                CCLINE_SOURCE / "config.toml",
+                CCLINE_HOME / "config.toml",
+                "ccline config",
+                FILE_LINK_STRATEGY,
+                backup_group="ccline",
+            )
+        )
+        specs.append(
+            InstallSpec(
+                CCLINE_SOURCE,
+                CLAUDE_SETTINGS,
+                "Claude Code status line",
+                JSON_SETTINGS_MERGE_STRATEGY,
+            )
+        )
 
     if installs_opencode(args):
         available_opencode_agents()
@@ -702,10 +734,10 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
     return specs
 
 
-def backup_replaced_path(target: Path) -> Path:
+def backup_replaced_path(target: Path, group: str = "opencode") -> Path:
     stamp = target.name + "." + os.urandom(4).hex()
     root = Path(os.environ.get("AGENT_TOOLKIT_BACKUP_DIR", str(TOOLKIT_ROOT / ".local" / "backups")))
-    destination = root / "opencode" / stamp
+    destination = root / group / stamp
     destination.parent.mkdir(parents=True, exist_ok=True)
     os.replace(target, destination)
     return destination
@@ -759,7 +791,7 @@ def install_file_link(spec: InstallSpec, args: argparse.Namespace) -> tuple[str,
     backup = None
     if os.path.lexists(target) and not target.is_symlink():
         try:
-            backup = backup_replaced_path(target)
+            backup = backup_replaced_path(target, spec.backup_group)
         except OSError as error:
             return f"ERROR    {spec.label}: unable to preserve {target} ({error})", False
     elif os.path.lexists(target):
@@ -831,7 +863,7 @@ def install_windows_file_copy(spec: InstallSpec, args: argparse.Namespace) -> tu
     backup = None
     try:
         if os.path.lexists(target):
-            backup = backup_replaced_path(target)
+            backup = backup_replaced_path(target, spec.backup_group)
         atomic_copy(source, target)
         metadata = {
             "schema_version": 1,
@@ -1244,6 +1276,73 @@ def install_instructions(spec: InstallSpec, args: argparse.Namespace) -> tuple[s
     return message, True
 
 
+def ccline_binary() -> Path:
+    return CCLINE_HOME / ("ccline.exe" if is_windows() else "ccline")
+
+
+def ccline_version(binary: Path) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            [str(binary), "--version"], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"(\d+\.\d+\.\d+)", result.stdout)
+    return match.group(1) if match else None
+
+
+def install_json_settings_merge(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    target = spec.target
+    if is_windows():
+        # The ccline command path has not been verified on Windows yet.
+        return f"SKIP     {spec.label}: not managed on Windows; configure statusLine manually", True
+    binary = ccline_binary()
+    if not binary.is_file():
+        # A status line pointing at a missing binary would only show errors.
+        return (
+            f"SKIP     {spec.label}: {binary} not found; run `{CCLINE_INSTALL_COMMAND}`, then reinstall",
+            True,
+        )
+    version = ccline_version(binary)
+    note = "" if version == CCLINE_VERSION else f" (NOTE: ccline {version or 'unknown'} != pinned {CCLINE_VERSION})"
+
+    if os.path.lexists(target) and (target.is_symlink() or not target.is_file()):
+        return f"CONFLICT {spec.label}: {target} is not a regular file", False
+    try:
+        existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
+    except (OSError, UnicodeError, ValueError) as error:
+        return f"CONFLICT {spec.label}: {target} is not valid JSON ({error})", False
+    if not isinstance(existing, dict):
+        return f"CONFLICT {spec.label}: {target} must contain a JSON object", False
+
+    conflicts = [
+        key for key, value in CCLINE_STATUS_LINE_SETTINGS.items()
+        if key in existing and existing[key] != value
+    ]
+    if conflicts:
+        return (
+            f"CONFLICT {spec.label}: {target} already sets {', '.join(conflicts)} to a different value",
+            False,
+        )
+    missing = [key for key in CCLINE_STATUS_LINE_SETTINGS if key not in existing]
+    if not missing:
+        return f"OK       {spec.label}: {target} already uses ccline{note}", True
+
+    action = "UPDATE " if target.exists() else "CREATE "
+    message = f"{action} {spec.label}: add {', '.join(missing)} to {target}{note}"
+    if args.dry_run:
+        return message, True
+
+    merged = dict(existing)
+    for key in missing:
+        merged[key] = CCLINE_STATUS_LINE_SETTINGS[key]
+    try:
+        atomic_write_text(target, json.dumps(merged, indent=2, ensure_ascii=False) + "\n")
+    except OSError as error:
+        return f"ERROR    {spec.label}: unable to update {target} ({error})", False
+    return message, True
+
+
 def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     if spec.strategy == DIRECTORY_LINK_STRATEGY:
         return install_directory_link(spec, args)
@@ -1255,6 +1354,8 @@ def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
         return install_toml_merge(spec, args)
     if spec.strategy == INSTRUCTIONS_STRATEGY:
         return install_instructions(spec, args)
+    if spec.strategy == JSON_SETTINGS_MERGE_STRATEGY:
+        return install_json_settings_merge(spec, args)
     return f"CONFLICT {spec.label}: unknown install strategy {spec.strategy}", False
 
 
@@ -1287,6 +1388,7 @@ def main() -> int:
     if installs_claude(args):
         print(f"Claude Code agents: {CLAUDE_HOME / 'agents'}")
         print(f"Claude Code instructions: {CLAUDE_HOME / 'CLAUDE.md'}")
+        print(f"ccline config: {CCLINE_HOME / 'config.toml'} (binary {CCLINE_VERSION}: {CCLINE_INSTALL_COMMAND})")
         print()
     if installs_opencode(args):
         print(f"OpenCode home: {DEFAULT_OPENCODE_HOME}")
