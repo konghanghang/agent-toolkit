@@ -7,9 +7,10 @@
 | 目录 | 职责 |
 |---|---|
 | `skills/` | Codex、Claude Code 共用的 Skills，每个目录必须包含 `SKILL.md` |
-| `codex/` | Codex custom Agents、MCP 模板、全局 Rules 与工作协作规则源文件 |
+| `instructions/` | 各 Agent 共用的全局协作规则源文件，由安装器生成到各平台入口 |
+| `codex/` | Codex custom Agents、MCP 模板与全局 Rules |
 | `opencode/` | OpenCode 配置与 custom Agents；网关和密钥使用 `{env:NAME}` 引用 |
-| `claude/` | Claude Code 专属配置占位，没有真实配置前保持为空 |
+| `claude/` | Claude Code custom Agents 及其 Bash 守卫 hook |
 | `common/` | 工作公共运行时、入口脚本和命令模板，不作为 Skill 安装 |
 | `scripts/` | 工具箱安装、校验和维护脚本 |
 | `tests/` | 工具箱回归测试 |
@@ -56,7 +57,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 ## 通用 Agents
 
-Codex 与 OpenCode 共用以下五类职责，分别使用各平台的配置格式维护。
+Codex、OpenCode 与 Claude Code 共用以下五类职责，分别使用各平台的配置格式维护。
 
 ### 职责列表
 
@@ -68,22 +69,22 @@ Codex 与 OpenCode 共用以下五类职责，分别使用各平台的配置格�
 
 ### 功能一致性
 
-`codex/agents/<name>.toml` 与 `opencode/agents/<name>.md` 按同名成对维护，两个目录的 agent 名称集合必须一致。
+`codex/agents/<name>.toml`、`opencode/agents/<name>.md` 与 `claude/agents/<name>.md` 按同名配套维护，三个目录的 agent 名称集合必须一致，正文与描述逐字相同。
 
-新增、修改或删除任意一个 agent 时，必须在同一次改动中同步另一边，不能先改一边、把另一边留到以后。两端应完成同一种任务，保持职责、任务边界、证据要求和输出契约一致，并具备完成任务所需的读取、搜索和 Git 检查能力。模型、工具、沙箱和权限使用各自平台的字段，按实际行为核对；一边独有的步数限制或工具限制不能削弱任务能力。
+新增、修改或删除任意一个 agent 时，必须在同一次改动中同步其余两边，不能先改一边、把其他留到以后。各端应完成同一种任务，保持职责、任务边界、证据要求和输出契约一致，并具备完成任务所需的读取、搜索和 Git 检查能力。模型、工具、沙箱和权限使用各自平台的字段，按实际行为核对；一边独有的步数限制或工具限制不能削弱任务能力。
 
-| 功能契约 | Codex | OpenCode |
-|---|---|---|
-| 目录枚举、内容搜索和定点读取 | 使用父会话允许的工具 | 内置目录、grep 和 read 工具，角色不额外禁用必要读取 |
-| Git 差异、状态和历史检查 | 使用父会话允许的命令，不执行 Git 交付 | 只读角色保留 Git 检查；执行角色沿用全局默认规则并拒绝常见 Git 写命令 |
-| 探索、审查、设计质疑 | 正文约束只读，实际权限继承父会话 | 拒绝 `edit`，默认拒绝 shell，仅放行 Git 检查 |
-| 实现 | 按交接范围修改及验证，实际权限继承父会话 | 编辑和普通运行沿用全局默认规则，不额外增加通配 `allow` |
-| 运行验证 | 可生成授权产物，不修改受审源码和正式测试 | 拒绝直接 `edit`，运行沿用全局默认规则，正文保护受审实现 |
-| 分工与输出 | 不自行派生；返回范围、版本、证据和缺口 | 同一职责并拒绝 `subagent`，不另设 20 步截断 |
+| 功能契约 | Codex | OpenCode | Claude Code |
+|---|---|---|---|
+| 目录枚举、内容搜索和定点读取 | 使用父会话允许的工具 | 内置目录、grep 和 read 工具，角色不额外禁用必要读取 | 保留 Read、Grep、Glob |
+| Git 差异、状态和历史检查 | 使用父会话允许的命令，不执行 Git 交付 | 只读角色保留 Git 检查；执行角色沿用全局默认规则并拒绝常见 Git 写命令 | Bash 守卫放行 Git 检查；执行角色拒绝常见 Git 写命令 |
+| 探索、审查、设计质疑 | 正文约束只读，实际权限继承父会话 | 拒绝 `edit`，默认拒绝 shell，仅放行 Git 检查 | `tools` 仅 Read、Grep、Glob、Bash；守卫只放行 Git 检查，拒绝重定向、串联和 `--output` |
+| 实现 | 按交接范围修改及验证，实际权限继承父会话 | 编辑和普通运行沿用全局默认规则，不额外增加通配 `allow` | 工具与权限继承父会话，仅移除 Agent；守卫拒绝 Git 交付 |
+| 运行验证 | 可生成授权产物，不修改受审源码和正式测试 | 拒绝直接 `edit`，运行沿用全局默认规则，正文保护受审实现 | 移除 Agent、Edit、Write、NotebookEdit；运行沿用父会话，守卫拒绝 Git 交付 |
+| 分工与输出 | 不自行派生；返回范围、版本、证据和缺口 | 同一职责并拒绝 `subagent`，不另设 20 步截断 | 同一职责并移除 Agent 工具，不设 `maxTurns` |
 
-Codex 现行官方契约规定自定义角色继承父会话的沙箱、审批、provider 和 MCP，角色文件中的 `sandbox_mode` 不覆盖父配置。本机 0.163.0 尚未逐字段实测，故只读角色保留旧 `sandbox_mode = "read-only"` 标记用于兼容，但不将其视为已生效的独立沙箱证据。需要系统级只读保证时，应在父会话选择相应权限，不能把角色正文当成独立隔离。OpenCode V2 子角色使用自身权限，不是父角色权限的子集；全局规则后追加角色规则，按最后匹配生效，agent 规则可覆盖 global 规则；新执行角色不添加 `edit` 或 `shell` 的通配允许。即便 `edit` 被拒绝，允许的 shell 仍可能间接写文件，常见 Git 命令拒绝也不是任意程序的行为证明。功能验收应按角色核对读取、搜索、运行、直接工具限制和范围遵守情况，并分别说明配置、原生加载、模型行为与系统隔离的覆盖。依据：[Codex Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)、[OpenCode V2 Agents](https://opencode.ai/v2/docs/agents)、[OpenCode V2 Permissions](https://opencode.ai/v2/docs/permissions)。
+Codex 现行官方契约规定自定义角色继承父会话的沙箱、审批、provider 和 MCP，角色文件中的 `sandbox_mode` 不覆盖父配置。本机 0.163.0 尚未逐字段实测，故只读角色保留旧 `sandbox_mode = "read-only"` 标记用于兼容，但不将其视为已生效的独立沙箱证据。需要系统级只读保证时，应在父会话选择相应权限，不能把角色正文当成独立隔离。OpenCode V2 子角色使用自身权限，不是父角色权限的子集；全局规则后追加角色规则，按最后匹配生效，agent 规则可覆盖 global 规则；新执行角色不添加 `edit` 或 `shell` 的通配允许。即便 `edit` 被拒绝，允许的 shell 仍可能间接写文件，常见 Git 命令拒绝也不是任意程序的行为证明。功能验收应按角色核对读取、搜索、运行、直接工具限制和范围遵守情况，并分别说明配置、原生加载、模型行为与系统隔离的覆盖。Claude Code 的 `tools`/`disallowedTools` 只能整体启用或移除 Bash，权限规则只匹配命令文本、官方说明其不是安全边界，父会话处于 auto 或 bypass 时还会忽略角色的 `permissionMode`；因此角色以 frontmatter 中的 `PreToolUse` hook 运行 `claude/agents/hooks/bash_guard.py`，退出码 2 拒绝命令，hook 自身失败时 `|| exit 2` 同样拒绝。守卫按命令文本判断，`bash -c`、解释器脚本等间接执行不在其覆盖范围内，不是系统隔离。守卫脚本放在 Agent 目录内，随 `~/.claude/agents` 链接一起安装，hook 以 `$HOME/.claude/agents/hooks/` 定位；使用 `CLAUDE_CONFIG_DIR` 改变配置目录时该路径不适用，Windows 依赖 hook 运行环境提供 `python3`，尚未实测。依据：[Claude Code Subagents](https://code.claude.com/docs/en/sub-agents.md)、[Claude Code Permissions](https://code.claude.com/docs/en/permissions.md)、[Codex Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)、[OpenCode V2 Agents](https://opencode.ai/v2/docs/agents)、[OpenCode V2 Permissions](https://opencode.ai/v2/docs/permissions)。
 
-新角色省略模型配置，使用各平台的父会话或默认模型；现有 `evidence_explorer` 和 `reviewer` 的显式模型配置保留。角色定义不会自行启动工作；[通用流程的 Agent 分工规则](../skills/feature-delivery/references/agent-orchestration.md) 规定触发条件，满足条件时主 Agent 应主动委派。小任务不启动全套角色。
+新角色省略模型配置，使用各平台的父会话或默认模型；现有 `evidence_explorer` 和 `reviewer` 的显式模型配置保留。Claude Code 角色一律不写 `model` 和 `effort`，由主 Agent 委派时按任务选择模型，未指定时跟随父会话。角色定义不会自行启动工作；[通用流程的 Agent 分工规则](../skills/feature-delivery/references/agent-orchestration.md) 规定触发条件，满足条件时主 Agent 应主动委派。小任务不启动全套角色。
 
 提交前核对名称集合、成对任务指令及只读能力，运行 `tests/test_agent_pairs.py` 对应的仓库测试，并同步本节的职责列表。测试覆盖配置契约；真实模型任务验收需另外执行。
 
@@ -216,7 +217,7 @@ python3 ~/.agent-toolkit/scripts/update_ui_ux_pro_max.py --from-lock
 
 - Skill 或安装清单改动：校验相关 Skill 格式和显式分类；安装器改动校验所有可安装 Skill。
 - 安装器改动：覆盖各平台的链接权限、路径表示、配置保护和重复安装行为；两个 profile 的 dry-run 无未知冲突，Codex 与 Claude Code 的 Skill 目录链接目标正确。
-- Agent 改动：核对两端名称、任务与输出契约，以及各角色的读取、搜索、运行、编辑与交付限制；检查默认和自定义 Codex Home 的 Agent 目录链接，以及 OpenCode Agent 目录链接。
+- Agent 改动：核对三端名称、任务与输出契约，以及各角色的读取、搜索、运行、编辑与交付限制；检查默认和自定义 Codex Home 的 Agent 目录链接、OpenCode 与 Claude Code 的 Agent 目录链接；Claude Code 新会话中用 `/agents` 确认五个角色已加载。
 - OpenCode 配置或安装逻辑改动：macOS/Linux 检查配置文件链接目标；Windows 检查受管副本内容与安装记录摘要。仓库内只有网关和密钥的环境变量引用。
 - Rules 改动或安装迁移：确认受管 Rules 为与源文件一致的真实文件，执行 `codex execpolicy check --rules <文件> <命令及参数>`，检查代表性的允许与未放行命令；复用结果时明确记录来源。
 - 路径或迁移改动：除迁移兼容说明外，没有旧 `~/.shared-skills` 路径残留。

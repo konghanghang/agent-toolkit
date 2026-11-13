@@ -41,7 +41,11 @@ CODEX_PLAYWRIGHT_CONFIG_SOURCE = (
     TOOLKIT_ROOT / "codex" / "config" / "playwright-mcp.toml.template"
 )
 CODEX_SKILLS_TARGET = Path.home() / ".agents" / "skills"
-CLAUDE_SKILLS_TARGET = Path.home() / ".claude" / "skills"
+CLAUDE_HOME = Path.home() / ".claude"
+CLAUDE_SKILLS_TARGET = CLAUDE_HOME / "skills"
+CLAUDE_AGENTS_SOURCE = TOOLKIT_ROOT / "claude" / "agents"
+CLAUDE_AGENT_GUARD = CLAUDE_AGENTS_SOURCE / "hooks" / "bash_guard.py"
+CLAUDE_AGENT_REQUIRED_KEYS = ("name", "description", "hooks")
 DEFAULT_CODEX_HOME = Path.home() / ".codex"
 OPENCODE_SOURCE = TOOLKIT_ROOT / "opencode"
 OPENCODE_AGENTS_SOURCE = OPENCODE_SOURCE / "agents"
@@ -102,7 +106,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         action="store_true",
         help="Install only Codex skills, agents, instructions, and rules",
     )
-    mode.add_argument("--claude-only", action="store_true", help="Install only Claude Code skills")
+    mode.add_argument(
+        "--claude-only",
+        action="store_true",
+        help="Install only Claude Code skills, agents, and instructions",
+    )
     mode.add_argument("--rules-only", action="store_true", help="Install only Codex rules")
     mode.add_argument("--agents-only", action="store_true", help="Install only Codex agents")
     mode.add_argument(
@@ -273,6 +281,33 @@ def available_codex_agents() -> list[Path]:
         if missing:
             raise SystemExit(
                 f"Codex agent {agent} is missing required fields: {', '.join(missing)}"
+            )
+
+    return agents
+
+
+def available_claude_agents() -> list[Path]:
+    if not CLAUDE_AGENTS_SOURCE.is_dir():
+        raise SystemExit(f"Claude Code agents directory does not exist: {CLAUDE_AGENTS_SOURCE}")
+    if not CLAUDE_AGENT_GUARD.is_file():
+        raise SystemExit(f"Claude Code agent Bash guard does not exist: {CLAUDE_AGENT_GUARD}")
+
+    agents = sorted(CLAUDE_AGENTS_SOURCE.glob("*.md"))
+    if not agents:
+        raise SystemExit(f"No Claude Code agents found in: {CLAUDE_AGENTS_SOURCE}")
+
+    for agent in agents:
+        try:
+            parts = agent.read_text(encoding="utf-8").split("---", 2)
+        except (OSError, UnicodeError) as error:
+            raise SystemExit(f"Unable to read Claude Code agent {agent}: {error}") from error
+        if len(parts) != 3 or parts[0].strip() or not parts[2].strip():
+            raise SystemExit(f"Claude Code agent {agent} is missing frontmatter or instructions")
+        keys = set(FRONTMATTER_KEY_PATTERN.findall(parts[1]))
+        missing = [key for key in CLAUDE_AGENT_REQUIRED_KEYS if key not in keys]
+        if missing:
+            raise SystemExit(
+                f"Claude Code agent {agent} is missing required fields: {', '.join(missing)}"
             )
 
     return agents
@@ -457,6 +492,16 @@ def installs_codex_agents(args: argparse.Namespace) -> bool:
     )
 
 
+def installs_claude(args: argparse.Namespace) -> bool:
+    return (
+        not args.codex_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.config_only
+        and not args.opencode_only
+    )
+
+
 def installs_codex_instructions(args: argparse.Namespace) -> bool:
     return (
         not args.claude_only
@@ -572,7 +617,10 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
     if installs_codex_instructions(args):
         if codex_home is None:
             codex_home, _ = resolve_codex_home(args)
-        sources = selected_instructions(profile, categories["instructions"])
+        # Default homes serve every project, so they only get the general rules;
+        # a dedicated (custom) Codex home follows the installation profile.
+        home_profile = profile if args.codex_home else "general"
+        sources = selected_instructions(home_profile, categories["instructions"])
         if sources:
             specs.append(
                 InstallSpec(
@@ -601,13 +649,7 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
             )
         )
 
-    if (
-        not args.codex_only
-        and not args.rules_only
-        and not args.agents_only
-        and not args.config_only
-        and not args.opencode_only
-    ):
+    if installs_claude(args):
         specs.extend(
             InstallSpec(
                 source,
@@ -617,6 +659,26 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
             )
             for name, source in skills.items()
         )
+        available_claude_agents()
+        specs.append(
+            InstallSpec(
+                CLAUDE_AGENTS_SOURCE,
+                CLAUDE_HOME / "agents",
+                "Claude Code agents",
+                DIRECTORY_LINK_STRATEGY,
+            )
+        )
+        sources = selected_instructions("general", categories["instructions"])
+        if sources:
+            specs.append(
+                InstallSpec(
+                    INSTRUCTIONS_SOURCE,
+                    CLAUDE_HOME / "CLAUDE.md",
+                    "Claude Code instructions",
+                    INSTRUCTIONS_STRATEGY,
+                    sources,
+                )
+            )
 
     if installs_opencode(args):
         available_opencode_agents()
@@ -1221,6 +1283,10 @@ def main() -> int:
             print(f"Instructions target: {codex_home / 'AGENTS.md'}")
         if installs_codex_playwright_config(args):
             print(f"Config target: {codex_home / 'config.toml'}")
+        print()
+    if installs_claude(args):
+        print(f"Claude Code agents: {CLAUDE_HOME / 'agents'}")
+        print(f"Claude Code instructions: {CLAUDE_HOME / 'CLAUDE.md'}")
         print()
     if installs_opencode(args):
         print(f"OpenCode home: {DEFAULT_OPENCODE_HOME}")

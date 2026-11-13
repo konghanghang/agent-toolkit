@@ -1182,8 +1182,11 @@ class ProfileTest(unittest.TestCase):
     def test_claude_only_general_has_no_codex_or_work_components(self):
         args = install.parse_args(["--profile", "general", "--claude-only"])
         specs = install.plan_installs(args)
-        self.assertTrue(all(s.label == "Claude Code skill" for s in specs))
-        skills = {spec.source.name for spec in specs}
+        self.assertEqual(
+            {"Claude Code skill", "Claude Code agents", "Claude Code instructions"},
+            {s.label for s in specs},
+        )
+        skills = {spec.source.name for spec in specs if spec.label == "Claude Code skill"}
         self.assertIn("feature-delivery", skills)
         self.assertNotIn("work-feature-delivery", skills)
         self.assertNotIn("nacos-config-query", skills)
@@ -1214,7 +1217,11 @@ class ProfileTest(unittest.TestCase):
             < {s for s in work if s.label != instructions}
         )
         general_sources = next(s.sources for s in general if s.label == instructions)
-        work_sources = next(s.sources for s in work if s.label == instructions)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            work_home = install.plan_installs(
+                install.parse_args(["--profile", "work", "--codex-home", temp_dir])
+            )
+        work_sources = next(s.sources for s in work_home if s.label == instructions)
         self.assertEqual(general_sources, work_sources[: len(general_sources)])
         self.assertIn("work.md", {source.name for source in work_sources})
         for label in ("Codex skill", "Claude Code skill"):
@@ -1222,23 +1229,69 @@ class ProfileTest(unittest.TestCase):
             self.assertTrue({"feature-delivery", "work-feature-delivery", "nacos-config-query"} <= skills)
         self.assertEqual(2, len(install.selected_skill_initializers(args)))
 
-    def test_instructions_follow_profile_with_general_first(self):
+    def test_default_homes_get_only_general_instructions(self):
+        for profile in ("general", "work"):
+            with self.subTest(profile=profile):
+                specs = install.plan_installs(install.parse_args(["--profile", profile]))
+                targets = {
+                    s.label: (s.target, [source.name for source in s.sources])
+                    for s in specs if s.strategy == install.INSTRUCTIONS_STRATEGY
+                }
+                self.assertEqual(
+                    {
+                        "Codex instructions": (install.DEFAULT_CODEX_HOME / "AGENTS.md", ["general.md"]),
+                        "Claude Code instructions": (install.CLAUDE_HOME / "CLAUDE.md", ["general.md"]),
+                    },
+                    targets,
+                )
+
+    def test_custom_codex_home_instructions_follow_profile_with_general_first(self):
         for profile, expected in (
             ("general", ["general.md"]),
             ("work", ["general.md", "work.md"]),
         ):
-            with self.subTest(profile=profile):
-                specs = install.plan_installs(install.parse_args(["--profile", profile]))
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as temp_dir:
+                args = install.parse_args(["--profile", profile, "--codex-only", "--codex-home", temp_dir])
+                specs = install.plan_installs(args, Path(temp_dir))
                 instructions = [s for s in specs if s.label == "Codex instructions"]
                 self.assertEqual(1, len(instructions))
-                self.assertEqual(install.DEFAULT_CODEX_HOME / "AGENTS.md", instructions[0].target)
+                self.assertEqual(Path(temp_dir) / "AGENTS.md", instructions[0].target)
                 self.assertEqual(expected, [source.name for source in instructions[0].sources])
+
+    def test_claude_agents_are_linked_for_full_and_claude_only_installs(self):
+        for mode in ([], ["--claude-only"]):
+            with self.subTest(mode=mode):
+                specs = install.plan_installs(install.parse_args(["--profile", "general", *mode]))
+                agents = [s for s in specs if s.label == "Claude Code agents"]
+                self.assertEqual(1, len(agents))
+                self.assertEqual(install.CLAUDE_AGENTS_SOURCE, agents[0].source)
+                self.assertEqual(install.CLAUDE_HOME / "agents", agents[0].target)
+                self.assertEqual(install.DIRECTORY_LINK_STRATEGY, agents[0].strategy)
+        for mode in ("--codex-only", "--rules-only", "--agents-only", "--config-only", "--opencode-only"):
+            with self.subTest(mode=mode):
+                specs = install.plan_installs(install.parse_args(["--profile", "general", mode]))
+                self.assertFalse([s for s in specs if s.label.startswith("Claude Code")])
+
+    def test_claude_agent_validation_requires_guard_and_hooks(self):
+        agents = self.directory / "claude-agents"
+        (agents / "hooks").mkdir(parents=True)
+        (agents / "reviewer.md").write_text("---\nname: reviewer\ndescription: x\n---\n\nbody\n")
+        with mock.patch.multiple(
+            install, CLAUDE_AGENTS_SOURCE=agents, CLAUDE_AGENT_GUARD=agents / "hooks" / "bash_guard.py"
+        ):
+            with self.assertRaisesRegex(SystemExit, "Bash guard does not exist"):
+                install.available_claude_agents()
+            (agents / "hooks" / "bash_guard.py").write_text("")
+            with self.assertRaisesRegex(SystemExit, "missing required fields: hooks"):
+                install.available_claude_agents()
 
     def test_instructions_skipped_for_component_only_modes(self):
         for mode in ("--rules-only", "--agents-only", "--config-only", "--opencode-only", "--claude-only"):
             with self.subTest(mode=mode):
                 specs = install.plan_installs(install.parse_args(["--profile", "work", mode]))
                 self.assertFalse([s for s in specs if s.label == "Codex instructions"])
+                if mode != "--claude-only":
+                    self.assertFalse([s for s in specs if s.label == "Claude Code instructions"])
         specs = install.plan_installs(install.parse_args(["--profile", "work", "--codex-only"]))
         self.assertTrue([s for s in specs if s.label == "Codex instructions"])
 

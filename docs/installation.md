@@ -8,7 +8,7 @@
 
 分类唯一来源为 [`install-profiles.json`](../install-profiles.json)。`general` 用于通用与个人用途；`work` 包含 general + 工作扩展。完整能力清单见 [首页索引](../README.md#能力索引)。
 
-通用组同时安装全部通用 Agents、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 不写 Codex 配置。
+通用组同时安装全部通用 Agents、`git-commit.rules`、`github-readonly.rules` 和 Codex Playwright MCP 配置。工作组额外安装 `work-readonly.rules`、`gitlab-pipeline.rules`，并按所选 Skills 创建 GitLab 与测试库配置模板。平台和组件范围仍由 `--codex-only`、`--claude-only`、`--rules-only` 等参数限制；Claude-only 安装 Claude Code 的 Skills、Agents 和全局协作规则，不写 Codex 配置。
 
 首次安装必须显式选择 profile；未选择时只给出提示并退出，不默认安装全量。成功安装后，选择保存在 `~/.local/agent-toolkit/install-profile.json`，后续无 `--profile` 的安装或更新沿用它。记录属于本机当前用户，由不同仓库检出和安装目标共用，不跟随 `--codex-home` 单独变化，也不进入 Git。切换 profile 不自动卸载已有组件。
 
@@ -52,10 +52,10 @@ python3 scripts/install.py --dry-run
 1. 扫描 `skills/*/SKILL.md`，校验分类清单并按 profile 筛选。
 2. 将 Skill 通过目录链接安装到 `~/.agents/skills/`。
 3. 校验 `codex/agents/*.toml` 的必要字段，并将整个目录链接到 `~/.codex/agents/`。
-4. 将当前 profile 的 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`。
+4. 将当前 profile 的 `codex/rules/*.rules` 原子复制到 `~/.codex/rules/`，并生成 `~/.codex/AGENTS.md` 全局协作规则（默认 Home 只含通用规则）。
 5. 把标准 Playwright MCP 审批、禁用工具和缓存目录安全合并到 `~/.codex/config.toml`，保留其他本机配置。
 6. 校验 `opencode/agents/*.md` 的 frontmatter，并把 `opencode/agents/` 链接到 `~/.config/opencode/agents/`。OpenCode 配置安装到 `~/.config/opencode/opencode.json`：macOS/Linux 使用文件链接，Windows 使用受管副本，无需文件符号链接权限。
-7. 将 Skill 通过目录链接安装到 `~/.claude/skills/`。
+7. 将 Skill 通过目录链接安装到 `~/.claude/skills/`；校验 `claude/agents/*.md` 及其 Bash 守卫，并把 `claude/agents/` 链接到 `~/.claude/agents/`；生成只含通用规则的 `~/.claude/CLAUDE.md`。
 8. 安装内容包含 `verify-test-db` 时，在缺失的情况下创建私有的 `~/.local/agent-toolkit/work/test-db/profiles.json` 模板；已有文件绝不覆盖。
 9. Skill、Agent、Rule 和 Playwright 配置已经一致时跳过。
 10. 旧版受管链接可以显式迁移；未知文件、真实目录链接或 Playwright 配置冲突时拒绝覆盖。OpenCode 的已有文件或目录只有在内容与仓库逐字节一致时才会接管，原路径先移到 Git 忽略的 `.local/backups/opencode/`。Windows 受管配置副本按安装记录更新；本机修改过的内容拒绝覆盖。
@@ -168,16 +168,17 @@ Codex Rules：
   --原子复制--> <custom-codex-home>/rules/<name>.rules
 ```
 
-Codex 全局协作规则：
+全局协作规则：
 
 ```text
 ~/.agent-toolkit/instructions/general.md
-  --生成--> ~/.codex/AGENTS.md                    # general
+  --生成--> ~/.codex/AGENTS.md                    # 默认 Codex Home，始终只含通用规则
+  --生成--> ~/.claude/CLAUDE.md                   # Claude Code 用户级规则，始终只含通用规则
 ~/.agent-toolkit/instructions/general.md + work.md
-  --生成--> <codex-home>/AGENTS.md                # work
+  --生成--> <custom-codex-home>/AGENTS.md         # --codex-home 且 profile 为 work
 ```
 
-general 只生成通用规则；work 在通用规则之后追加工作扩展，不替换通用部分。源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载；分类登记在 `install-profiles.json` 的 `instructions`。生成文件首行带受管标记和正文 SHA-256：内容一致时跳过，源文件更新后重新安装即可更新；目标是未带标记的本机文件、受管文件被本机修改或是指向其他位置的链接时拒绝覆盖。已有指向 `instructions/` 或旧位置 `codex/instructions/` 下源文件的链接会迁移为生成文件，旧位置的链接即使已失效也会迁移。新文件在 macOS/Linux 使用 `0600` 权限，Windows 收紧 ACL；规则是普通文本，Codex 不需要软链即可加载，因此各平台都使用生成文件。
+默认 Home 服务所有项目，因此无论 profile 都只生成通用规则；用 `--codex-home` 指定的专用 Home 跟随 profile，work 在通用规则之后追加工作扩展，不替换通用部分。Claude Code 会在注入上下文前去掉首行 HTML 注释形式的受管标记。源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载；分类登记在 `install-profiles.json` 的 `instructions`。生成文件首行带受管标记和正文 SHA-256：内容一致时跳过，源文件更新后重新安装即可更新；目标是未带标记的本机文件、受管文件被本机修改或是指向其他位置的链接时拒绝覆盖。已有指向 `instructions/` 或旧位置 `codex/instructions/` 下源文件的链接会迁移为生成文件，旧位置的链接即使已失效也会迁移。新文件在 macOS/Linux 使用 `0600` 权限，Windows 收紧 ACL；规则是普通文本，Codex 不需要软链即可加载，因此各平台都使用生成文件。
 
 Codex Playwright MCP 配置：
 
@@ -188,6 +189,15 @@ Codex Playwright MCP 配置：
 ```
 
 安装器只管理 `[mcp_servers.playwright]` 下的 `default_tools_approval_mode`、`disabled_tools`，以及 `[mcp_servers.playwright.env]` 下的 `npm_config_cache`。模板中的包版本是 `@playwright/mcp@0.0.83`。Playwright 尚未配置时会写入完整标准配置，包含这个版本；已经配置时保留原有 `command`、`args`、其他 MCP 和权限设置，不会把已有的 `@latest` 或其他版本改掉。受管字段存在不同值时停止并报告冲突，不静默覆盖本机选择。新建 `config.toml` 在 macOS/Linux 使用 `0600` 权限，在 Windows 将 ACL 收紧到当前用户、SYSTEM 和 Administrators；更新已有文件时保留原有 POSIX 权限或 Windows ACL。
+
+Claude Code Agents：
+
+```text
+~/.claude/agents
+  → ~/.agent-toolkit/claude/agents
+```
+
+目录内的 `hooks/bash_guard.py` 随链接一起安装，供各角色的 `PreToolUse` hook 调用，限制只读角色和执行角色的 Bash 范围，见 [维护指南](maintenance.md#功能一致性)。官方文档未说明 Agent 目录链接的加载行为，安装后需在新会话中用 `/agents` 确认；目标已是真实目录或未知链接时拒绝覆盖。
 
 Codex Agents 使用目录链接，多个 Codex Home 可以共享同一份受版本控制的 Agent 定义。macOS/Linux 使用软链接，Windows 使用 directory junction。目标 `agents/` 已经是真实目录或未知目录链接时，安装器拒绝覆盖；需要纳入统一管理的 Agent 应先放入本仓库的 `codex/agents/`。
 
@@ -325,16 +335,15 @@ python3 ~/.agent-toolkit/scripts/install.py --profile work --codex-only --codex-
 
 原来手动建立的 `AGENTS.md -> codex/instructions/work.md` 链接会显示为 `MIGRATE` 并替换为生成文件；其他已有内容按上文规则拒绝覆盖，应先核对并备份。
 
-工作目录中的其他 Agent 入口都指向这个生成文件，不直接链接源文件，避免只读到工作扩展：
+工作目录中的其他 Agent 入口按是否已有全局通用规则区分，避免只读到工作扩展，也避免通用规则加载两遍：
 
 ```text
-~/data/work/AGENTS.md  -> .codex/AGENTS.md     # 在工作目录读取项目 AGENTS.md 的 Agent
-~/data/work/CLAUDE.md  内容为 @.codex/AGENTS.md  # Claude Code
+~/data/work/AGENTS.md  -> .codex/AGENTS.md                      # 在工作目录读取项目 AGENTS.md 的 Agent，需要完整规则
+~/data/work/CLAUDE.md  内容为 @~/.agent-toolkit/instructions/work.md  # Claude Code，通用规则已由 ~/.claude/CLAUDE.md 提供
 ```
 
-根目录链接在 macOS/Linux 用 `ln -s .codex/AGENTS.md ~/data/work/AGENTS.md` 建立，安装器不管理它；已有同名文件时先核对并备份。
-`~/data/work/CLAUDE.md` 通过同一入口读取规则；
-Claude Code 可能要求批准工作区外的文件导入，迁移后应在新会话中用 `/context` 核对加载结果。
+根目录链接在 macOS/Linux 用 `ln -s .codex/AGENTS.md ~/data/work/AGENTS.md` 建立；这两个入口安装器都不管理，已有同名文件时先核对并备份。
+Claude Code 存在 `CLAUDE.md` 时不再读取同目录的 `AGENTS.md`，因此两者不会叠加。导入工作区外的文件时 Claude Code 会要求一次性批准，修改后应在新会话中用 `/context` 核对加载结果。
 日常修改请直接编辑仓库中的源文件，检查 Git 差异并提交，再重新安装更新生成文件；不要直接编辑生成的 `AGENTS.md`。
 
 ## 按能力配置
