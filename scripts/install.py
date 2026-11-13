@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install Agent Toolkit skills, Codex agents, OpenCode config, and managed Codex rules."""
+"""Install Agent Toolkit skills, Codex agents and instructions, OpenCode config, and managed Codex rules."""
 
 from __future__ import annotations
 
@@ -34,6 +34,9 @@ LEGACY_PROFILE_STATE = TOOLKIT_ROOT / ".local" / "install-profile.json"
 SKILLS_DIR = TOOLKIT_ROOT / "skills"
 CODEX_AGENTS_SOURCE = TOOLKIT_ROOT / "codex" / "agents"
 CODEX_RULES_SOURCE = TOOLKIT_ROOT / "codex" / "rules"
+# Shared by every agent; only the generated target lives in a Codex home.
+INSTRUCTIONS_SOURCE = TOOLKIT_ROOT / "instructions"
+LEGACY_INSTRUCTIONS_SOURCE = TOOLKIT_ROOT / "codex" / "instructions"
 CODEX_PLAYWRIGHT_CONFIG_SOURCE = (
     TOOLKIT_ROOT / "codex" / "config" / "playwright-mcp.toml.template"
 )
@@ -54,6 +57,10 @@ RULE_MANAGED_MARKER = "# Managed by agent-toolkit."
 DIRECTORY_LINK_STRATEGY = "directory-link"
 COPY_STRATEGY = "copy"
 TOML_MERGE_STRATEGY = "toml-merge"
+INSTRUCTIONS_STRATEGY = "instructions"
+INSTRUCTIONS_MARKER_PATTERN = re.compile(
+    r"^<!-- Managed by agent-toolkit\. .* sha256=([0-9a-f]{64}) -->$"
+)
 AGENT_REQUIRED_KEYS = ("name", "description", "developer_instructions")
 TOML_KEY_PATTERN = re.compile(r"(?m)^\s*([A-Za-z0-9_-]+)\s*=")
 FRONTMATTER_KEY_PATTERN = re.compile(r"(?m)^([A-Za-z0-9_-]+):")
@@ -82,17 +89,18 @@ class InstallSpec:
     target: Path
     label: str
     strategy: str
+    sources: tuple[Path, ...] = ()
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Install shared skills, Codex agents, OpenCode config, and Codex rules."
+        description="Install shared skills, Codex agents and instructions, OpenCode config, and Codex rules."
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--codex-only",
         action="store_true",
-        help="Install only Codex skills, agents, and rules",
+        help="Install only Codex skills, agents, instructions, and rules",
     )
     mode.add_argument("--claude-only", action="store_true", help="Install only Claude Code skills")
     mode.add_argument("--rules-only", action="store_true", help="Install only Codex rules")
@@ -183,6 +191,7 @@ def read_profile_manifest() -> dict:
         for section, present in (
             ("skills", set(available_skills())),
             ("rules", {p.name for p in CODEX_RULES_SOURCE.glob("*.rules")}),
+            ("instructions", {p.name for p in INSTRUCTIONS_SOURCE.glob("*.md")}),
         ):
             entries = data.get(section)
             if not isinstance(entries, dict) or any(
@@ -448,6 +457,29 @@ def installs_codex_agents(args: argparse.Namespace) -> bool:
     )
 
 
+def installs_codex_instructions(args: argparse.Namespace) -> bool:
+    return (
+        not args.claude_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.config_only
+        and not args.opencode_only
+    )
+
+
+def selected_instructions(profile: str, categories: dict[str, str]) -> tuple[Path, ...]:
+    """General instructions come first; work extends them and never replaces them."""
+    names = sorted(
+        (name for name, category in categories.items()
+         if profile == "work" or category == "general"),
+        key=lambda name: (categories[name] != "general", name),
+    )
+    missing = [name for name in names if not (INSTRUCTIONS_SOURCE / name).is_file()]
+    if missing:
+        raise SystemExit(f"Codex instructions do not exist: {', '.join(missing)}")
+    return tuple(INSTRUCTIONS_SOURCE / name for name in names)
+
+
 def installs_codex_playwright_config(args: argparse.Namespace) -> bool:
     return (
         not args.claude_only
@@ -471,6 +503,7 @@ def installs_codex_configuration(args: argparse.Namespace) -> bool:
     return (
         installs_codex_rules(args)
         or installs_codex_agents(args)
+        or installs_codex_instructions(args)
         or installs_codex_playwright_config(args)
     )
 
@@ -534,6 +567,21 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 InstallSpec(rule, codex_home / "rules" / rule.name, "Codex rule", COPY_STRATEGY)
                 for rule in sorted(CODEX_RULES_SOURCE.glob("*.rules"))
                 if profile == "work" or categories["rules"][rule.name] == "general"
+            )
+
+    if installs_codex_instructions(args):
+        if codex_home is None:
+            codex_home, _ = resolve_codex_home(args)
+        sources = selected_instructions(profile, categories["instructions"])
+        if sources:
+            specs.append(
+                InstallSpec(
+                    INSTRUCTIONS_SOURCE,
+                    codex_home / "AGENTS.md",
+                    "Codex instructions",
+                    INSTRUCTIONS_STRATEGY,
+                    sources,
+                )
             )
 
     if installs_codex_playwright_config(args):
@@ -1055,6 +1103,85 @@ def install_copy(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
     return message, True
 
 
+def render_instructions(sources: tuple[Path, ...]) -> str:
+    body = "\n".join(source.read_text(encoding="utf-8").rstrip("\n") + "\n" for source in sources)
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    names = ", ".join(source.relative_to(TOOLKIT_ROOT).as_posix() for source in sources)
+    marker = (
+        f"<!-- Managed by agent-toolkit. Generated from {names}; "
+        f"edit the sources and reinstall. sha256={digest} -->"
+    )
+    return f"{marker}\n\n{body}"
+
+
+def instructions_state(text: str) -> str:
+    """Return "managed", "modified" or "unmanaged" for an existing instructions file."""
+    marker, separator, rest = text.partition("\n")
+    match = INSTRUCTIONS_MARKER_PATTERN.match(marker)
+    if match is None or not separator or not rest.startswith("\n"):
+        return "unmanaged"
+    body = rest[1:]
+    if hashlib.sha256(body.encode("utf-8")).hexdigest() != match.group(1):
+        return "modified"
+    return "managed"
+
+
+def install_instructions(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    target = spec.target
+    names = " + ".join(source.name for source in spec.sources)
+    try:
+        desired = render_instructions(spec.sources)
+    except (OSError, UnicodeError) as error:
+        return f"CONFLICT {spec.label}: unable to read sources ({error})", False
+
+    if os.path.lexists(target):
+        if target.is_symlink():
+            try:
+                existing = resolve_link_target(target)
+            except OSError as error:
+                return f"CONFLICT {spec.label}: {target} ({error})", False
+            if existing.parent in (
+                spec.source.resolve(),
+                LEGACY_INSTRUCTIONS_SOURCE.resolve(strict=False),
+            ):
+                # Older setups linked the entry straight to one source file,
+                # possibly under the pre-move codex/instructions directory.
+                action = "MIGRATE"
+            elif args.replace_managed and is_managed_target(existing):
+                action = "REPLACE"
+            else:
+                return f"CONFLICT {spec.label}: {target} -> {existing}", False
+        elif not target.is_file():
+            return f"CONFLICT {spec.label}: {target} exists and is not a regular file", False
+        else:
+            try:
+                current = target.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as error:
+                return f"CONFLICT {spec.label}: {target} ({error})", False
+            state = instructions_state(current)
+            if state == "unmanaged":
+                return f"CONFLICT {spec.label}: {target} exists and is not managed", False
+            if state == "modified":
+                return f"CONFLICT {spec.label}: {target} was modified locally", False
+            if current == desired:
+                return f"OK       {spec.label}: {target} matches {names}", True
+            action = "UPDATE "
+    else:
+        action = "CREATE "
+
+    message = f"{action} {spec.label}: {names} -> {target}"
+    if args.dry_run:
+        return message, True
+
+    try:
+        if target.is_symlink():
+            target.unlink()
+        atomic_write_text(target, desired)
+    except OSError as error:
+        return f"ERROR    {spec.label}: unable to write {target} ({error})", False
+    return message, True
+
+
 def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     if spec.strategy == DIRECTORY_LINK_STRATEGY:
         return install_directory_link(spec, args)
@@ -1064,6 +1191,8 @@ def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
         return install_copy(spec, args)
     if spec.strategy == TOML_MERGE_STRATEGY:
         return install_toml_merge(spec, args)
+    if spec.strategy == INSTRUCTIONS_STRATEGY:
+        return install_instructions(spec, args)
     return f"CONFLICT {spec.label}: unknown install strategy {spec.strategy}", False
 
 
@@ -1088,6 +1217,8 @@ def main() -> int:
             print(f"Agents target: {codex_home / 'agents'}")
         if installs_codex_rules(args):
             print(f"Rules target: {codex_home / 'rules'}")
+        if installs_codex_instructions(args):
+            print(f"Instructions target: {codex_home / 'AGENTS.md'}")
         if installs_codex_playwright_config(args):
             print(f"Config target: {codex_home / 'config.toml'}")
         print()

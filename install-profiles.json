@@ -27,5 +27,9 @@
     "git-commit.rules": "general",
     "github-readonly.rules": "general",
     "gitlab-pipeline.rules": "work"
+  },
+  "instructions": {
+    "general.md": "general",
+    "work.md": "work"
   }
 }

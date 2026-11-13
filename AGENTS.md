@@ -6,7 +6,7 @@
 - `general`：个人开发、设计、博客等通用与个人用途，不依赖 工作运行时或工作凭证。
 - `work`：工作专属服务、凭证和流程扩展。安装 profile `work` 包含 general + work；用户说“安装工作用的”无需再要求其指定通用组。
 - “安装通用的”“家庭电脑安装”使用 `--profile general`；“安装工作用的”“工作新机安装”使用 `--profile work`。没有明确用途时先查 `~/.local/agent-toolkit/install-profile.json`；新位置不存在时兼容读取本检出的 `.local/install-profile.json`。首次未选择时询问用途，不默认安装全部；成功安装只写机器级新位置，旧记录保留。
-- 新 Rule 同样必须分类。当前 custom Agent 目录、OpenCode 配置和 Playwright 配置均是通用组件；增加工作专属 Agent/MCP 前必须先实现隔离，不能混入通用共享目录或模板。
+- 新 Rule 和 `instructions/` 下的协作规则同样必须分类。当前 custom Agent 目录、OpenCode 配置和 Playwright 配置均是通用组件；增加工作专属 Agent/MCP 前必须先实现隔离，不能混入通用共享目录或模板。
 - 安装前运行对应 profile 的 dry-run。`--skill` 不能越过 profile 边界。切换分类不自动卸载；需要卸载时单独确认范围。
 - 新机完整安装先通过 `scripts/update_ui_ux_pro_max.py --from-lock` 还原外部 Skill，再按 profile 安装。工作新机还需执行 `common/bootstrap_work.py` 初始化运行时；家庭电脑不运行它。
 - 本机 profile、运行时、凭证和备份不进入版本控制。

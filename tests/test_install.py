@@ -993,6 +993,154 @@ class WindowsFileCopyTest(unittest.TestCase):
                 self.assertEqual(original_receipt, receipt.read_bytes() if receipt.exists() else None)
 
 
+class InstructionsInstallTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.source = self.directory / "toolkit" / "instructions"
+        self.legacy = self.directory / "toolkit" / "codex" / "instructions"
+        self.source.mkdir(parents=True)
+        self.general = self.source / "general.md"
+        self.work = self.source / "work.md"
+        self.general.write_text("# 通用\n\n通用规则\n", encoding="utf-8")
+        self.work.write_text("# 工作\n\n工作规则\n", encoding="utf-8")
+        self.home = self.directory / "codex-home"
+        self.home.mkdir()
+        patcher = mock.patch.multiple(
+            install,
+            TOOLKIT_ROOT=self.directory / "toolkit",
+            INSTRUCTIONS_SOURCE=self.source,
+            LEGACY_INSTRUCTIONS_SOURCE=self.legacy,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def spec(self, *sources: Path):
+        return install.InstallSpec(
+            self.source,
+            self.home / "AGENTS.md",
+            "Codex instructions",
+            install.INSTRUCTIONS_STRATEGY,
+            sources or (self.general, self.work),
+        )
+
+    def run_spec(self, spec, *extra: str):
+        return install.install_spec(spec, install.parse_args(["--profile", "work", *extra]))
+
+    def test_create_combines_general_before_work_and_is_idempotent(self):
+        spec = self.spec()
+        message, success = self.run_spec(spec)
+        self.assertTrue(success, message)
+        self.assertIn("CREATE", message)
+        text = spec.target.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("<!-- Managed by agent-toolkit."))
+        self.assertLess(text.index("通用规则"), text.index("工作规则"))
+        self.assertEqual("managed", install.instructions_state(text))
+        message, success = self.run_spec(spec)
+        self.assertTrue(success)
+        self.assertIn("OK", message)
+
+    def test_general_profile_content_has_no_work_rules(self):
+        spec = self.spec(self.general)
+        self.run_spec(spec)
+        text = spec.target.read_text(encoding="utf-8")
+        self.assertIn("通用规则", text)
+        self.assertNotIn("工作规则", text)
+
+    def test_dry_run_does_not_write(self):
+        message, success = self.run_spec(self.spec(), "--dry-run")
+        self.assertTrue(success)
+        self.assertIn("CREATE", message)
+        self.assertFalse((self.home / "AGENTS.md").exists())
+
+    def test_source_change_updates_managed_file(self):
+        spec = self.spec()
+        self.run_spec(spec)
+        self.work.write_text("# 工作\n\n新工作规则\n", encoding="utf-8")
+        message, success = self.run_spec(spec)
+        self.assertTrue(success)
+        self.assertIn("UPDATE", message)
+        self.assertIn("新工作规则", spec.target.read_text(encoding="utf-8"))
+
+    def test_switching_profile_rewrites_managed_file(self):
+        spec = self.spec()
+        self.run_spec(spec)
+        message, success = self.run_spec(self.spec(self.general))
+        self.assertTrue(success)
+        self.assertIn("UPDATE", message)
+        self.assertNotIn("工作规则", spec.target.read_text(encoding="utf-8"))
+
+    def test_unmanaged_file_is_preserved(self):
+        target = self.home / "AGENTS.md"
+        target.write_text("本机规则\n", encoding="utf-8")
+        message, success = self.run_spec(self.spec())
+        self.assertFalse(success)
+        self.assertIn("is not managed", message)
+        self.assertEqual("本机规则\n", target.read_text(encoding="utf-8"))
+
+    def test_local_edit_of_managed_file_is_preserved(self):
+        spec = self.spec()
+        self.run_spec(spec)
+        edited = spec.target.read_text(encoding="utf-8") + "本机补充\n"
+        spec.target.write_text(edited, encoding="utf-8")
+        self.work.write_text("# 工作\n\n新工作规则\n", encoding="utf-8")
+        message, success = self.run_spec(spec)
+        self.assertFalse(success)
+        self.assertIn("modified locally", message)
+        self.assertEqual(edited, spec.target.read_text(encoding="utf-8"))
+
+    def test_crlf_managed_file_is_recognized(self):
+        spec = self.spec()
+        rendered = install.render_instructions(spec.sources)
+        spec.target.write_bytes(rendered.replace("\n", "\r\n").encode("utf-8"))
+        message, success = self.run_spec(spec)
+        self.assertTrue(success, message)
+        self.assertIn("OK", message)
+
+    def test_directory_target_is_rejected(self):
+        (self.home / "AGENTS.md").mkdir()
+        message, success = self.run_spec(self.spec())
+        self.assertFalse(success)
+        self.assertIn("not a regular file", message)
+
+    @unittest.skipIf(os.name == "nt", "requires file symlink creation")
+    def test_link_to_old_source_migrates_to_generated_file(self):
+        spec = self.spec()
+        spec.target.symlink_to(self.work)
+        message, success = self.run_spec(spec, "--dry-run")
+        self.assertTrue(success)
+        self.assertIn("MIGRATE", message)
+        self.assertTrue(spec.target.is_symlink())
+        message, success = self.run_spec(spec)
+        self.assertTrue(success, message)
+        self.assertFalse(spec.target.is_symlink())
+        self.assertEqual("# 工作\n\n工作规则\n", self.work.read_text(encoding="utf-8"))
+        self.assertEqual("managed", install.instructions_state(spec.target.read_text(encoding="utf-8")))
+
+    @unittest.skipIf(os.name == "nt", "requires file symlink creation")
+    def test_dangling_link_to_legacy_location_migrates(self):
+        spec = self.spec()
+        spec.target.symlink_to(self.legacy / "work.md")
+        self.assertFalse(spec.target.exists())
+        message, success = self.run_spec(spec)
+        self.assertTrue(success, message)
+        self.assertIn("MIGRATE", message)
+        self.assertFalse(spec.target.is_symlink())
+        self.assertIn("工作规则", spec.target.read_text(encoding="utf-8"))
+
+    @unittest.skipIf(os.name == "nt", "requires file symlink creation")
+    def test_unknown_link_is_rejected(self):
+        other = self.directory / "other.md"
+        other.write_text("其他\n", encoding="utf-8")
+        spec = self.spec()
+        spec.target.symlink_to(other)
+        message, success = self.run_spec(spec)
+        self.assertFalse(success)
+        self.assertIn("CONFLICT", message)
+        self.assertTrue(spec.target.is_symlink())
+
+
 class ProfileTest(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -1060,11 +1208,48 @@ class ProfileTest(unittest.TestCase):
         general = install.plan_installs(install.parse_args(["--profile", "general"]))
         args = install.parse_args(["--profile", "work"])
         work = install.plan_installs(args)
-        self.assertTrue(set(general) < set(work))
+        instructions = "Codex instructions"
+        self.assertTrue(
+            {s for s in general if s.label != instructions}
+            < {s for s in work if s.label != instructions}
+        )
+        general_sources = next(s.sources for s in general if s.label == instructions)
+        work_sources = next(s.sources for s in work if s.label == instructions)
+        self.assertEqual(general_sources, work_sources[: len(general_sources)])
+        self.assertIn("work.md", {source.name for source in work_sources})
         for label in ("Codex skill", "Claude Code skill"):
             skills = {spec.source.name for spec in work if spec.label == label}
             self.assertTrue({"feature-delivery", "work-feature-delivery", "nacos-config-query"} <= skills)
         self.assertEqual(2, len(install.selected_skill_initializers(args)))
+
+    def test_instructions_follow_profile_with_general_first(self):
+        for profile, expected in (
+            ("general", ["general.md"]),
+            ("work", ["general.md", "work.md"]),
+        ):
+            with self.subTest(profile=profile):
+                specs = install.plan_installs(install.parse_args(["--profile", profile]))
+                instructions = [s for s in specs if s.label == "Codex instructions"]
+                self.assertEqual(1, len(instructions))
+                self.assertEqual(install.DEFAULT_CODEX_HOME / "AGENTS.md", instructions[0].target)
+                self.assertEqual(expected, [source.name for source in instructions[0].sources])
+
+    def test_instructions_skipped_for_component_only_modes(self):
+        for mode in ("--rules-only", "--agents-only", "--config-only", "--opencode-only", "--claude-only"):
+            with self.subTest(mode=mode):
+                specs = install.plan_installs(install.parse_args(["--profile", "work", mode]))
+                self.assertFalse([s for s in specs if s.label == "Codex instructions"])
+        specs = install.plan_installs(install.parse_args(["--profile", "work", "--codex-only"]))
+        self.assertTrue([s for s in specs if s.label == "Codex instructions"])
+
+    def test_unclassified_instructions_rejected(self):
+        instructions = self.directory / "instructions"
+        instructions.mkdir()
+        (instructions / "general.md").write_text("# general\n")
+        (instructions / "extra.md").write_text("# extra\n")
+        with mock.patch.object(install, "INSTRUCTIONS_SOURCE", instructions):
+            with self.assertRaisesRegex(SystemExit, "Unclassified instructions: extra.md"):
+                install.read_profile_manifest()
 
     def test_explicit_skill_cannot_bypass_profile(self):
         for skill in ("verify-test-db", "nacos-config-query"):

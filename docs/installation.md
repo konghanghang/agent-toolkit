@@ -168,6 +168,17 @@ Codex Rules：
   --原子复制--> <custom-codex-home>/rules/<name>.rules
 ```
 
+Codex 全局协作规则：
+
+```text
+~/.agent-toolkit/instructions/general.md
+  --生成--> ~/.codex/AGENTS.md                    # general
+~/.agent-toolkit/instructions/general.md + work.md
+  --生成--> <codex-home>/AGENTS.md                # work
+```
+
+general 只生成通用规则；work 在通用规则之后追加工作扩展，不替换通用部分。源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载；分类登记在 `install-profiles.json` 的 `instructions`。生成文件首行带受管标记和正文 SHA-256：内容一致时跳过，源文件更新后重新安装即可更新；目标是未带标记的本机文件、受管文件被本机修改或是指向其他位置的链接时拒绝覆盖。已有指向 `instructions/` 或旧位置 `codex/instructions/` 下源文件的链接会迁移为生成文件，旧位置的链接即使已失效也会迁移。新文件在 macOS/Linux 使用 `0600` 权限，Windows 收紧 ACL；规则是普通文本，Codex 不需要软链即可加载，因此各平台都使用生成文件。
+
 Codex Playwright MCP 配置：
 
 ```text
@@ -301,31 +312,30 @@ python3 scripts/init_work_config.py
 
 ## 工作环境协作规则
 
-规则原文件保存在 [`codex/instructions/work.md`](../codex/instructions/work.md)，由本仓库统一维护版本。
-源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载。
-这份规则适用于 `~/data/work` 的工作环境，引用的工作区文档和 Skills 需要在使用环境中另行准备。
+协作规则不限于某个 Agent，因此放在仓库根目录的 `instructions/`。通用规则保存在 [`instructions/general.md`](../instructions/general.md)，工作扩展保存在 [`instructions/work.md`](../instructions/work.md)，由本仓库统一维护版本。
+工作扩展只写工作区术语、知识库索引和业务交付约束，通用的角色、沟通、授权、审查和工程约束放在通用规则中；work 安装生成的 `AGENTS.md` 依次包含两者。
+引用的工作区文档和 Skills 需要在使用环境中另行准备。
 
-以下以该工作区为例，通过软链接保留加载入口：
-
-```text
-~/data/work/.codex/AGENTS.md
-  -> ~/.agent-toolkit/codex/instructions/work.md
-```
-
-Codex 使用 `~/data/work/.codex` 作为 Codex Home 时，从上述入口加载规则。
-`~/data/work/CLAUDE.md` 保持 `@.codex/AGENTS.md` 引用，通过同一入口读取规则；
-Claude Code 可能要求批准工作区外的文件导入，迁移后应在新会话中用 `/context` 核对加载结果。
-日常修改请直接编辑仓库中的源文件，再检查 Git 差异并提交。
-
-当前安装器不创建这个文件链接，`--agents-only` 只安装子 Agent 定义。
-在 macOS/Linux 的新环境中，确认目标入口不存在后可手动建立链接：
+以 `~/data/work/.codex` 作为工作 Codex Home 为例，先预览再安装：
 
 ```bash
-mkdir -p ~/data/work/.codex
-ln -s ~/.agent-toolkit/codex/instructions/work.md ~/data/work/.codex/AGENTS.md
+python3 ~/.agent-toolkit/scripts/install.py --profile work --codex-only --codex-home ~/data/work/.codex --dry-run
+python3 ~/.agent-toolkit/scripts/install.py --profile work --codex-only --codex-home ~/data/work/.codex
 ```
 
-如果入口已存在，应先核对并备份原内容，不使用强制覆盖选项。
+原来手动建立的 `AGENTS.md -> codex/instructions/work.md` 链接会显示为 `MIGRATE` 并替换为生成文件；其他已有内容按上文规则拒绝覆盖，应先核对并备份。
+
+工作目录中的其他 Agent 入口都指向这个生成文件，不直接链接源文件，避免只读到工作扩展：
+
+```text
+~/data/work/AGENTS.md  -> .codex/AGENTS.md     # 在工作目录读取项目 AGENTS.md 的 Agent
+~/data/work/CLAUDE.md  内容为 @.codex/AGENTS.md  # Claude Code
+```
+
+根目录链接在 macOS/Linux 用 `ln -s .codex/AGENTS.md ~/data/work/AGENTS.md` 建立，安装器不管理它；已有同名文件时先核对并备份。
+`~/data/work/CLAUDE.md` 通过同一入口读取规则；
+Claude Code 可能要求批准工作区外的文件导入，迁移后应在新会话中用 `/context` 核对加载结果。
+日常修改请直接编辑仓库中的源文件，检查 Git 差异并提交，再重新安装更新生成文件；不要直接编辑生成的 `AGENTS.md`。
 
 ## 按能力配置
 
