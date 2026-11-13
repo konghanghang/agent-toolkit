@@ -174,7 +174,7 @@ Windows 的配置副本更新命令见 [Windows 指南](windows.md#更新)。
 
 Agent 或 Rule 更新后，新开会话或重启客户端使其生效。
 
-ccline 配置在 macOS/Linux 是指向 `claude/ccline/config.toml` 的链接，直接编辑或用 `~/.claude/ccline/ccline -c` 调整后检查仓库差异并提交。若保存后链接被替换为普通文件，重新安装会报告冲突；把改动复制回仓库后删除本机文件再安装。升级 ccline 时同时修改 `scripts/install.py` 的 `CCLINE_VERSION` 和安装文档中的版本，执行对应版本的 `npm install -g`，并用 `ccline preview` 确认现有配置仍能解析。
+ccline 配置在 macOS/Linux 是指向 `claude/ccline/config.toml` 的链接，直接编辑或用 `~/.claude/ccline/ccline -c` 调整后检查仓库差异并提交。若保存后链接被替换为普通文件，重新安装会报告冲突；把改动复制回仓库后删除本机文件再安装。升级 ccline 时执行 `npm install -g @cometix/ccline`，并用 `ccline preview` 确认现有配置仍能解析。日常升级无需修改版本常量；只有调整最低版本要求时，才同步更新 `scripts/install.py` 的 `CCLINE_MIN_VERSION` 和安装文档。
 
 ## 外部 Skill 更新
 

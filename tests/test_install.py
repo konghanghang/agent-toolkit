@@ -1166,7 +1166,7 @@ class ClaudeSettingsInstallTest(unittest.TestCase):
             install.JSON_SETTINGS_MERGE_STRATEGY, sources,
         )
 
-    def install_binary(self, version: str = install.CCLINE_VERSION) -> None:
+    def install_binary(self, version: str = "2.0.0") -> None:
         binary = self.ccline_home / "ccline"
         binary.write_text(f"#!/bin/sh\necho 'ccline {version}'\n", encoding="utf-8")
         binary.chmod(0o755)
@@ -1318,11 +1318,23 @@ class ClaudeSettingsInstallTest(unittest.TestCase):
         self.assertIn("CREATE", message)
         self.assertFalse(self.settings.exists())
 
-    def test_version_mismatch_is_reported_but_not_fatal(self):
-        self.install_binary("1.9.0")
-        message, success = self.run_spec()
-        self.assertTrue(success, message)
-        self.assertIn("1.9.0 != pinned", message)
+    def test_supported_versions_have_no_version_note(self):
+        for version in ("2.0.0", "2.0.1", "2.1.0", "3.0.0", "10.0.0"):
+            with self.subTest(version=version):
+                self.install_binary(version)
+                message, success = self.run_spec()
+                self.assertTrue(success, message)
+                self.assertNotIn("NOTE:", message)
+                self.assertEqual(self.general_fragment["statusLine"], self.read()["statusLine"])
+
+    def test_old_or_unknown_version_is_reported_but_not_fatal(self):
+        for version in ("1.9.0", "unknown"):
+            with self.subTest(version=version):
+                self.install_binary(version)
+                message, success = self.run_spec()
+                self.assertTrue(success, message)
+                self.assertIn(f"ccline {version}; expected >= 2.0.0", message)
+                self.assertEqual(self.general_fragment["statusLine"], self.read()["statusLine"])
 
     def test_config_is_linked_and_adoption_backs_up_under_ccline(self):
         specs = install.plan_installs(install.parse_args(["--profile", "general", "--claude-only"]))

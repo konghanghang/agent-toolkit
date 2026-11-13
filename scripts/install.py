@@ -49,8 +49,8 @@ CLAUDE_AGENT_REQUIRED_KEYS = ("name", "description", "hooks")
 CLAUDE_SETTINGS = CLAUDE_HOME / "settings.json"
 CCLINE_SOURCE = TOOLKIT_ROOT / "claude" / "ccline"
 CCLINE_HOME = CLAUDE_HOME / "ccline"
-CCLINE_VERSION = "2.0.1"
-CCLINE_INSTALL_COMMAND = f"npm install -g @cometix/ccline@{CCLINE_VERSION}"
+CCLINE_MIN_VERSION = "2.0.0"
+CCLINE_INSTALL_COMMAND = "npm install -g @cometix/ccline"
 # Keys from claude/settings*.json that point at the ccline binary.
 CCLINE_STATUS_LINE_KEYS = ("statusLine", "subagentStatusLine")
 CLAUDE_SETTINGS_SOURCE = TOOLKIT_ROOT / "claude"
@@ -1380,9 +1380,12 @@ def install_json_settings_merge(spec: InstallSpec, args: argparse.Namespace) -> 
             else f"status line skipped: {binary} not found; run `{CCLINE_INSTALL_COMMAND}`, then reinstall"
         )
     else:
+        # 只检查最低版本，后续主版本也接受；版本异常仅提示。
         version = ccline_version(binary)
-        if version != CCLINE_VERSION:
-            notes.append(f"ccline {version or 'unknown'} != pinned {CCLINE_VERSION}")
+        if version is None or tuple(map(int, version.split("."))) < tuple(
+            map(int, CCLINE_MIN_VERSION.split("."))
+        ):
+            notes.append(f"ccline {version or 'unknown'}; expected >= {CCLINE_MIN_VERSION}")
     note = f" (NOTE: {'; '.join(notes)})" if notes else ""
 
     if os.path.lexists(target) and (target.is_symlink() or not target.is_file()):
@@ -1464,7 +1467,7 @@ def main() -> int:
     if installs_claude(args):
         print(f"Claude Code agents: {CLAUDE_HOME / 'agents'}")
         print(f"Claude Code instructions: {CLAUDE_HOME / 'CLAUDE.md'}")
-        print(f"ccline config: {CCLINE_HOME / 'config.toml'} (binary {CCLINE_VERSION}: {CCLINE_INSTALL_COMMAND})")
+        print(f"ccline config: {CCLINE_HOME / 'config.toml'} (binary >= {CCLINE_MIN_VERSION}: {CCLINE_INSTALL_COMMAND})")
         print()
     if installs_opencode(args):
         print(f"OpenCode home: {DEFAULT_OPENCODE_HOME}")
