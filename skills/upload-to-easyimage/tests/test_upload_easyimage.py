@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zlib
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -29,11 +30,14 @@ upload = load_module()
 
 
 def png_bytes(width: int = 3, height: int = 2) -> bytes:
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
     return (
         b"\x89PNG\r\n\x1a\n"
-        + b"\x00" * 8
-        + struct.pack(">II", width, height)
-        + b"fixture"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress((b"\0" + b"\0" * width * 3) * height))
+        + chunk(b"IEND", b"")
     )
 
 
@@ -269,12 +273,55 @@ class UploadEasyImageTest(unittest.TestCase):
         self.assertEqual(16, result["width"])
         self.assertEqual(9, result["height"])
         self.assertEqual("text/html", result["content_type"])
+        self.assertEqual("decoded", result["validation"])
         self.assertEqual(12, urlopen.call_args.kwargs["timeout"])
         request = urlopen.call_args.args[0]
         self.assertEqual(
             "upload-to-easyimage/1.0",
             request.get_header("User-agent"),
         )
+
+    def test_remote_verification_rejects_corrupt_structure_and_pixel_data(self) -> None:
+        valid = png_bytes()
+        # 保留合法 PNG 分块和 CRC，但破坏压缩像素数据，单靠文件头或结构检查都不够。
+        pixels = b"not-zlib-data"
+        idat = b"IDAT" + pixels
+        corrupt_pixels = valid[:33] + struct.pack(">I", len(pixels)) + idat + struct.pack(">I", zlib.crc32(idat)) + valid[-12:]
+        for body in (valid[:24], corrupt_pixels):
+            with self.subTest(body=body), patch.object(
+                upload.urllib.request, "urlopen", return_value=FakeRemoteResponse(body)
+            ), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                upload.verify_remote_image("https://images.example/broken.png", 1, 1024)
+
+    def test_remote_svg_verification_requires_well_formed_svg(self) -> None:
+        valid = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"/>'
+        with patch.object(upload.urllib.request, "urlopen", return_value=FakeRemoteResponse(valid)):
+            result = upload.verify_remote_image("https://images.example/image.svg", 1, 1024)
+        self.assertEqual("svg_xml", result["validation"])
+        self.assertEqual((16, 9), (result["width"], result["height"]))
+        for body in (b'<svg><g></svg>', b'<?xml version="1.0"?><html><svg/></html>'):
+            with self.subTest(body=body), patch.object(
+                upload.urllib.request, "urlopen", return_value=FakeRemoteResponse(body)
+            ), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                upload.verify_remote_image("https://images.example/broken.svg", 1, 1024)
+
+    def test_remote_verification_decodes_animation_and_reports_truncated_frames(self) -> None:
+        from PIL import Image
+
+        frames = [Image.new("RGB", (16, 16), color) for color in ("red", "blue", "green")]
+        output = io.BytesIO()
+        frames[0].save(output, format="GIF", save_all=True, append_images=frames[1:])
+        body = output.getvalue()
+        with patch.object(upload.urllib.request, "urlopen", return_value=FakeRemoteResponse(body)):
+            result = upload.verify_remote_image("https://images.example/animation.gif", 1, 1024)
+        self.assertEqual("decoded", result["validation"])
+        errors = io.StringIO()
+        with patch.object(
+            upload.urllib.request, "urlopen", return_value=FakeRemoteResponse(body[:len(body) * 3 // 4])
+        ), redirect_stderr(errors), self.assertRaises(SystemExit) as error:
+            upload.verify_remote_image("https://images.example/animation.gif", 1, 1024)
+        self.assertEqual(1, error.exception.code)
+        self.assertIn("Remote image content is invalid", errors.getvalue())
 
     def test_remote_verification_enforces_download_limit(self) -> None:
         response = FakeRemoteResponse(png_bytes() + b"x" * 20)
@@ -308,6 +355,74 @@ class UploadEasyImageTest(unittest.TestCase):
         self.assertIn("Authorization", rendered)
         self.assertNotIn("secret-header", rendered)
         self.assertNotIn("secret-album", rendered)
+
+    def test_cli_preserves_completed_results_when_a_later_input_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = root / "config.json"
+            write_config(config)
+            source = root / "first.png"
+            source.write_bytes(png_bytes())
+            argv = [str(SCRIPT), "--config", str(config), str(source), str(root / "missing.png")]
+            output = io.StringIO()
+            with patch.object(sys, "argv", argv), patch.object(
+                upload, "upload_file", return_value={"_resolved_url": "https://images.example/first.png"}
+            ) as send, patch.object(
+                upload.urllib.request, "urlopen", return_value=FakeRemoteResponse(png_bytes())
+            ), redirect_stdout(output), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                upload.main()
+        self.assertEqual(1, error.exception.code)
+        send.assert_called_once()
+        results = json.loads(output.getvalue())
+        self.assertEqual(1, len(results))
+        self.assertEqual("https://images.example/first.png", results[0]["easyimage_url"])
+        self.assertEqual("decoded", results[0]["verification"]["validation"])
+
+    def test_cli_preserves_current_url_when_verification_fails_and_stops(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = root / "config.json"
+            write_config(config)
+            source = root / "first.png"
+            source.write_bytes(png_bytes())
+            argv = [str(SCRIPT), "--config", str(config), str(source), str(source)]
+            output = io.StringIO()
+            with patch.object(sys, "argv", argv), patch.object(
+                upload, "upload_file", return_value={"_resolved_url": "https://images.example/first.png", "thumb": "https://images.example/thumb.png", "srcName": "first.png"}
+            ) as send, patch.object(
+                upload.urllib.request, "urlopen", return_value=FakeRemoteResponse(png_bytes()[:24])
+            ), redirect_stdout(output), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                upload.main()
+        self.assertEqual(1, error.exception.code)
+        send.assert_called_once()
+        results = json.loads(output.getvalue())
+        self.assertEqual(1, len(results))
+        self.assertEqual("https://images.example/first.png", results[0]["easyimage_url"])
+        self.assertEqual("https://images.example/thumb.png", results[0]["thumb"])
+        self.assertEqual("first.png", results[0]["src_name"])
+        self.assertIn("error", results[0]["verification"])
+
+    def test_missing_decoder_fails_before_upload_but_no_verify_remains_available(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = root / "config.json"
+            write_config(config)
+            source = root / "first.png"
+            source.write_bytes(png_bytes())
+            argv = [str(SCRIPT), "--config", str(config), str(source)]
+            with patch.object(sys, "argv", argv), patch.object(
+                upload, "require_pillow", side_effect=SystemExit(1)
+            ), patch.object(upload, "upload_file") as send, self.assertRaises(SystemExit):
+                upload.main()
+            send.assert_not_called()
+            output = io.StringIO()
+            with patch.object(sys, "argv", [*argv, "--no-verify"]), patch.object(
+                upload, "require_pillow", side_effect=AssertionError("unexpected decoder call")
+            ), patch.object(
+                upload, "upload_file", return_value={"_resolved_url": "https://images.example/first.png"}
+            ), redirect_stdout(output):
+                upload.main()
+        self.assertIsNone(json.loads(output.getvalue())[0]["verification"])
 
     def test_cli_rejects_partial_or_unrequested_conversion_dimensions(self) -> None:
         cases = (

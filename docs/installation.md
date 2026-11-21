@@ -378,6 +378,7 @@ Claude Code 存在 `CLAUDE.md` 时不再读取同目录的 `AGENTS.md`，因此�
 - Google Chrome：SLS 和 Archery 自动登录。
 - `ripgrep`（`rg`）：`tapd-story` 的仓库检索，以及 `online-issue-triage` 的本地代码定位。
 - `curl`（Windows 为 `curl.exe`）：`upload-to-easyimage` 的实际上传请求。
+- Pillow：`upload-to-easyimage` 默认远程验证的栅格图片解码依赖；在运行脚本的 Python 环境安装，详见 [EasyImage 依赖说明](../skills/upload-to-easyimage/references/picgo-config.md#脚本依赖)。仅检查配置时不需要。
 - Node.js（含 `npm` / `npx`）：运行 `local-browser-verify` 所需的 Playwright MCP、首次安装 PicGo Core 与 `web-uploader` 插件，以及维护 `ui-ux-pro-max` 外部 Skill；已有 PicGo 配置的日常上传不需要启动 Node.js 或 PicGo。
 - Playwright MCP：`local-browser-verify` 的浏览器驱动；Codex 安装会写入标准 MCP 配置，首次启动时 `npx` 可能联网下载 npm 包。其他 Agent 仍由 Skill 在运行时检查，缺失时先提示并等待用户授权。
 - PicGo Core 与 `web-uploader` 插件：仅在首次生成或重建 EasyImage 上传配置时需要；上传脚本日常只读取已生成的配置文件。

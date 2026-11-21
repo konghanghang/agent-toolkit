@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import io
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from shutil import which
 from typing import Any, Dict, List, Optional, Tuple
@@ -230,6 +232,39 @@ def inspect_local_image(path: Path, max_bytes: int) -> Dict[str, Optional[Any]]:
     return detected
 
 
+def require_pillow() -> Any:
+    try:
+        from PIL import Image
+    except ImportError:
+        fail("Required Python package not found: Pillow. Install it with: python -m pip install Pillow")
+    return Image
+
+
+def validate_image_content(data: bytes, detected: Dict[str, Any]) -> str:
+    if detected["format"] == "svg":
+        try:
+            root = ET.fromstring(data)
+        except ET.ParseError as exc:
+            fail(f"Invalid SVG XML: {exc}")
+        if root.tag not in {"svg", "{http://www.w3.org/2000/svg}svg"}:
+            fail("SVG document root must be svg")
+        return "svg_xml"
+
+    image_module = require_pillow()
+    try:
+        # verify 检查文件结构；重新打开并解码每一帧，避免仅有合法文件头的损坏图片通过。
+        with image_module.open(io.BytesIO(data)) as image:
+            image.verify()
+        with image_module.open(io.BytesIO(data)) as image:
+            detected["width"], detected["height"] = image.size
+            for frame in range(getattr(image, "n_frames", 1)):
+                image.seek(frame)
+                image.load()
+    except (OSError, ValueError, SyntaxError, EOFError, struct.error, image_module.DecompressionBombError) as exc:
+        fail(f"Remote image content is invalid or unsupported by this Pillow build: {exc}")
+    return "decoded"
+
+
 def convert_svg_to_png(
     source: Path,
     destination: Path,
@@ -274,6 +309,20 @@ def upload_file(path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def prepare_upload(source: Path, args: argparse.Namespace) -> Tuple[Path, bool]:
+    if not source.is_file():
+        fail(f"Input file not found: {source}")
+    if source.suffix.lower() not in SUPPORTED_SUFFIXES:
+        fail(f"Unsupported image extension: {source.suffix or '<none>'}")
+    if source.suffix.lower() != ".svg" or not args.convert_svg:
+        return source, False
+
+    upload_path = Path(args.output_dir).expanduser().resolve() / f"{source.stem}.png"
+    if not (args.keep_existing and upload_path.exists()):
+        convert_svg_to_png(source, upload_path, args.width, args.height)
+    return upload_path, True
+
+
 def verify_remote_image(url: str, timeout: int, max_bytes: int) -> Dict[str, Any]:
     request = urllib.request.Request(url, headers={"User-Agent": "upload-to-easyimage/1.0"})
     try:
@@ -291,6 +340,7 @@ def verify_remote_image(url: str, timeout: int, max_bytes: int) -> Dict[str, Any
     if not detected["format"]:
         preview = body[:120].decode("utf-8", errors="replace")
         fail(f"Remote response is not a recognized image: {url}\nPreview: {preview!r}")
+    validation = validate_image_content(body, detected)
 
     return {
         "http_status": status,
@@ -300,6 +350,7 @@ def verify_remote_image(url: str, timeout: int, max_bytes: int) -> Dict[str, Any
         "width": detected["width"],
         "height": detected["height"],
         "bytes": len(body),
+        "validation": validation,
     }
 
 
@@ -341,34 +392,19 @@ def main() -> None:
             return
     if not args.inputs:
         fail("Provide at least one image, or use --check-config")
+    if not args.no_verify:
+        # 上传后服务端可能转成栅格图片，先检查解码依赖，避免写入后才发现无法验证。
+        require_pillow()
 
-    output_dir = Path(args.output_dir).expanduser().resolve()
     results = []
-
-    for raw_input in args.inputs:
-        source = Path(raw_input).expanduser().resolve()
-        if not source.is_file():
-            fail(f"Input file not found: {source}")
-        if source.suffix.lower() not in SUPPORTED_SUFFIXES:
-            fail(f"Unsupported image extension: {source.suffix or '<none>'}")
-
-        upload_path = source
-        converted = False
-        if source.suffix.lower() == ".svg" and args.convert_svg:
-            upload_path = output_dir / f"{source.stem}.png"
-            if not (args.keep_existing and upload_path.exists()):
-                convert_svg_to_png(source, upload_path, args.width, args.height)
-            converted = True
-
-        local = inspect_local_image(upload_path, args.max_download_bytes)
-        response = upload_file(upload_path, cfg)
-        final_url = response["_resolved_url"]
-        verification = None
-        if not args.no_verify:
-            verification = verify_remote_image(final_url, args.timeout, args.max_download_bytes)
-
-        results.append(
-            {
+    try:
+        for raw_input in args.inputs:
+            source = Path(raw_input).expanduser().resolve()
+            upload_path, converted = prepare_upload(source, args)
+            local = inspect_local_image(upload_path, args.max_download_bytes)
+            response = upload_file(upload_path, cfg)
+            final_url = response["_resolved_url"]
+            result = {
                 "source": str(source),
                 "upload_file": str(upload_path),
                 "converted": converted,
@@ -378,11 +414,16 @@ def main() -> None:
                 "easyimage_url": final_url,
                 "thumb": response.get("thumb"),
                 "src_name": response.get("srcName"),
-                "verification": verification,
+                "verification": None,
             }
-        )
-
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+            # 一旦取得 URL 就保留结果；后续输入或远程验证失败仍须能找回已上传图片。
+            results.append(result)
+            if not args.no_verify:
+                result["verification"] = {"error": "Verification did not complete; see stderr"}
+                result["verification"] = verify_remote_image(final_url, args.timeout, args.max_download_bytes)
+    finally:
+        if results:
+            print(json.dumps(results, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

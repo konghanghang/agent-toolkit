@@ -1,5 +1,15 @@
 # PicGo Web Uploader 配置
 
+## 脚本依赖
+
+日常上传使用 Python 3 和 `curl`；默认远程内容验证还需在同一个 Python 环境中安装 Pillow：
+
+```bash
+python3 -m pip install Pillow
+```
+
+Windows 使用 `python -m pip install Pillow`。可在虚拟环境安装，并使用该环境的解释器运行脚本。Pillow 的具体编码支持取决于版本和构建；例如 AVIF 解码需要支持 AVIF 的版本和构建。缺少解码器时会明确报错，不会把文件头识别当作完整验证成功。SVG 转 PNG 另需 `rsvg-convert`，macOS 可用 `brew install librsvg` 安装；原图上传不需要它。
+
 ## 安装 PicGo-Core 与插件
 
 已有可用的 `~/.picgo/config.json` 时可以跳过安装。
@@ -71,7 +81,7 @@ picgo set uploader
 ## 检查配置
 
 ```bash
-python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage.py" \
+python3 "$HOME/.agent-toolkit/skills/upload-to-easyimage/scripts/upload_easyimage.py" \
   --check-config
 ```
 
@@ -85,6 +95,8 @@ python3 "$AGENT_TOOLKIT_ROOT/skills/upload-to-easyimage/scripts/upload_easyimage
 - `customBody` 的键名
 
 不会展示 Header 和 Body 的具体值。如果输出包含 `token`，只表示存在这个字段，不代表 Token 被打印。
+
+此检查只读取本地配置，不发送上传请求，也不验证 Token、服务端权限或网络连通性；无需 Pillow 或 `rsvg-convert`。
 
 ## 延伸阅读
 
