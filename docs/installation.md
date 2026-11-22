@@ -180,6 +180,8 @@ Codex Rules：
 
 默认 Home 服务所有项目，因此无论 profile 都只生成通用规则；用 `--codex-home` 指定的专用 Home 跟随 profile，work 在通用规则之后追加工作扩展，不替换通用部分。Claude Code 会在注入上下文前去掉首行 HTML 注释形式的受管标记。源文件使用普通 Markdown 文件名，避免被 Agent 当作工具箱仓库的 `AGENTS.md` 自动加载；分类登记在 `install-profiles.json` 的 `instructions`。生成文件首行带受管标记和正文 SHA-256：内容一致时跳过，源文件更新后重新安装即可更新；目标是未带标记的本机文件、受管文件被本机修改或是指向其他位置的链接时拒绝覆盖。已有指向 `instructions/` 或旧位置 `codex/instructions/` 下源文件的链接会迁移为生成文件，旧位置的链接即使已失效也会迁移。新文件在 macOS/Linux 使用 `0600` 权限，Windows 收紧 ACL；规则是普通文本，Codex 不需要软链即可加载，因此各平台都使用生成文件。
 
+Grok Build 不单独安装规则：其 Claude 兼容扫描（`compat.claude.agents`，默认开启）会读取 `~/.claude/CLAUDE.md`，因此装了 Claude Code 规则即同时生效，内容同样只含通用规则。不要再写入 `~/.grok/rules/`，否则两份同时加载。关闭该兼容项或未安装 Claude Code 规则时 Grok 读不到全局规则。在任意目录运行 `grok inspect`，Project Instructions 中出现 `~/.claude/CLAUDE.md`（macOS 可能显示为 `Claude.md`）即已加载；本机 Grok 1.0.92 已验证。
+
 Codex Playwright MCP 配置：
 
 ```text
