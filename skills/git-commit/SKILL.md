@@ -41,7 +41,7 @@ description: 安全检查、暂存、提交和按明确授权推送 Git 变更�
 
 ### 身份与签名
 
-需要补查时一次核对实际 `GIT_AUTHOR_IDENT`、`GIT_COMMITTER_IDENT` 和最近 HEAD 的 `gpgsig`，默认输出判断所需的摘要。身份异常不修改配置，先停止说明。
+需要补查时一次核对实际 `GIT_AUTHOR_IDENT`、`GIT_COMMITTER_IDENT` 和最近 HEAD 的 `gpgsig`（必须用 `git cat-file -p HEAD` 检查头部是否含 `gpgsig`，不要用 `%G?` 替代——SSH 签名缺 `gpg.ssh.allowedSignersFile` 时 `%G?` 会误报 `N`），默认输出判断所需的摘要。身份异常不修改配置，先停止说明。
 
 项目／用户无其他要求时：最近一笔提交带签名，本次也签名；最近一笔无签名，本次保持无签名。`commit.gpgsign` 和密钥配置不等于仓库签名惯例。按需读取 [身份、隐私与签名细节](references/identity-and-signing.md)，首次缺少证据、GitHub 邮箱异常、无历史仓库或签名不可用时使用。
 
