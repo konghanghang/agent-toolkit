@@ -67,6 +67,10 @@ AGY_PLAYWRIGHT_CONFIG_SOURCE = (
 )
 AGY_MCP_CONFIG = AGY_HOME / "mcp_config.json"
 AGY_HOOKS_CONFIG = AGY_HOME / "hooks.json"
+AGY_HUD_SOURCE = TOOLKIT_ROOT / "agy" / "hud"
+AGY_HUD_CONFIG_TARGET = Path.home() / ".gemini" / "antigravity-cli" / "agy-hud.config.json"
+AGY_HUD_RUNTIME_DIR = Path.home() / ".gemini" / "antigravity-cli" / "agy-hud-runtime"
+AGY_HUD_INSTALL_COMMAND = "python3 scripts/install_agy_hud.py"
 GROK_HOME = Path.home() / ".grok"
 GROK_HOOKS_CONFIG = GROK_HOME / "hooks" / "grokbot-notify.json"
 GROKBOT_HOOK_SOURCE = TOOLKIT_ROOT / "hooks" / "notify_grokbot.py"
@@ -933,6 +937,20 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                     variant="agy",
                 )
             )
+        if agy_hud_installed():
+            if not (AGY_HUD_SOURCE / "config.json").is_file():
+                raise SystemExit(
+                    f"AGY HUD config does not exist: {AGY_HUD_SOURCE / 'config.json'}"
+                )
+            specs.append(
+                InstallSpec(
+                    AGY_HUD_SOURCE / "config.json",
+                    AGY_HUD_CONFIG_TARGET,
+                    "AGY HUD config",
+                    FILE_LINK_STRATEGY,
+                    backup_group="agy-hud",
+                )
+            )
 
     return specs
 
@@ -1479,6 +1497,10 @@ def install_instructions(spec: InstallSpec, args: argparse.Namespace) -> tuple[s
     return message, True
 
 
+def agy_hud_installed() -> bool:
+    return AGY_HUD_RUNTIME_DIR.is_dir()
+
+
 def ccline_binary() -> Path:
     return CCLINE_HOME / ("ccline.exe" if is_windows() else "ccline")
 
@@ -1914,6 +1936,10 @@ def main() -> int:
         print(f"AGY agents: {AGY_HOME / 'agents'}")
         print(f"AGY instructions: {AGY_HOME / 'GEMINI.md'}")
         print(f"AGY MCP config: {AGY_MCP_CONFIG}")
+        if agy_hud_installed():
+            print(f"AGY HUD config: {AGY_HUD_CONFIG_TARGET}")
+        else:
+            print(f"AGY HUD: not installed (optional; run `{AGY_HUD_INSTALL_COMMAND}`)")
         print()
 
     specs = plan_installs(args, codex_home)

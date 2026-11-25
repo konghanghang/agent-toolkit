@@ -1670,6 +1670,8 @@ class AgyInstallTest(unittest.TestCase):
         self.agy_home = self.temp / "gemini-config"
         self.agy_mcp = self.agy_home / "mcp_config.json"
         self.agy_hooks = self.agy_home / "hooks.json"
+        self.agy_hud_runtime = self.temp / "agy-hud-runtime"
+        self.agy_hud_config = self.temp / "antigravity-cli" / "agy-hud.config.json"
         self.codex_skills = self.temp / "agents-skills"
         self.grok_hooks = self.temp / "grok-hooks" / "grokbot-notify.json"
         self.hook_target = self.temp / "local-hooks" / "notify_grokbot.py"
@@ -1680,6 +1682,8 @@ class AgyInstallTest(unittest.TestCase):
             AGY_HOME=self.agy_home,
             AGY_MCP_CONFIG=self.agy_mcp,
             AGY_HOOKS_CONFIG=self.agy_hooks,
+            AGY_HUD_RUNTIME_DIR=self.agy_hud_runtime,
+            AGY_HUD_CONFIG_TARGET=self.agy_hud_config,
             GROK_HOOKS_CONFIG=self.grok_hooks,
             GROKBOT_HOOK_TARGET=self.hook_target,
             CODEX_SKILLS_TARGET=self.codex_skills,
@@ -1807,6 +1811,42 @@ class AgyInstallTest(unittest.TestCase):
         with mock.patch.object(install, "AGY_AGENTS_SOURCE", bad_dir):
             with self.assertRaisesRegex(SystemExit, "missing required fields"):
                 install.available_agy_agents()
+
+    def test_agy_hud_config_managed_only_when_runtime_installed(self) -> None:
+        args = install.parse_args(["--agy-only", "--profile", "general"])
+        specs_without = install.plan_installs(args)
+        self.assertFalse(any(s.label == "AGY HUD config" for s in specs_without))
+
+        self.agy_hud_runtime.mkdir(parents=True)
+        specs_with = install.plan_installs(args)
+        hud_spec = next((s for s in specs_with if s.label == "AGY HUD config"), None)
+        self.assertIsNotNone(hud_spec)
+        assert hud_spec is not None
+        self.assertEqual(install.AGY_HUD_SOURCE / "config.json", hud_spec.source)
+        self.assertEqual(self.agy_hud_config, hud_spec.target)
+        self.assertEqual(install.FILE_LINK_STRATEGY, hud_spec.strategy)
+
+        message, ok = install.install_spec(hud_spec, install.parse_args(["--agy-only", "--dry-run"]))
+        self.assertTrue(ok)
+        self.assertFalse(self.agy_hud_config.exists())
+        self.assertIn("AGY HUD config", message)
+
+        message, ok = install.install_spec(hud_spec, install.parse_args(["--agy-only"]))
+        self.assertTrue(ok)
+        self.assertTrue(self.agy_hud_config.exists())
+
+        # Re-run is idempotent.
+        message, ok = install.install_spec(hud_spec, install.parse_args(["--agy-only"]))
+        self.assertTrue(ok)
+        self.assertIn("OK", message)
+
+        # Conflicting user file is never overwritten.
+        self.agy_hud_config.unlink()
+        self.agy_hud_config.write_text('{"display":{"showSpeed":false}}\n', encoding="utf-8")
+        message, ok = install.install_spec(hud_spec, install.parse_args(["--agy-only"]))
+        self.assertFalse(ok)
+        self.assertIn("CONFLICT", message)
+        self.assertIn('"showSpeed":false', self.agy_hud_config.read_text(encoding="utf-8"))
 
     def test_grokbot_hooks_skipped_on_windows_and_scoped_by_platform_on_posix(self) -> None:
         with mock.patch.object(install, "is_windows", return_value=True):

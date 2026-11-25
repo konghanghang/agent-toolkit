@@ -248,9 +248,21 @@ Antigravity (AGY)：
 
 ~/.agent-toolkit/agy/config/playwright-mcp.json.template
   --安全合并--> ~/.gemini/config/mcp_config.json  # 合并 mcpServers.playwright，兼容空文件
+
+~/.gemini/antigravity-cli/agy-hud.config.json     # 可选：仅本机已装 agy-hud runtime 时托管
+  → ~/.agent-toolkit/agy/hud/config.json          # Windows 为受管副本
 ```
 
 AGY `mcp_config.json` 尚未配置 `playwright` 时写入标准 `@playwright/mcp@0.0.83` 配置；已有其他 MCP 服务原样保留；已有 `playwright` 时保留原有 `command`/`args`，只补齐并校验 `env.npm_config_cache`，值冲突或 JSON 非法时拒绝覆盖。
+
+AGY 状态栏（可选，`icebear0828/agy-hud`，可展示输出速率 `tok/s`、上下文和配额）：主安装器 `scripts/install.py` 不联网下载上游组件；需要启用时在普通终端（不要在活跃的 `agy` 会话内）执行可选安装脚本：
+
+```bash
+python3 ~/.agent-toolkit/scripts/install_agy_hud.py --dry-run
+python3 ~/.agent-toolkit/scripts/install_agy_hud.py
+```
+
+脚本会校验 Node.js >= 18 和 `agy` >= 1.1.0，按平台执行上游安装脚本（macOS/Linux 为 `install.sh`，Windows 为 `install.ps1`），并把受管配置 `agy/hud/config.json`（默认紧凑模式 `quotaStyle: "compact"`，开启 `showSpeed` 与 `useNerdFonts`）链接到 `~/.gemini/antigravity-cli/agy-hud.config.json`（Windows 为受管副本，已有本机自定义文件时拒绝覆盖）。后续运行 `scripts/install.py` 时，检测到 `~/.gemini/antigravity-cli/agy-hud-runtime` 存在会自动纳入配置校验，未安装则跳过并只提示可选命令；若已手动装好上游 runtime、仅需同步配置，可传 `--skip-upstream`。
 
 Grok Bot 生命周期 Hook（仅 macOS/Linux，Windows 自动跳过）：
 

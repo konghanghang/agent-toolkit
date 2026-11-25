@@ -1,0 +1,13 @@
+{
+  "display": {
+    "quotaStyle": "compact",
+    "showTokenBar": false,
+    "showBreadcrumbs": false,
+    "showGitBranch": true,
+    "showCurrentDir": true,
+    "showUsername": false,
+    "showQuotaCapacity": false,
+    "showSpeed": true,
+    "useNerdFonts": true
+  }
+}
