@@ -1469,6 +1469,7 @@ class ProfileTest(unittest.TestCase):
                     {
                         "Codex instructions": (install.DEFAULT_CODEX_HOME / "AGENTS.md", ["general.md"]),
                         "Claude Code instructions": (install.CLAUDE_HOME / "CLAUDE.md", ["general.md"]),
+                        "AGY instructions": (install.AGY_HOME / "GEMINI.md", ["general.md"]),
                     },
                     targets,
                 )
@@ -1657,6 +1658,149 @@ class ProfileTest(unittest.TestCase):
         with mock.patch.object(sys, "argv", ["install.py", "--profile", "general"]), mock.patch.object(install, "install_spec", return_value=("OK", True)), mock.patch("sys.stdout", new=io.StringIO()):
             self.assertEqual(0, install.main())
         self.assertEqual("general", install.resolve_profile(install.parse_args([])))
+
+
+class AgyInstallTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.temp = Path(temporary.name)
+        self.state = self.temp / "profile.json"
+        self.state.write_text(json.dumps({"schema_version": 1, "profile": "work"}))
+        self.agy_home = self.temp / "gemini-config"
+        self.agy_mcp = self.agy_home / "mcp_config.json"
+        self.codex_skills = self.temp / "agents-skills"
+        patcher = mock.patch.multiple(
+            install,
+            PROFILE_STATE=self.state,
+            LEGACY_PROFILE_STATE=self.temp / "legacy-profile.json",
+            AGY_HOME=self.agy_home,
+            AGY_MCP_CONFIG=self.agy_mcp,
+            CODEX_SKILLS_TARGET=self.codex_skills,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_agy_only_cannot_combine_with_codex_home(self) -> None:
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr", new=io.StringIO()):
+            install.parse_args(["--agy-only", "--codex-home", str(self.temp)])
+
+    def test_agy_only_plans_only_agy_and_shared_skills(self) -> None:
+        args = install.parse_args(["--agy-only", "--profile", "work"])
+        specs = install.plan_installs(args)
+        labels = {spec.label for spec in specs}
+        self.assertEqual(
+            {"Codex skill", "AGY agents", "AGY instructions", "AGY Playwright MCP config"},
+            labels,
+        )
+        instructions_spec = next(s for s in specs if s.label == "AGY instructions")
+        self.assertEqual(self.agy_home / "GEMINI.md", instructions_spec.target)
+        self.assertEqual(("general.md",), tuple(p.name for p in instructions_spec.sources))
+
+        agents_spec = next(s for s in specs if s.label == "AGY agents")
+        self.assertEqual(self.agy_home / "agents", agents_spec.target)
+        self.assertEqual(install.DIRECTORY_LINK_STRATEGY, agents_spec.strategy)
+
+        mcp_spec = next(s for s in specs if s.label == "AGY Playwright MCP config")
+        self.assertEqual(self.agy_mcp, mcp_spec.target)
+        self.assertEqual(install.JSON_MCP_MERGE_STRATEGY, mcp_spec.strategy)
+
+    def test_agy_only_supports_skill_filter_and_respects_profile(self) -> None:
+        args = install.parse_args(["--agy-only", "--profile", "general", "--skill", "git-commit"])
+        specs = install.plan_installs(args)
+        skill_specs = [s for s in specs if s.label == "Codex skill"]
+        self.assertEqual(["git-commit"], [s.target.name for s in skill_specs])
+
+        with self.assertRaisesRegex(SystemExit, "Skills outside general profile"):
+            install.plan_installs(
+                install.parse_args(["--agy-only", "--profile", "general", "--skill", "verify-test-db"])
+            )
+
+    def test_full_install_includes_agy_and_other_only_modes_exclude_agy(self) -> None:
+        for profile in ("general", "work"):
+            specs = install.plan_installs(install.parse_args(["--profile", profile]))
+            labels = {spec.label for spec in specs}
+            self.assertTrue(
+                {"AGY agents", "AGY instructions", "AGY Playwright MCP config"} <= labels
+            )
+
+        for flag in ("--codex-only", "--claude-only", "--opencode-only", "--rules-only", "--agents-only", "--config-only"):
+            specs = install.plan_installs(install.parse_args(["--profile", "general", flag]))
+            self.assertFalse(any(spec.label.startswith("AGY ") for spec in specs), msg=flag)
+
+    def test_agy_playwright_mcp_create_empty_merge_preserve_and_conflict(self) -> None:
+        spec = install.InstallSpec(
+            install.AGY_PLAYWRIGHT_CONFIG_SOURCE,
+            self.agy_mcp,
+            "AGY Playwright MCP config",
+            install.JSON_MCP_MERGE_STRATEGY,
+        )
+        dry_args = install.parse_args(["--agy-only", "--dry-run"])
+        message, success = install.install_spec(spec, dry_args)
+        self.assertTrue(success)
+        self.assertIn("CREATE", message)
+        self.assertFalse(self.agy_mcp.exists())
+
+        # Empty 0-byte mcp_config.json (default fresh AGY state)
+        self.agy_home.mkdir(parents=True, exist_ok=True)
+        self.agy_mcp.write_text("", encoding="utf-8")
+        run_args = install.parse_args(["--agy-only"])
+        message, success = install.install_spec(spec, run_args)
+        self.assertTrue(success)
+        self.assertIn("UPDATE", message)
+        data = json.loads(self.agy_mcp.read_text(encoding="utf-8"))
+        pw = data["mcpServers"]["playwright"]
+        self.assertEqual("npx", pw["command"])
+        self.assertIn("@playwright/mcp@0.0.83", pw["args"])
+        codex_rendered = install.render_playwright_config_template(install.CODEX_PLAYWRIGHT_CONFIG_SOURCE)
+        self.assertIn("@playwright/mcp@0.0.83", codex_rendered)
+        expected_cache = str(Path.home() / ".local" / "share" / "playwright-mcp" / "npm-cache")
+        self.assertEqual(expected_cache, pw["env"]["npm_config_cache"])
+
+        # Re-run is OK (idempotent)
+        message, success = install.install_spec(spec, run_args)
+        self.assertTrue(success)
+        self.assertIn("OK", message)
+
+        # Preserves other servers and custom playwright command/args while filling cache
+        custom = {
+            "mcpServers": {
+                "other": {"url": "https://example.com/mcp"},
+                "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"]},
+            }
+        }
+        self.agy_mcp.write_text(json.dumps(custom), encoding="utf-8")
+        message, success = install.install_spec(spec, run_args)
+        self.assertTrue(success)
+        self.assertIn("UPDATE", message)
+        updated = json.loads(self.agy_mcp.read_text(encoding="utf-8"))
+        self.assertEqual({"url": "https://example.com/mcp"}, updated["mcpServers"]["other"])
+        self.assertEqual(["-y", "@playwright/mcp@latest"], updated["mcpServers"]["playwright"]["args"])
+        self.assertEqual(expected_cache, updated["mcpServers"]["playwright"]["env"]["npm_config_cache"])
+
+        # Conflicting npm_config_cache refuses to overwrite
+        updated["mcpServers"]["playwright"]["env"]["npm_config_cache"] = "/custom/cache"
+        before = json.dumps(updated)
+        self.agy_mcp.write_text(before, encoding="utf-8")
+        message, success = install.install_spec(spec, run_args)
+        self.assertFalse(success)
+        self.assertIn("CONFLICT", message)
+        self.assertEqual(before, self.agy_mcp.read_text(encoding="utf-8"))
+
+        # Invalid JSON refuses to overwrite
+        self.agy_mcp.write_text("{bad json", encoding="utf-8")
+        message, success = install.install_spec(spec, run_args)
+        self.assertFalse(success)
+        self.assertIn("CONFLICT", message)
+        self.assertEqual("{bad json", self.agy_mcp.read_text(encoding="utf-8"))
+
+    def test_available_agy_agents_validates_frontmatter(self) -> None:
+        bad_dir = self.temp / "bad-agy-agents"
+        bad_dir.mkdir()
+        (bad_dir / "broken.md").write_text("---\nname: broken\n---\nbody\n", encoding="utf-8")
+        with mock.patch.object(install, "AGY_AGENTS_SOURCE", bad_dir):
+            with self.assertRaisesRegex(SystemExit, "missing required fields"):
+                install.available_agy_agents()
 
 
 if __name__ == "__main__":

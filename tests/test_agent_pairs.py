@@ -52,6 +52,10 @@ class AgentPairsTest(unittest.TestCase):
         for path in (ROOT / "claude" / "agents").glob("*.md"):
             _, frontmatter, instructions = path.read_text(encoding="utf-8").split("---", 2)
             cls.claude[path.stem] = (yaml.safe_load(frontmatter), instructions.strip())
+        cls.agy = {}
+        for path in (ROOT / "agy" / "agents").glob("*.md"):
+            _, frontmatter, instructions = path.read_text(encoding="utf-8").split("---", 2)
+            cls.agy[path.stem] = (yaml.safe_load(frontmatter), instructions.strip())
 
     def test_pairs_share_the_task_contract_and_model_role(self) -> None:
         self.assertEqual(READ_ONLY | EXECUTION, set(self.codex))
@@ -81,6 +85,25 @@ class AgentPairsTest(unittest.TestCase):
                 self.assertEqual(codex["developer_instructions"].strip(), instructions)
                 # The parent agent picks a model per task; roles never pin one.
                 self.assertFalse({"model", "effort", "permissionMode"} & set(claude))
+
+    def test_agy_agents_share_the_contract_and_subagent_boundaries(self) -> None:
+        self.assertEqual(set(self.codex), set(self.agy))
+        for name, codex in self.codex.items():
+            agy, instructions = self.agy[name]
+            with self.subTest(agent=name):
+                self.assertEqual(name, agy["name"])
+                self.assertEqual(codex["description"], agy["description"])
+                self.assertEqual(codex["developer_instructions"].strip(), instructions)
+                self.assertEqual("inherit", agy["model"])
+                self.assertIs(True, agy["subagent"])
+                self.assertIs(False, agy["mainAgent"])
+                disallowed = set(agy.get("disallowedTools", []))
+                self.assertTrue({"invoke_subagent", "define_subagent"} <= disallowed)
+                edits = {"write_file", "edit_file"}
+                if name in READ_ONLY or name == "verifier":
+                    self.assertTrue(edits <= disallowed)
+                else:
+                    self.assertFalse(edits & disallowed)
 
     def test_claude_roles_limit_tools_and_guard_bash(self) -> None:
         for name, (claude, _) in self.claude.items():

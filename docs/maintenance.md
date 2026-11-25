@@ -11,6 +11,7 @@
 | `codex/` | Codex custom Agents、MCP 模板与全局 Rules |
 | `opencode/` | OpenCode 配置与 custom Agents；网关和密钥使用 `{env:NAME}` 引用 |
 | `claude/` | Claude Code custom Agents、Bash 守卫 hook、`settings*.json` 设置片段与 ccline 配置 |
+| `agy/` | Antigravity (AGY) custom Agents 与 Playwright MCP JSON 模板 |
 | `common/` | 工作公共运行时、入口脚本和命令模板，不作为 Skill 安装 |
 | `scripts/` | 工具箱安装、校验和维护脚本 |
 | `tests/` | 工具箱回归测试 |
@@ -57,7 +58,7 @@ export PATH="$AGENT_TOOLKIT_ROOT/bin:$PATH"
 
 ## 通用 Agents
 
-Codex、OpenCode 与 Claude Code 共用以下五类职责，分别使用各平台的配置格式维护。
+Codex、OpenCode、Claude Code 与 AGY 共用以下五类职责，分别使用各平台的配置格式维护。
 
 ### 职责列表
 
@@ -69,7 +70,7 @@ Codex、OpenCode 与 Claude Code 共用以下五类职责，分别使用各平�
 
 ### 功能一致性
 
-`codex/agents/<name>.toml`、`opencode/agents/<name>.md` 与 `claude/agents/<name>.md` 按同名配套维护，三个目录的 agent 名称集合必须一致，正文与描述逐字相同。
+`codex/agents/<name>.toml`、`opencode/agents/<name>.md`、`claude/agents/<name>.md` 与 `agy/agents/<name>.md` 按同名配套维护，四个目录的 agent 名称集合必须一致，正文与描述逐字相同。
 
 新增、修改或删除任意一个 agent 时，必须在同一次改动中同步其余两边，不能先改一边、把其他留到以后。各端应完成同一种任务，保持职责、任务边界、证据要求和输出契约一致，并具备完成任务所需的读取、搜索和 Git 检查能力。模型、工具、沙箱和权限使用各自平台的字段，按实际行为核对；一边独有的步数限制或工具限制不能削弱任务能力。
 

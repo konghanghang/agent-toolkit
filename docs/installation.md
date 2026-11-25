@@ -76,7 +76,8 @@ Windows 的依赖检查、PowerShell 命令和入口行为见 [Windows 指南](w
 --profile NAME     general = 通用；work = 通用 + 工作扩展；省略时沿用本机记录
 --dry-run          只显示计划，不修改文件
 --codex-only       只安装 Codex Skills、Agents、Rules 和受管配置
---claude-only      只安装 Claude Code Skills
+--claude-only      只安装 Claude Code Skills、Agents、全局规则与配置
+--agy-only         只安装 Antigravity (AGY) 共享 Skills、Agents、全局规则与 Playwright MCP 配置
 --rules-only       只安装 Codex Rules
 --agents-only      只安装 Codex Agents
 --opencode-only    只安装 OpenCode 配置和 Agents
@@ -174,6 +175,7 @@ Codex Rules：
 ~/.agent-toolkit/instructions/general.md
   --生成--> ~/.codex/AGENTS.md                    # 默认 Codex Home，始终只含通用规则
   --生成--> ~/.claude/CLAUDE.md                   # Claude Code 用户级规则，始终只含通用规则
+  --生成--> ~/.gemini/config/GEMINI.md            # AGY 用户级规则，始终只含通用规则
 ~/.agent-toolkit/instructions/general.md + work.md
   --生成--> <custom-codex-home>/AGENTS.md         # --codex-home 且 profile 为 work
 ```
@@ -231,6 +233,24 @@ OpenCode：
 ~/.config/opencode/agents
   → ~/.agent-toolkit/opencode/agents
 ```
+
+Antigravity (AGY)：
+
+```text
+~/.agents/skills/<name>
+  → ~/.agent-toolkit/skills/<name>                # 与 Codex 共用 Skills 目录
+
+~/.gemini/config/agents
+  → ~/.agent-toolkit/agy/agents                   # macOS/Linux 软链接，Windows junction
+
+~/.agent-toolkit/instructions/general.md
+  --生成--> ~/.gemini/config/GEMINI.md            # 始终只含通用规则
+
+~/.agent-toolkit/agy/config/playwright-mcp.json.template
+  --安全合并--> ~/.gemini/config/mcp_config.json  # 合并 mcpServers.playwright，兼容空文件
+```
+
+AGY `mcp_config.json` 尚未配置 `playwright` 时写入标准 `@playwright/mcp@0.0.83` 配置；已有其他 MCP 服务原样保留；已有 `playwright` 时保留原有 `command`/`args`，只补齐并校验 `env.npm_config_cache`，值冲突或 JSON 非法时拒绝覆盖。
 
 上图的配置文件链接适用于 macOS/Linux；Windows 使用普通文件副本，Agents 使用目录 junction。Windows 在同目录的 `.opencode.json.agent-toolkit.json` 中记录安装内容的 SHA-256；重复安装时跳过一致的副本，仓库配置更新后重新运行安装器即可更新副本。本机文件被修改、未知文件内容不同或安装记录无效时拒绝覆盖，`--replace-managed` 也不会覆盖本机修改。已有正确的配置文件链接可继续使用。
 

@@ -59,6 +59,13 @@ OPENCODE_SOURCE = TOOLKIT_ROOT / "opencode"
 OPENCODE_AGENTS_SOURCE = OPENCODE_SOURCE / "agents"
 OPENCODE_CONFIG_SOURCE = OPENCODE_SOURCE / "opencode.json"
 DEFAULT_OPENCODE_HOME = Path.home() / ".config" / "opencode"
+AGY_HOME = Path.home() / ".gemini" / "config"
+AGY_AGENTS_SOURCE = TOOLKIT_ROOT / "agy" / "agents"
+AGY_AGENT_REQUIRED_KEYS = ("name", "description", "model", "subagent")
+AGY_PLAYWRIGHT_CONFIG_SOURCE = (
+    TOOLKIT_ROOT / "agy" / "config" / "playwright-mcp.json.template"
+)
+AGY_MCP_CONFIG = AGY_HOME / "mcp_config.json"
 FILE_LINK_STRATEGY = "file-link"
 OPENCODE_AGENT_REQUIRED_KEYS = ("description", "mode")
 LEGACY_ROOTS = (
@@ -70,6 +77,7 @@ DIRECTORY_LINK_STRATEGY = "directory-link"
 COPY_STRATEGY = "copy"
 TOML_MERGE_STRATEGY = "toml-merge"
 JSON_SETTINGS_MERGE_STRATEGY = "json-settings-merge"
+JSON_MCP_MERGE_STRATEGY = "json-mcp-merge"
 INSTRUCTIONS_STRATEGY = "instructions"
 INSTRUCTIONS_MARKER_PATTERN = re.compile(
     r"^<!-- Managed by agent-toolkit\. .* sha256=([0-9a-f]{64}) -->$"
@@ -129,6 +137,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Install only OpenCode config and agents",
     )
     mode.add_argument(
+        "--agy-only",
+        action="store_true",
+        help="Install only Antigravity (AGY) skills, agents, instructions, and Playwright MCP config",
+    )
+    mode.add_argument(
         "--config-only",
         action="store_true",
         help="Install only managed Codex config",
@@ -159,6 +172,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         )
     if args.opencode_only and args.codex_home:
         parser.error("--codex-home cannot be used with --opencode-only")
+    if args.agy_only and args.codex_home:
+        parser.error("--codex-home cannot be used with --agy-only")
 
     return args
 
@@ -357,6 +372,37 @@ def available_opencode_agents() -> list[Path]:
     return agents
 
 
+def available_agy_agents() -> list[Path]:
+    if not AGY_AGENTS_SOURCE.is_dir():
+        raise SystemExit(f"AGY agents directory does not exist: {AGY_AGENTS_SOURCE}")
+
+    agents = sorted(AGY_AGENTS_SOURCE.glob("*.md"))
+    if not agents:
+        raise SystemExit(f"No AGY agents found in: {AGY_AGENTS_SOURCE}")
+
+    for agent in agents:
+        try:
+            text = agent.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise SystemExit(f"Unable to read AGY agent {agent}: {error}") from error
+        if not text.startswith("---\n"):
+            raise SystemExit(f"AGY agent {agent} is missing YAML frontmatter")
+        end = text.find("\n---", 4)
+        if end < 0:
+            raise SystemExit(f"AGY agent {agent} has unclosed YAML frontmatter")
+        frontmatter = text[4:end]
+        keys = set(FRONTMATTER_KEY_PATTERN.findall(frontmatter))
+        missing = [key for key in AGY_AGENT_REQUIRED_KEYS if key not in keys]
+        if missing:
+            raise SystemExit(
+                f"AGY agent {agent} is missing required fields: {', '.join(missing)}"
+            )
+        if not text[end + 4 :].strip():
+            raise SystemExit(f"AGY agent {agent} is missing instructions")
+
+    return agents
+
+
 def resolve_link_target(target: Path) -> Path:
     link = os.readlink(target)
     if is_windows():
@@ -491,6 +537,7 @@ def installs_codex_rules(args: argparse.Namespace) -> bool:
         and not args.agents_only
         and not args.config_only
         and not args.opencode_only
+        and not args.agy_only
     )
 
 
@@ -500,6 +547,7 @@ def installs_codex_agents(args: argparse.Namespace) -> bool:
         and not args.rules_only
         and not args.config_only
         and not args.opencode_only
+        and not args.agy_only
     )
 
 
@@ -510,6 +558,7 @@ def installs_claude(args: argparse.Namespace) -> bool:
         and not args.agents_only
         and not args.config_only
         and not args.opencode_only
+        and not args.agy_only
     )
 
 
@@ -520,6 +569,7 @@ def installs_codex_instructions(args: argparse.Namespace) -> bool:
         and not args.agents_only
         and not args.config_only
         and not args.opencode_only
+        and not args.agy_only
     )
 
 
@@ -548,6 +598,7 @@ def installs_codex_playwright_config(args: argparse.Namespace) -> bool:
         and not args.rules_only
         and not args.agents_only
         and not args.opencode_only
+        and not args.agy_only
     )
 
 
@@ -558,6 +609,18 @@ def installs_opencode(args: argparse.Namespace) -> bool:
         and not args.rules_only
         and not args.agents_only
         and not args.config_only
+        and not args.agy_only
+    )
+
+
+def installs_agy(args: argparse.Namespace) -> bool:
+    return (
+        not args.claude_only
+        and not args.codex_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.config_only
+        and not args.opencode_only
     )
 
 
@@ -736,6 +799,41 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 DEFAULT_OPENCODE_HOME / "opencode.json",
                 "OpenCode config",
                 FILE_LINK_STRATEGY,
+            )
+        )
+
+    if installs_agy(args):
+        available_agy_agents()
+        specs.append(
+            InstallSpec(
+                AGY_AGENTS_SOURCE,
+                AGY_HOME / "agents",
+                "AGY agents",
+                DIRECTORY_LINK_STRATEGY,
+            )
+        )
+        sources = selected_instructions("general", categories["instructions"])
+        if sources:
+            specs.append(
+                InstallSpec(
+                    INSTRUCTIONS_SOURCE,
+                    AGY_HOME / "GEMINI.md",
+                    "AGY instructions",
+                    INSTRUCTIONS_STRATEGY,
+                    sources,
+                )
+            )
+        if not AGY_PLAYWRIGHT_CONFIG_SOURCE.is_file():
+            raise SystemExit(
+                "AGY Playwright config template does not exist: "
+                f"{AGY_PLAYWRIGHT_CONFIG_SOURCE}"
+            )
+        specs.append(
+            InstallSpec(
+                AGY_PLAYWRIGHT_CONFIG_SOURCE,
+                AGY_MCP_CONFIG,
+                "AGY Playwright MCP config",
+                JSON_MCP_MERGE_STRATEGY,
             )
         )
 
@@ -1422,6 +1520,95 @@ def install_json_settings_merge(spec: InstallSpec, args: argparse.Namespace) -> 
     return message, True
 
 
+def install_json_mcp_merge(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    target = spec.target
+    try:
+        rendered = render_playwright_config_template(spec.source)
+        desired = json.loads(rendered)
+    except (TomlMergeError, ValueError) as error:
+        return f"CONFLICT {spec.label}: invalid template {spec.source} ({error})", False
+
+    desired_servers = desired.get("mcpServers") if isinstance(desired, dict) else None
+    desired_playwright = (
+        desired_servers.get("playwright") if isinstance(desired_servers, dict) else None
+    )
+    desired_env = (
+        desired_playwright.get("env") if isinstance(desired_playwright, dict) else None
+    )
+    if (
+        not isinstance(desired_playwright, dict)
+        or not isinstance(desired_env, dict)
+        or "npm_config_cache" not in desired_env
+    ):
+        return (
+            f"CONFLICT {spec.label}: template {spec.source} is missing mcpServers.playwright.env.npm_config_cache",
+            False,
+        )
+
+    if os.path.lexists(target) and (target.is_symlink() or not target.is_file()):
+        return f"CONFLICT {spec.label}: {target} is not a regular file", False
+
+    if target.exists():
+        try:
+            raw = target.read_text(encoding="utf-8")
+            existing = json.loads(raw) if raw.strip() else {}
+        except (OSError, UnicodeError, ValueError) as error:
+            return f"CONFLICT {spec.label}: {target} is not valid JSON ({error})", False
+        if not isinstance(existing, dict):
+            return f"CONFLICT {spec.label}: {target} must contain a JSON object", False
+    else:
+        existing = {}
+
+    merged = json.loads(json.dumps(existing))
+    if "mcpServers" not in merged:
+        merged["mcpServers"] = {}
+    elif not isinstance(merged["mcpServers"], dict):
+        return f"CONFLICT {spec.label}: {target} mcpServers must be a JSON object", False
+
+    servers = merged["mcpServers"]
+    changed = False
+    if "playwright" not in servers:
+        servers["playwright"] = json.loads(json.dumps(desired_playwright))
+        changed = True
+    else:
+        current_pw = servers["playwright"]
+        if not isinstance(current_pw, dict):
+            return (
+                f"CONFLICT {spec.label}: {target} mcpServers.playwright must be a JSON object",
+                False,
+            )
+        if "env" not in current_pw:
+            current_pw["env"] = {"npm_config_cache": desired_env["npm_config_cache"]}
+            changed = True
+        elif not isinstance(current_pw["env"], dict):
+            return (
+                f"CONFLICT {spec.label}: {target} mcpServers.playwright.env must be a JSON object",
+                False,
+            )
+        elif "npm_config_cache" not in current_pw["env"]:
+            current_pw["env"]["npm_config_cache"] = desired_env["npm_config_cache"]
+            changed = True
+        elif current_pw["env"]["npm_config_cache"] != desired_env["npm_config_cache"]:
+            return (
+                f"CONFLICT {spec.label}: {target} already sets mcpServers.playwright.env.npm_config_cache "
+                "to a different value; nothing was written",
+                False,
+            )
+
+    if not changed:
+        return f"OK       {spec.label}: {target} contains managed Playwright MCP config", True
+
+    action = "UPDATE " if target.exists() else "CREATE "
+    message = f"{action} {spec.label}: {spec.source} -> {target}"
+    if args.dry_run:
+        return message, True
+    try:
+        atomic_write_text(target, json.dumps(merged, indent=2, ensure_ascii=False) + "\n")
+    except OSError as error:
+        return f"ERROR    {spec.label}: unable to update {target} ({error})", False
+    return message, True
+
+
 def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     if spec.strategy == DIRECTORY_LINK_STRATEGY:
         return install_directory_link(spec, args)
@@ -1435,6 +1622,8 @@ def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
         return install_instructions(spec, args)
     if spec.strategy == JSON_SETTINGS_MERGE_STRATEGY:
         return install_json_settings_merge(spec, args)
+    if spec.strategy == JSON_MCP_MERGE_STRATEGY:
+        return install_json_mcp_merge(spec, args)
     return f"CONFLICT {spec.label}: unknown install strategy {spec.strategy}", False
 
 
@@ -1473,6 +1662,12 @@ def main() -> int:
         print(f"OpenCode home: {DEFAULT_OPENCODE_HOME}")
         print(f"OpenCode config: {DEFAULT_OPENCODE_HOME / 'opencode.json'}")
         print(f"OpenCode agents: {DEFAULT_OPENCODE_HOME / 'agents'}")
+        print()
+    if installs_agy(args):
+        print(f"AGY home: {AGY_HOME}")
+        print(f"AGY agents: {AGY_HOME / 'agents'}")
+        print(f"AGY instructions: {AGY_HOME / 'GEMINI.md'}")
+        print(f"AGY MCP config: {AGY_MCP_CONFIG}")
         print()
 
     specs = plan_installs(args, codex_home)

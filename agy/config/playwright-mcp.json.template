@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.83",
+        "--user-data-dir",
+        {{PLAYWRIGHT_PROFILE_PATH}}
+      ],
+      "env": {
+        "npm_config_cache": {{PLAYWRIGHT_NPM_CACHE_PATH}}
+      }
+    }
+  }
+}

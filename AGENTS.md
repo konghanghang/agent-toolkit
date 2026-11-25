@@ -11,7 +11,7 @@
 - 新机完整安装先通过 `scripts/update_ui_ux_pro_max.py --from-lock` 还原外部 Skill，再按 profile 安装。工作新机还需执行 `common/bootstrap_work.py` 初始化运行时；家庭电脑不运行它。
 - 本机 profile、运行时、凭证和备份不进入版本控制。
 - 工作环境的服务地址、实例与云资源标识、成员名单和工作区 ID 放入本机私有配置，不作为源码默认值或写进测试与公共示例。公共文档使用明确的虚构名称、保留示例域名及示例网段；实际项目结构由项目规则提供。
-- `codex/agents/*.toml`、`opencode/agents/*.md` 与 `claude/agents/*.md` 必须按同名配套维护并保持功能一致。新增、修改或删除任意一边时，必须在同一次改动中同步其余两边，不能只留待办。各端的职责、任务边界、证据要求、输出契约和完成任务所需的读取、搜索、Git 检查能力保持一致；模型、工具、权限和沙箱按各自平台表达，不要求配置字段相同。不得只核对文件名或正文，也不得让一边独有的权限或步数限制削弱功能；无法等价的隔离机制须明确记录。Claude Code 角色不固定模型，由主 Agent 按任务选择。当前配套 agent 是 `evidence_explorer`、`reviewer`、`implementer`、`verifier` 和 `design_challenger`。
+- `codex/agents/*.toml`、`opencode/agents/*.md`、`claude/agents/*.md` 与 `agy/agents/*.md` 必须按同名配套维护并保持功能一致。新增、修改或删除任意一边时，必须在同一次改动中同步其余各端，不能只留待办。各端的职责、任务边界、证据要求、输出契约和完成任务所需的读取、搜索、Git 检查能力保持一致；模型、工具、权限和沙箱按各自平台表达，不要求配置字段相同。不得只核对文件名或正文，也不得让一边独有的权限或步数限制削弱功能；无法等价的隔离机制须明确记录。Claude Code 角色不固定模型，由主 Agent 按任务选择；AGY 角色统一使用 `model: inherit` 且仅作子代理委派（`subagent: true`、`mainAgent: false`）。当前配套 agent 是 `evidence_explorer`、`reviewer`、`implementer`、`verifier` 和 `design_challenger`。
 
 ## 验证
 
