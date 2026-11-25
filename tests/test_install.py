@@ -1402,13 +1402,13 @@ class ProfileTest(unittest.TestCase):
     def test_claude_only_general_has_no_codex_or_work_components(self):
         args = install.parse_args(["--profile", "general", "--claude-only"])
         specs = install.plan_installs(args)
-        self.assertEqual(
-            {
-                "Claude Code skill", "Claude Code agents", "Claude Code instructions",
-                "ccline config", "Claude Code settings",
-            },
-            {s.label for s in specs},
-        )
+        expected_labels = {
+            "Claude Code skill", "Claude Code agents", "Claude Code instructions",
+            "ccline config", "Claude Code settings",
+        }
+        if not install.is_windows():
+            expected_labels |= {"Grok Bot hook script", "Claude Code Grok Bot hooks"}
+        self.assertEqual(expected_labels, {s.label for s in specs})
         skills = {spec.source.name for spec in specs if spec.label == "Claude Code skill"}
         self.assertIn("feature-delivery", skills)
         self.assertNotIn("work-feature-delivery", skills)
@@ -1669,13 +1669,19 @@ class AgyInstallTest(unittest.TestCase):
         self.state.write_text(json.dumps({"schema_version": 1, "profile": "work"}))
         self.agy_home = self.temp / "gemini-config"
         self.agy_mcp = self.agy_home / "mcp_config.json"
+        self.agy_hooks = self.agy_home / "hooks.json"
         self.codex_skills = self.temp / "agents-skills"
+        self.grok_hooks = self.temp / "grok-hooks" / "grokbot-notify.json"
+        self.hook_target = self.temp / "local-hooks" / "notify_grokbot.py"
         patcher = mock.patch.multiple(
             install,
             PROFILE_STATE=self.state,
             LEGACY_PROFILE_STATE=self.temp / "legacy-profile.json",
             AGY_HOME=self.agy_home,
             AGY_MCP_CONFIG=self.agy_mcp,
+            AGY_HOOKS_CONFIG=self.agy_hooks,
+            GROK_HOOKS_CONFIG=self.grok_hooks,
+            GROKBOT_HOOK_TARGET=self.hook_target,
             CODEX_SKILLS_TARGET=self.codex_skills,
         )
         patcher.start()
@@ -1689,10 +1695,10 @@ class AgyInstallTest(unittest.TestCase):
         args = install.parse_args(["--agy-only", "--profile", "work"])
         specs = install.plan_installs(args)
         labels = {spec.label for spec in specs}
-        self.assertEqual(
-            {"Codex skill", "AGY agents", "AGY instructions", "AGY Playwright MCP config"},
-            labels,
-        )
+        expected = {"Codex skill", "AGY agents", "AGY instructions", "AGY Playwright MCP config"}
+        if not install.is_windows():
+            expected |= {"Grok Bot hook script", "AGY Grok Bot hooks"}
+        self.assertEqual(expected, labels)
         instructions_spec = next(s for s in specs if s.label == "AGY instructions")
         self.assertEqual(self.agy_home / "GEMINI.md", instructions_spec.target)
         self.assertEqual(("general.md",), tuple(p.name for p in instructions_spec.sources))
@@ -1801,6 +1807,91 @@ class AgyInstallTest(unittest.TestCase):
         with mock.patch.object(install, "AGY_AGENTS_SOURCE", bad_dir):
             with self.assertRaisesRegex(SystemExit, "missing required fields"):
                 install.available_agy_agents()
+
+    def test_grokbot_hooks_skipped_on_windows_and_scoped_by_platform_on_posix(self) -> None:
+        with mock.patch.object(install, "is_windows", return_value=True):
+            specs = install.plan_installs(install.parse_args(["--profile", "general"]))
+            self.assertFalse(any("Grok Bot" in s.label for s in specs))
+
+        with mock.patch.object(install, "is_windows", return_value=False):
+            full_labels = {s.label for s in install.plan_installs(install.parse_args(["--profile", "general"]))}
+            self.assertTrue(
+                {
+                    "Grok Bot hook script",
+                    "Codex Grok Bot hooks",
+                    "Claude Code Grok Bot hooks",
+                    "Grok Build Grok Bot hooks",
+                    "AGY Grok Bot hooks",
+                } <= full_labels
+            )
+            for flag in ("--opencode-only", "--rules-only", "--agents-only", "--config-only"):
+                labels = {s.label for s in install.plan_installs(install.parse_args(["--profile", "general", flag]))}
+                self.assertFalse(any("Grok Bot" in label for label in labels), msg=flag)
+
+    def test_grokbot_hooks_merge_upgrades_legacy_and_preserves_other_hooks(self) -> None:
+        run_args = install.parse_args(["--profile", "general"])
+        dry_args = install.parse_args(["--profile", "general", "--dry-run"])
+
+        # Claude Code settings.json with legacy hook + unrelated hook + other keys
+        claude_settings = self.temp / "claude-settings.json"
+        claude_settings.write_text(
+            json.dumps(
+                {
+                    "theme": "light",
+                    "hooks": {
+                        "Stop": [
+                            {"hooks": [{"type": "command", "command": "echo keep-me"}]},
+                            {"hooks": [{"type": "command", "command": "python3 /Users/konghang/.codex/hooks/notify-grokbot-cli-hook.py --tool claude", "timeout": 8}]},
+                        ]
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        claude_spec = install.InstallSpec(
+            install.GROKBOT_HOOK_SOURCE,
+            claude_settings,
+            "Claude Code Grok Bot hooks",
+            install.JSON_HOOKS_MERGE_STRATEGY,
+            variant="claude",
+        )
+        msg, ok = install.install_spec(claude_spec, dry_args)
+        self.assertTrue(ok)
+        self.assertIn("UPDATE", msg)
+        msg, ok = install.install_spec(claude_spec, run_args)
+        self.assertTrue(ok)
+        data = json.loads(claude_settings.read_text(encoding="utf-8"))
+        self.assertEqual("light", data["theme"])
+        self.assertEqual(2, len(data["hooks"]["Stop"]))
+        self.assertEqual("echo keep-me", data["hooks"]["Stop"][0]["hooks"][0]["command"])
+        self.assertIn("notify_grokbot.py", data["hooks"]["Stop"][1]["hooks"][0]["command"])
+        self.assertIn("--tool claude", data["hooks"]["Stop"][1]["hooks"][0]["command"])
+        self.assertEqual(1, len(data["hooks"]["StopFailure"]))
+        msg, ok = install.install_spec(claude_spec, run_args)
+        self.assertTrue(ok)
+        self.assertIn("OK", msg)
+
+        # AGY hooks.json preserves other named hooks and rejects non-grokbot conflicts
+        agy_spec = install.InstallSpec(
+            install.GROKBOT_HOOK_SOURCE,
+            self.agy_hooks,
+            "AGY Grok Bot hooks",
+            install.JSON_HOOKS_MERGE_STRATEGY,
+            variant="agy",
+        )
+        self.agy_home.mkdir(parents=True, exist_ok=True)
+        self.agy_hooks.write_text(json.dumps({"other-hook": {"Stop": []}}), encoding="utf-8")
+        msg, ok = install.install_spec(agy_spec, run_args)
+        self.assertTrue(ok)
+        agy_data = json.loads(self.agy_hooks.read_text(encoding="utf-8"))
+        self.assertIn("other-hook", agy_data)
+        self.assertIn("--tool agy", agy_data["grokbot-notify"]["Stop"][0]["command"])
+
+        agy_data["grokbot-notify"]["Stop"].append({"type": "command", "command": "echo custom"})
+        self.agy_hooks.write_text(json.dumps(agy_data), encoding="utf-8")
+        msg, ok = install.install_spec(agy_spec, run_args)
+        self.assertFalse(ok)
+        self.assertIn("CONFLICT", msg)
 
 
 if __name__ == "__main__":

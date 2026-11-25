@@ -252,6 +252,52 @@ Antigravity (AGY)：
 
 AGY `mcp_config.json` 尚未配置 `playwright` 时写入标准 `@playwright/mcp@0.0.83` 配置；已有其他 MCP 服务原样保留；已有 `playwright` 时保留原有 `command`/`args`，只补齐并校验 `env.npm_config_cache`，值冲突或 JSON 非法时拒绝覆盖。
 
+Grok Bot 生命周期 Hook（仅 macOS/Linux，Windows 自动跳过）：
+
+```text
+~/.local/agent-toolkit/hooks/notify_grokbot.py
+  → ~/.agent-toolkit/hooks/notify_grokbot.py
+
+--安全合并--> ~/.codex/hooks.json                    # Codex（Stop / SessionEnd / Interrupt）
+--安全合并--> ~/.claude/settings.json                # Claude Code（Stop / StopFailure）
+--安全合并--> ~/.grok/hooks/grokbot-notify.json      # Grok Build（Stop / StopFailure / StopCancelled）
+--安全合并--> ~/.gemini/config/hooks.json            # AGY（grokbot-notify.Stop）
+```
+
+合并配置时保留已有其他 Hook，并原地升级旧版 `notify-grokbot-*.py` 条目；`grokbot-notify` 配置冲突或目标 JSON 非法时拒绝覆盖。
+
+#### Grok Bot Hook 配置与使用
+
+1. **创建本机凭证文件**（不进入 Git，权限收紧为 `600`）：
+
+```bash
+mkdir -p ~/.local/agent-toolkit
+cat > ~/.local/agent-toolkit/grokbot-notify.env <<'EOF'
+WEBHOOK_URL=https://bot.example.invalid/webhook/agent-hook
+WEBHOOK_KEY=replace-with-webhook-key
+EOF
+chmod 600 ~/.local/agent-toolkit/grokbot-notify.env
+```
+
+脚本优先读取 `~/.local/agent-toolkit/grokbot-notify.env`；不存在时兼容回退读取旧位置 `~/.codex/grokbot-notify.env`。两处均不存在或缺少字段时静默跳过，不阻塞任何 Agent 轮次。
+
+2. **触发条件与去重**：
+
+- 仅当当前进程位于名称以 `side-` 或 `nf-` 开头的 `tmux` 会话中时才会发送通知；普通终端或其他名称的 `tmux` 会话一律静默跳过。
+- 防抖状态保存在 `~/.local/agent-toolkit/grokbot-notify-debounce.json`（Codex 90 秒，Claude Code / Grok Build / AGY 60 秒）。
+- Claude Code 会自动忽略 Grok Build 兼容扫描触发的载荷（避免同一轮重复推送）；AGY 会忽略 `continuationActive: true` 的续跑回调并始终向 stdout 返回 `{}`。
+
+3. **排查与验证**：
+
+- 执行日志写入 `/tmp/grokbot/hook.log`（仅记录工具名、事件、会话名与发送状态，不记录密钥和消息正文）。
+- 可在目标 `tmux` 会话内用模拟载荷手动验证：
+
+```bash
+echo '{"hookEventName":"Stop","conversationId":"test-1","terminationReason":"NO_TOOL_CALL"}' \
+  | python3 ~/.local/agent-toolkit/hooks/notify_grokbot.py --tool agy
+tail -n 5 /tmp/grokbot/hook.log
+```
+
 上图的配置文件链接适用于 macOS/Linux；Windows 使用普通文件副本，Agents 使用目录 junction。Windows 在同目录的 `.opencode.json.agent-toolkit.json` 中记录安装内容的 SHA-256；重复安装时跳过一致的副本，仓库配置更新后重新运行安装器即可更新副本。本机文件被修改、未知文件内容不同或安装记录无效时拒绝覆盖，`--replace-managed` 也不会覆盖本机修改。已有正确的配置文件链接可继续使用。
 
 网关地址和 API Key 只通过 `{env:NAME}` 引用，不写入仓库。`cli.json`、`tui.json`、`service.json` 和本机依赖仍留在 `~/.config/opencode/`，不由安装器管理。目标已经指向仓库时跳过；接管内容一致的普通文件或目录、更新 Windows 配置副本时，原路径先移到 `.local/backups/opencode/`；目录里有额外文件时拒绝覆盖。目录比较包含隐藏文件，文件路径和内容均须一致。

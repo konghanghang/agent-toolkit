@@ -66,6 +66,17 @@ AGY_PLAYWRIGHT_CONFIG_SOURCE = (
     TOOLKIT_ROOT / "agy" / "config" / "playwright-mcp.json.template"
 )
 AGY_MCP_CONFIG = AGY_HOME / "mcp_config.json"
+AGY_HOOKS_CONFIG = AGY_HOME / "hooks.json"
+GROK_HOME = Path.home() / ".grok"
+GROK_HOOKS_CONFIG = GROK_HOME / "hooks" / "grokbot-notify.json"
+GROKBOT_HOOK_SOURCE = TOOLKIT_ROOT / "hooks" / "notify_grokbot.py"
+GROKBOT_HOOK_TARGET = Path.home() / ".local" / "agent-toolkit" / "hooks" / "notify_grokbot.py"
+GROKBOT_HOOK_COMMAND_PREFIX = 'python3 "$HOME/.local/agent-toolkit/hooks/notify_grokbot.py" --tool '
+GROKBOT_LEGACY_MARKERS = (
+    "notify-grokbot-hook.py",
+    "notify-grokbot-cli-hook.py",
+    "notify_grokbot.py",
+)
 FILE_LINK_STRATEGY = "file-link"
 OPENCODE_AGENT_REQUIRED_KEYS = ("description", "mode")
 LEGACY_ROOTS = (
@@ -78,6 +89,7 @@ COPY_STRATEGY = "copy"
 TOML_MERGE_STRATEGY = "toml-merge"
 JSON_SETTINGS_MERGE_STRATEGY = "json-settings-merge"
 JSON_MCP_MERGE_STRATEGY = "json-mcp-merge"
+JSON_HOOKS_MERGE_STRATEGY = "json-hooks-merge"
 INSTRUCTIONS_STRATEGY = "instructions"
 INSTRUCTIONS_MARKER_PATTERN = re.compile(
     r"^<!-- Managed by agent-toolkit\. .* sha256=([0-9a-f]{64}) -->$"
@@ -112,6 +124,7 @@ class InstallSpec:
     strategy: str
     sources: tuple[Path, ...] = ()
     backup_group: str = "opencode"
+    variant: str = ""
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -624,6 +637,33 @@ def installs_agy(args: argparse.Namespace) -> bool:
     )
 
 
+def installs_codex_hooks(args: argparse.Namespace) -> bool:
+    return installs_codex_instructions(args)
+
+
+def installs_grok_hooks(args: argparse.Namespace) -> bool:
+    return (
+        not args.claude_only
+        and not args.codex_only
+        and not args.rules_only
+        and not args.agents_only
+        and not args.config_only
+        and not args.opencode_only
+        and not args.agy_only
+    )
+
+
+def installs_grokbot_hook_script(args: argparse.Namespace) -> bool:
+    if is_windows():
+        return False
+    return (
+        installs_codex_hooks(args)
+        or installs_claude(args)
+        or installs_grok_hooks(args)
+        or installs_agy(args)
+    )
+
+
 def installs_codex_configuration(args: argparse.Namespace) -> bool:
     return (
         installs_codex_rules(args)
@@ -712,6 +752,19 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 )
             )
 
+    if installs_grokbot_hook_script(args):
+        if not GROKBOT_HOOK_SOURCE.is_file():
+            raise SystemExit(f"Grok Bot hook script does not exist: {GROKBOT_HOOK_SOURCE}")
+        specs.append(
+            InstallSpec(
+                GROKBOT_HOOK_SOURCE,
+                GROKBOT_HOOK_TARGET,
+                "Grok Bot hook script",
+                FILE_LINK_STRATEGY,
+                backup_group="hooks",
+            )
+        )
+
     if installs_codex_playwright_config(args):
         if codex_home is None:
             codex_home, _ = resolve_codex_home(args)
@@ -726,6 +779,19 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 codex_home / "config.toml",
                 "Codex Playwright MCP config",
                 TOML_MERGE_STRATEGY,
+            )
+        )
+
+    if not is_windows() and installs_codex_hooks(args):
+        if codex_home is None:
+            codex_home, _ = resolve_codex_home(args)
+        specs.append(
+            InstallSpec(
+                GROKBOT_HOOK_SOURCE,
+                codex_home / "hooks.json",
+                "Codex Grok Bot hooks",
+                JSON_HOOKS_MERGE_STRATEGY,
+                variant="codex",
             )
         )
 
@@ -782,6 +848,27 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 ),
             )
         )
+        if not is_windows():
+            specs.append(
+                InstallSpec(
+                    GROKBOT_HOOK_SOURCE,
+                    CLAUDE_SETTINGS,
+                    "Claude Code Grok Bot hooks",
+                    JSON_HOOKS_MERGE_STRATEGY,
+                    variant="claude",
+                )
+            )
+
+    if not is_windows() and installs_grok_hooks(args):
+        specs.append(
+            InstallSpec(
+                GROKBOT_HOOK_SOURCE,
+                GROK_HOOKS_CONFIG,
+                "Grok Build Grok Bot hooks",
+                JSON_HOOKS_MERGE_STRATEGY,
+                variant="grok",
+            )
+        )
 
     if installs_opencode(args):
         available_opencode_agents()
@@ -836,6 +923,16 @@ def plan_installs(args: argparse.Namespace, codex_home: Optional[Path] = None) -
                 JSON_MCP_MERGE_STRATEGY,
             )
         )
+        if not is_windows():
+            specs.append(
+                InstallSpec(
+                    GROKBOT_HOOK_SOURCE,
+                    AGY_HOOKS_CONFIG,
+                    "AGY Grok Bot hooks",
+                    JSON_HOOKS_MERGE_STRATEGY,
+                    variant="agy",
+                )
+            )
 
     return specs
 
@@ -1609,6 +1706,153 @@ def install_json_mcp_merge(spec: InstallSpec, args: argparse.Namespace) -> tuple
     return message, True
 
 
+def is_grokbot_hook_entry(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    command = entry.get("command")
+    if not isinstance(command, str):
+        return False
+    return any(marker in command for marker in GROKBOT_LEGACY_MARKERS)
+
+
+def desired_grokbot_hooks_spec(variant: str) -> tuple[str, dict[str, list[dict]]]:
+    cmd = f"{GROKBOT_HOOK_COMMAND_PREFIX}{variant}"
+    if variant == "codex":
+        return (
+            "Notify Grok Bot when bot tmux Codex sessions stop, end, or are interrupted (side-* / nf-*).",
+            {
+                "Stop": [{"type": "command", "command": cmd, "timeout": 8, "statusMessage": "Notifying Grok Bot (Stop)"}],
+                "SessionEnd": [{"type": "command", "command": cmd, "timeout": 3, "statusMessage": "Notifying Grok Bot (SessionEnd)"}],
+                "Interrupt": [{"type": "command", "command": cmd, "timeout": 3, "statusMessage": "Notifying Grok Bot (Interrupt)"}],
+            },
+        )
+    if variant == "claude":
+        return (
+            "",
+            {
+                "Stop": [{"type": "command", "command": cmd, "timeout": 8}],
+                "StopFailure": [{"type": "command", "command": cmd, "timeout": 8}],
+            },
+        )
+    if variant == "grok":
+        return (
+            "Notify Grok Bot when bot tmux grok sessions (side-*/nf-*) finish, fail or get cancelled.",
+            {
+                "Stop": [{"type": "command", "command": cmd, "timeout": 8}],
+                "StopFailure": [{"type": "command", "command": cmd, "timeout": 8}],
+                "StopCancelled": [{"type": "command", "command": cmd, "timeout": 8}],
+            },
+        )
+    if variant == "agy":
+        return (
+            "",
+            {
+                "Stop": [{"type": "command", "command": cmd, "timeout": 8}],
+            },
+        )
+    raise ValueError(f"unsupported Grok Bot hooks variant: {variant}")
+
+
+def install_json_hooks_merge(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
+    target = spec.target
+    variant = spec.variant
+    try:
+        description, desired_events = desired_grokbot_hooks_spec(variant)
+    except ValueError as error:
+        return f"CONFLICT {spec.label}: {error}", False
+
+    if os.path.lexists(target) and (target.is_symlink() or not target.is_file()):
+        return f"CONFLICT {spec.label}: {target} is not a regular file", False
+
+    if target.exists():
+        try:
+            raw = target.read_text(encoding="utf-8")
+            existing = json.loads(raw) if raw.strip() else {}
+        except (OSError, UnicodeError, ValueError) as error:
+            return f"CONFLICT {spec.label}: {target} is not valid JSON ({error})", False
+        if not isinstance(existing, dict):
+            return f"CONFLICT {spec.label}: {target} must contain a JSON object", False
+    else:
+        existing = {}
+
+    merged = json.loads(json.dumps(existing))
+    changed = False
+
+    if variant == "agy":
+        hook_name = "grokbot-notify"
+        if hook_name not in merged:
+            merged[hook_name] = json.loads(json.dumps(desired_events))
+            changed = True
+        else:
+            current = merged[hook_name]
+            if not isinstance(current, dict):
+                return f"CONFLICT {spec.label}: {target} {hook_name} must be a JSON object", False
+            for event_name, desired_handlers in desired_events.items():
+                handlers = current.get(event_name)
+                if handlers is None:
+                    current[event_name] = json.loads(json.dumps(desired_handlers))
+                    changed = True
+                    continue
+                if not isinstance(handlers, list):
+                    return f"CONFLICT {spec.label}: {target} {hook_name}.{event_name} must be a JSON list", False
+                if any(not is_grokbot_hook_entry(item) for item in handlers):
+                    return (
+                        f"CONFLICT {spec.label}: {target} {hook_name}.{event_name} contains non-Grok-Bot entries",
+                        False,
+                    )
+                if handlers != desired_handlers:
+                    current[event_name] = json.loads(json.dumps(desired_handlers))
+                    changed = True
+    else:
+        if description and "description" not in merged and not existing:
+            merged["description"] = description
+            changed = True
+        if "hooks" not in merged:
+            merged["hooks"] = {}
+        elif not isinstance(merged["hooks"], dict):
+            return f"CONFLICT {spec.label}: {target} hooks must be a JSON object", False
+        hooks_map = merged["hooks"]
+        for event_name, desired_handlers in desired_events.items():
+            desired_handler = desired_handlers[0]
+            if event_name not in hooks_map:
+                hooks_map[event_name] = [{"hooks": [json.loads(json.dumps(desired_handler))]}]
+                changed = True
+                continue
+            event_groups = hooks_map[event_name]
+            if not isinstance(event_groups, list):
+                return f"CONFLICT {spec.label}: {target} hooks.{event_name} must be a JSON list", False
+            found = False
+            for group in event_groups:
+                if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                    continue
+                inner = group["hooks"]
+                for idx, item in enumerate(inner):
+                    if is_grokbot_hook_entry(item):
+                        found = True
+                        if item != desired_handler:
+                            inner[idx] = json.loads(json.dumps(desired_handler))
+                            changed = True
+                        break
+                if found:
+                    break
+            if not found:
+                event_groups.append({"hooks": [json.loads(json.dumps(desired_handler))]})
+                changed = True
+
+    if not changed:
+        return f"OK       {spec.label}: {target} contains managed Grok Bot hooks", True
+
+    action = "UPDATE " if target.exists() else "CREATE "
+    message = f"{action} {spec.label}: {variant} -> {target}"
+    if args.dry_run:
+        return message, True
+    try:
+        atomic_write_text(target, json.dumps(merged, indent=2, ensure_ascii=False) + "\n")
+    except OSError as error:
+        return f"ERROR    {spec.label}: unable to update {target} ({error})", False
+    return message, True
+
+
 def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool]:
     if spec.strategy == DIRECTORY_LINK_STRATEGY:
         return install_directory_link(spec, args)
@@ -1624,6 +1868,8 @@ def install_spec(spec: InstallSpec, args: argparse.Namespace) -> tuple[str, bool
         return install_json_settings_merge(spec, args)
     if spec.strategy == JSON_MCP_MERGE_STRATEGY:
         return install_json_mcp_merge(spec, args)
+    if spec.strategy == JSON_HOOKS_MERGE_STRATEGY:
+        return install_json_hooks_merge(spec, args)
     return f"CONFLICT {spec.label}: unknown install strategy {spec.strategy}", False
 
 

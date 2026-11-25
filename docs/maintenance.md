@@ -12,6 +12,7 @@
 | `opencode/` | OpenCode 配置与 custom Agents；网关和密钥使用 `{env:NAME}` 引用 |
 | `claude/` | Claude Code custom Agents、Bash 守卫 hook、`settings*.json` 设置片段与 ccline 配置 |
 | `agy/` | Antigravity (AGY) custom Agents 与 Playwright MCP JSON 模板 |
+| `hooks/` | 跨平台受管生命周期 Hook 脚本（如 Grok Bot 通知 Hook） |
 | `common/` | 工作公共运行时、入口脚本和命令模板，不作为 Skill 安装 |
 | `scripts/` | 工具箱安装、校验和维护脚本 |
 | `tests/` | 工具箱回归测试 |
